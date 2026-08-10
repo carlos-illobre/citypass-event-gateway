@@ -1,0 +1,13 @@
+{
+  "name": "movilidad-consumer",
+  "version": "1.0.0",
+  "description": "Consumidor de eventos de Movilidad Urbana - CityPass+",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "@kafkajs/confluent-schema-registry": "^3.3.0"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "AuthLogin",
+  "namespace": "com.citypass.auth.events",
+  "doc": "Evento emitido cuando un usuario inicia sesion en la plataforma",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "eventType", "type": "string"},
+    {"name": "timestamp", "type": "string"},
+    {"name": "source", "type": "string"},
+    {"name": "userId", "type": "string"},
+    {"name": "email", "type": "string"},
+    {"name": "provider", "type": "string"},
+    {"name": "ipAddress", "type": "string", "default": "unknown"}
+  ]
+}

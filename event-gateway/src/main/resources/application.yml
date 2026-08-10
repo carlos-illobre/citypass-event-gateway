@@ -1,0 +1,32 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: event-gateway
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      properties:
+        acks: all
+        retries: 3
+    consumer:
+      group-id: event-gateway-webhook-consumer
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+
+proxy:
+  schemas-dir: ${SCHEMAS_DIR:/app/schemas}
+  schema-registry-url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
+  data-dir: ${DATA_DIR:/app/data}
+  security:
+    enabled: ${SECURITY_ENABLED:false}
+  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:8083}
+  dlq-topic: ${DLQ_TOPIC:sistema.dlq}
+
+logging:
+  level:
+    com.citypass: DEBUG

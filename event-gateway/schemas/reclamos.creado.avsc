@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "ReclamoCreado",
+  "namespace": "com.citypass.reclamos.events",
+  "doc": "Evento emitido cuando se crea un nuevo reclamo en la plataforma",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "eventType", "type": "string"},
+    {"name": "timestamp", "type": "string"},
+    {"name": "source", "type": "string"},
+    {"name": "reclamoId", "type": "string"},
+    {"name": "userId", "type": "string"},
+    {"name": "categoria", "type": "string"},
+    {"name": "descripcion", "type": "string"},
+    {"name": "ubicacion", "type": "string"},
+    {"name": "prioridad", "type": "string", "default": "media"}
+  ]
+}
