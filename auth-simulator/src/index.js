@@ -1,8 +1,16 @@
 const express = require('express')
 const { generateKeyPair, SignJWT, exportJWK } = require('jose')
+const cors = require('cors')
 
 const app = express()
 app.use(express.json())
+if (!process.env.AUTH_CORS_ORIGIN) throw new Error('AUTH_CORS_ORIGIN no está configurado')
+
+app.use(cors({
+  origin: process.env.AUTH_CORS_ORIGIN.split(','),
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}))
 
 // Usuarios del sistema.
 // Cada usuario tiene sus propios permisos (allowedTopics) independientemente de su grupo.

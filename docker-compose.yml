@@ -80,6 +80,7 @@ services:
       - "${AUTH_SIMULATOR_PORT:-8083}:8083"
     environment:
       PORT: 8083
+      AUTH_CORS_ORIGIN: '${AUTH_CORS_ORIGIN}'
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
       interval: 10s
@@ -111,6 +112,7 @@ services:
       SECURITY_ENABLED: ${SECURITY_ENABLED:-false}
       AUTH_SERVICE_URL: http://auth-simulator:8083
       DLQ_TOPIC: ${DLQ_TOPIC:-sistema.dlq}
+      GATEWAY_CORS_ORIGIN: '${GATEWAY_CORS_ORIGIN}'
     volumes:
       - event-gateway-data:/app/data
     healthcheck:

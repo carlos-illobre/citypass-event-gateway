@@ -26,6 +26,7 @@ gateway:
     enabled: ${SECURITY_ENABLED}
   auth-service-url: ${AUTH_SERVICE_URL}
   dlq-topic: ${DLQ_TOPIC}
+  cors-origin: ${GATEWAY_CORS_ORIGIN}
 
 logging:
   level:

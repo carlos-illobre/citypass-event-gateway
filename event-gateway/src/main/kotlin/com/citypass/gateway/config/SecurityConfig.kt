@@ -11,6 +11,9 @@ import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.oauth2.jwt.JwtDecoder
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder
 import org.springframework.security.web.SecurityFilterChain
+import org.springframework.web.cors.CorsConfiguration
+import org.springframework.web.cors.CorsConfigurationSource
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource
 
 /**
  * Configuración de seguridad HTTP con JWT (RS256 + JWKS).
@@ -28,7 +31,8 @@ import org.springframework.security.web.SecurityFilterChain
 @EnableWebSecurity
 class SecurityConfig(
     @Value("\${gateway.security.enabled}") private val securityEnabled: Boolean,
-    @Value("\${gateway.auth-service-url}") private val authServiceUrl: String
+    @Value("\${gateway.auth-service-url}") private val authServiceUrl: String,
+    @Value("\${gateway.cors-origin}") private val corsOrigin: String
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -51,6 +55,7 @@ class SecurityConfig(
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http
             .csrf { it.disable() }
+            .cors { it.configurationSource(corsConfigurationSource()) }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
 
         if (securityEnabled) {
@@ -81,6 +86,17 @@ class SecurityConfig(
      *
      * @return Decoder JWT configurado con el JWKS URI, o placeholder si seguridad desactivada.
      */
+    @Bean
+    fun corsConfigurationSource(): CorsConfigurationSource {
+        val config = CorsConfiguration()
+        config.allowedOrigins = corsOrigin.split(",")
+        config.allowedMethods = listOf("GET", "POST", "DELETE", "OPTIONS")
+        config.allowedHeaders = listOf("Content-Type", "Authorization")
+        val source = UrlBasedCorsConfigurationSource()
+        source.registerCorsConfiguration("/**", config)
+        return source
+    }
+
     @Bean
     fun jwtDecoder(): JwtDecoder =
         if (securityEnabled)
