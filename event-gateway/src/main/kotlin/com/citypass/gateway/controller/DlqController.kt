@@ -14,14 +14,34 @@ import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.time.Duration
 import java.util.Properties
 
+/**
+ * Controller de consulta de la Dead Letter Queue.
+ *
+ * Expone un endpoint GET para leer los últimos N mensajes del tópico DLQ.
+ * Crea un KafkaConsumer efímero con asignación manual de particiones y seek
+ * al final para leer solo los mensajes más recientes.
+ *
+ * @param bootstrapServers Dirección del broker Kafka (se obtiene de spring.kafka.bootstrap-servers).
+ * @param dlqTopic Nombre del tópico DLQ (variable de entorno DLQ_TOPIC).
+ */
 @RestController
 @RequestMapping("/api/v1/dlq")
 class DlqController(
     @Value("\${spring.kafka.bootstrap-servers}") private val bootstrapServers: String,
-    @Value("\${proxy.dlq-topic:sistema.dlq}") private val dlqTopic: String
+    @Value("\${gateway.dlq-topic}") private val dlqTopic: String
 ) {
     private val mapper = jacksonObjectMapper()
 
+    /**
+     * Lee los últimos mensajes de la Dead Letter Queue.
+     *
+     * Crea un consumer efímero, busca las particiones del tópico DLQ,
+     * hace seek al offset `end - limit` en cada partición y lee los mensajes.
+     * El consumer se cierra automáticamente al terminar.
+     *
+     * @param limit Cantidad máxima de mensajes a retornar (default 50, máximo 200).
+     * @return 200 con el tópico, cantidad retornada y lista de mensajes.
+     */
     @GetMapping
     fun getMessages(@RequestParam(defaultValue = "50") limit: Int): ResponseEntity<Any> {
         val messages = readLastMessages(limit.coerceAtMost(200))
@@ -32,6 +52,12 @@ class DlqController(
         ))
     }
 
+    /**
+     * Lee los últimos [limit] mensajes del tópico DLQ usando un consumer efímero.
+     *
+     * @param limit Cantidad máxima de mensajes a leer.
+     * @return Lista de mensajes parseados como JSON (o como String si el parseo falla).
+     */
     private fun readLastMessages(limit: Int): List<Any> {
         val props = Properties().apply {
             put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)

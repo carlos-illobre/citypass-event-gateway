@@ -7,9 +7,20 @@ import io.swagger.v3.oas.models.security.SecurityScheme
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
+/**
+ * Configuración de la documentación Swagger/OpenAPI.
+ *
+ * Define el título, descripción y esquema de autenticación Bearer JWT
+ * que se muestran en la UI interactiva de Swagger (/swagger-ui/index.html).
+ */
 @Configuration
 class OpenApiConfig {
 
+    /**
+     * Crea el documento OpenAPI con la información del servicio y el esquema de seguridad.
+     *
+     * @return Documento OpenAPI configurado para el Event Gateway.
+     */
     @Bean
     fun openApi(): OpenAPI = OpenAPI()
         .info(
@@ -20,7 +31,7 @@ class OpenApiConfig {
                     """
                     **Grupo 1 - Event Driven Architecture**
 
-                    Proxy REST que actúa como puerta de entrada al bus de eventos de CityPass+.
+                    Puerta de entrada HTTP al bus de eventos de CityPass+.
                     Recibe mensajes JSON y los convierte a formato Avro antes de publicarlos en Kafka.
 
                     ## Autenticación
@@ -43,7 +54,7 @@ class OpenApiConfig {
                     }
                     ```
 
-                    Los campos `eventId`, `timestamp` y `source` son inyectados automáticamente por el proxy.
+                    Los campos `eventId`, `timestamp` y `source` son inyectados automáticamente por el gateway.
                     """.trimIndent()
                 )
         )

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>ejemplo-consumidor</title>
+</head>
+<body>
+  <h1>ejemplo-consumidor</h1>
+
+  <h2>Suscribirse a un evento</h2>
+  <form method="post" action="/subscribe">
+    <label for="topic">Event type:</label>
+    <select id="topic" name="topic" required>
+      <option value="">-- seleccioná un schema --</option>
+    </select>
+    <button type="submit">Suscribirse</button>
+  </form>
+
+  <h2>Eventos recibidos (<span id="count">0</span>)</h2>
+  <table border="1">
+    <thead>
+      <tr><th>Recibido</th><th>Topic</th><th>Payload</th></tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="3">Todavía no se recibieron eventos.</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    fetch('/api/schemas')
+      .then(r => r.json())
+      .then(({ eventTypes = [] }) => {
+        const sel = document.getElementById('topic');
+        eventTypes.forEach(t => sel.insertAdjacentHTML('beforeend', `<option value="${t}">${t}</option>`));
+      });
+
+    function loadEvents() {
+      fetch('/api/events')
+        .then(r => r.json())
+        .then(events => {
+          document.getElementById('count').textContent = events.length;
+          document.getElementById('tbody').innerHTML = events.length
+            ? events.map(e => `<tr><td>${e.receivedAt}</td><td>${e.topic}</td><td><pre>${JSON.stringify(e.payload, null, 2)}</pre></td></tr>`).join('')
+            : '<tr><td colspan="3">Todavía no se recibieron eventos.</td></tr>';
+        });
+    }
+
+    loadEvents();
+    setInterval(loadEvents, 5000);
+  </script>
+</body>
+</html>

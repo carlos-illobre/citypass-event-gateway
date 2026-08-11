@@ -11,15 +11,33 @@ import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
+/**
+ * Controller CRUD de suscripciones webhook.
+ *
+ * Permite a los consumidores registrar URLs de callback para recibir
+ * eventos de un tópico Kafka via HTTP POST. Cuando un evento llega al tópico,
+ * el gateway lo deserializa y lo entrega a todas las URLs suscritas.
+ *
+ * @param subscriptionService Servicio que gestiona las suscripciones, consumers Kafka y persistencia.
+ */
 @RestController
 @RequestMapping("/api/v1/subscriptions")
 @Tag(name = "Subscriptions", description = "Registro de webhooks para recibir eventos de Kafka via HTTP")
 class SubscriptionController(private val subscriptionService: SubscriptionService) {
 
+    /**
+     * Registra una nueva suscripción webhook.
+     *
+     * Crea una suscripción que vincula un tópico Kafka con una URL de callback.
+     * Si es el primer suscriptor del tópico, inicia un consumer Kafka dinámico.
+     *
+     * @param request Body con `topic` (String) y `callbackUrl` (String).
+     * @return 201 con la suscripción creada, o 400 si faltan campos.
+     */
     @Operation(
         summary = "Registrar un webhook",
         description = """Suscribe una URL para recibir eventos de un tópico.
-Cada vez que llegue un evento al tópico indicado, el proxy hará un POST a la callbackUrl con el evento en el body.
+Cada vez que llegue un evento al tópico indicado, el gateway hará un POST a la callbackUrl con el evento en el body.
 Si el POST falla, reintenta hasta 3 veces con 2 segundos entre intentos.""",
         requestBody = io.swagger.v3.oas.annotations.parameters.RequestBody(
             required = true,
@@ -51,6 +69,11 @@ Si el POST falla, reintenta hasta 3 veces con 2 segundos entre intentos.""",
         return ResponseEntity.status(201).body(sub)
     }
 
+    /**
+     * Lista todas las suscripciones webhook activas.
+     *
+     * @return 200 con la colección de suscripciones.
+     */
     @Operation(
         summary = "Listar suscripciones activas",
         responses = [ApiResponse(responseCode = "200", description = "Lista de suscripciones")]
@@ -58,6 +81,14 @@ Si el POST falla, reintenta hasta 3 veces con 2 segundos entre intentos.""",
     @GetMapping
     fun list(): ResponseEntity<Any> = ResponseEntity.ok(subscriptionService.getAll())
 
+    /**
+     * Elimina una suscripción webhook por su ID.
+     *
+     * Si no quedan más suscriptores para el tópico, detiene el consumer Kafka asociado.
+     *
+     * @param id Identificador UUID de la suscripción a eliminar.
+     * @return 204 si se eliminó, 404 si no existe.
+     */
     @Operation(
         summary = "Eliminar una suscripción",
         responses = [
@@ -66,10 +97,7 @@ Si el POST falla, reintenta hasta 3 veces con 2 segundos entre intentos.""",
         ]
     )
     @DeleteMapping("/{id}")
-    fun unregister(@PathVariable id: String): ResponseEntity<Any> {
-        return if (subscriptionService.unregister(id))
-            ResponseEntity.noContent().build()
-        else
-            ResponseEntity.notFound().build()
-    }
+    fun unregister(@PathVariable id: String): ResponseEntity<Any> =
+        if (subscriptionService.unregister(id)) ResponseEntity.noContent().build()
+        else ResponseEntity.notFound().build()
 }

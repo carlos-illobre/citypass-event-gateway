@@ -1,1 +1,1 @@
-rootProject.name = "rest-proxy"
+rootProject.name = "event-gateway"

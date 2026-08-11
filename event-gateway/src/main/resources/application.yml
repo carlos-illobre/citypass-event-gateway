@@ -1,11 +1,11 @@
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT}
 
 spring:
   application:
     name: event-gateway
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
@@ -18,14 +18,14 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
 
-proxy:
-  schemas-dir: ${SCHEMAS_DIR:/app/schemas}
-  schema-registry-url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
-  data-dir: ${DATA_DIR:/app/data}
+gateway:
+  schemas-dir: ${SCHEMAS_DIR}
+  schema-registry-url: ${SCHEMA_REGISTRY_URL}
+  data-dir: ${DATA_DIR}
   security:
-    enabled: ${SECURITY_ENABLED:false}
-  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:8083}
-  dlq-topic: ${DLQ_TOPIC:sistema.dlq}
+    enabled: ${SECURITY_ENABLED}
+  auth-service-url: ${AUTH_SERVICE_URL}
+  dlq-topic: ${DLQ_TOPIC}
 
 logging:
   level:

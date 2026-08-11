@@ -4,9 +4,10 @@ import com.citypass.gateway.controller.SubscriptionController
 import com.citypass.gateway.model.Subscription
 import com.citypass.gateway.service.SubscriptionService
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.whenever
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
@@ -14,6 +15,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 
+@Tag("integration")
 class SubscriptionControllerIntegrationTest {
 
     private val subscriptionService: SubscriptionService = mock()

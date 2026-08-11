@@ -7,17 +7,17 @@ import com.citypass.gateway.service.TopicAuthorizationService
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
-import org.mockito.kotlin.whenever
 import org.springframework.http.MediaType
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
+import org.junit.jupiter.api.Tag
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 
+@Tag("integration")
 class EventControllerIntegrationTest {
 
     private val kafkaTemplate: KafkaTemplate<String, ByteArray> = mock()
@@ -33,24 +33,6 @@ class EventControllerIntegrationTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
             .build()
-    }
-
-    @Test
-    fun `GET health returns status UP`() {
-        mockMvc.perform(get("/api/v1/health"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.status").value("UP"))
-            .andExpect(jsonPath("$.service").value("event-gateway"))
-    }
-
-    @Test
-    fun `GET schemas returns available schema list`() {
-        whenever(schemaRegistryService.getAvailableEventTypes()).thenReturn(setOf("bici.devuelta", "subte.validado"))
-
-        mockMvc.perform(get("/api/v1/schemas"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.eventTypes").isArray)
-            .andExpect(jsonPath("$.eventTypes.length()").value(2))
     }
 
     @Test

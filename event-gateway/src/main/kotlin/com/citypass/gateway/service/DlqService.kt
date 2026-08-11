@@ -10,14 +10,36 @@ import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 
+/**
+ * Servicio de Dead Letter Queue (DLQ).
+ *
+ * Publica mensajes fallidos en el tópico DLQ de Kafka como JSON.
+ * Los mensajes llegan a la DLQ por dos razones:
+ * - Fallo de deserialización Avro (mensaje corrupto o schema desconocido).
+ * - Fallo de entrega webhook después de agotar todos los reintentos.
+ *
+ * Cada mensaje DLQ incluye metadata (razón del fallo, tópico original,
+ * payload en base64, timestamp, cantidad de reintentos).
+ *
+ * @param kafkaTemplate Template de Kafka para producir mensajes al tópico DLQ.
+ * @param dlqTopic Nombre del tópico DLQ (variable de entorno DLQ_TOPIC).
+ */
 @Service
 class DlqService(
     private val kafkaTemplate: KafkaTemplate<String, ByteArray>,
-    @Value("\${proxy.dlq-topic:sistema.dlq}") private val dlqTopic: String
+    @Value("\${gateway.dlq-topic}") private val dlqTopic: String
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val mapper = jacksonObjectMapper()
 
+    /**
+     * Envía un mensaje a la DLQ por fallo de deserialización Avro.
+     *
+     * @param topic Tópico original del mensaje que no se pudo deserializar.
+     * @param key Clave Kafka del mensaje original (puede ser null).
+     * @param rawValue Bytes crudos del mensaje que falló la deserialización.
+     * @param error Excepción que causó el fallo.
+     */
     fun sendDeserializationFailure(topic: String, key: String?, rawValue: ByteArray, error: Exception) {
         send(
             originalTopic = topic,
@@ -29,6 +51,16 @@ class DlqService(
         )
     }
 
+    /**
+     * Envía un mensaje a la DLQ por fallo de entrega webhook.
+     *
+     * @param originalTopic Tópico Kafka del evento que no se pudo entregar.
+     * @param originalKey Clave Kafka del mensaje original (puede ser null).
+     * @param eventJson Evento deserializado que no se pudo entregar.
+     * @param callbackUrl URL del webhook que falló.
+     * @param retryCount Cantidad de reintentos realizados antes de desistir.
+     * @param error Excepción del último intento fallido.
+     */
     fun sendWebhookFailure(
         originalTopic: String,
         originalKey: String?,
@@ -47,6 +79,16 @@ class DlqService(
         )
     }
 
+    /**
+     * Publica un mensaje JSON en el tópico DLQ.
+     *
+     * @param originalTopic Tópico de origen del mensaje fallido.
+     * @param originalKey Clave original del mensaje.
+     * @param originalPayloadBase64 Payload original codificado en Base64.
+     * @param failureReason Código de razón del fallo (DESERIALIZATION_ERROR o WEBHOOK_DELIVERY_FAILED).
+     * @param errorMessage Descripción legible del error.
+     * @param retryCount Cantidad de reintentos realizados.
+     */
     private fun send(
         originalTopic: String,
         originalKey: String?,

@@ -46,7 +46,7 @@ services:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'PLAINTEXT://kafka:${KAFKA_INTERNAL_PORT:-29092}'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-      SCHEMA_REGISTRY_AVRO_COMPATIBILITY_LEVEL: 'backward'
+      SCHEMA_REGISTRY_AVRO_COMPATIBILITY_LEVEL: '${SCHEMA_REGISTRY_COMPAT_LEVEL:-backward}'
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8081/subjects || exit 1"]
       interval: 10s
@@ -121,36 +121,47 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  movilidad-urbana:
+  ejemplo-productor:
     build:
-      context: ./movilidad-urbana
+      context: ./ejemplo-productor
       dockerfile: Dockerfile
-    container_name: movilidad-urbana
+    container_name: ejemplo-productor
     ports:
-      - "${GROUP3_SIMULATOR_PORT:-3000}:3000"
+      - "${EJEMPLO_PRODUCTOR_PORT:-3000}:3000"
     depends_on:
       event-gateway:
         condition: service_healthy
     environment:
-      REST_PROXY_URL: http://event-gateway:8080
+      EVENT_GATEWAY_URL: http://event-gateway:8080
       PORT: 3000
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
-  movilidad-consumer:
+  ejemplo-consumidor:
     build:
-      context: ./movilidad-consumer
+      context: ./ejemplo-consumidor
       dockerfile: Dockerfile
-    container_name: movilidad-consumer
+    container_name: ejemplo-consumidor
+    ports:
+      - "${EJEMPLO_CONSUMIDOR_PORT:-3001}:3001"
     depends_on:
-      kafka:
-        condition: service_healthy
-      schema-registry:
+      event-gateway:
         condition: service_healthy
     environment:
-      KAFKA_BROKERS: kafka:${KAFKA_INTERNAL_PORT:-29092}
-      SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      KAFKA_GROUP_ID: movilidad-consumer-group
-      KAFKA_TOPICS: movilidad.bici.devuelta
+      EVENT_GATEWAY_URL: http://event-gateway:8080
+      SELF_URL: http://ejemplo-consumidor:3001
+      PORT: 3001
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   anomaly-detector:

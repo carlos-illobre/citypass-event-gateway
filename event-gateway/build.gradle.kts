@@ -41,20 +41,72 @@ kotlin {
     }
 }
 
+// El plugin de Spring Boot genera dos JARs: el fat JAR ejecutable y un plain JAR sin Main-Class.
+// Deshabilitamos el plain JAR para que build/libs/ tenga siempre un único artefacto.
+tasks.named<Jar>("jar") { enabled = false }
+
+// ── Clases excluidas de cobertura (adaptadores de infraestructura) ────────────
+// GatewayApplicationKt : función main de Spring Boot — no tiene lógica propia.
+// DlqController        : crea un KafkaConsumer directamente, requiere broker real.
+// SecurityConfig       : configura el builder de Spring Security, requiere contexto.
+val jacocoExclusions = listOf(
+    "**/GatewayApplicationKt*",
+    "**/DlqController*",
+    "**/SecurityConfig*"
+)
+
+// ── Tests unitarios (tarea 'test') ───────────────────────────────────────────
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
     finalizedBy(tasks.jacocoTestReport)
 }
 
+// ── Tests de integración (tarea 'integrationTest') ───────────────────────────
+val integrationTest by tasks.registering(Test::class) {
+    description = "Ejecuta los tests de integración (happy path de los endpoints REST)."
+    group = "verification"
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+}
+
+// ── JaCoCo ───────────────────────────────────────────────────────────────────
 jacoco {
     toolVersion = "0.8.12"
 }
 
 tasks.jacocoTestReport {
     dependsOn(tasks.test)
+    classDirectories.setFrom(files(classDirectories.files.map {
+        fileTree(it) { exclude(jacocoExclusions) }
+    }))
     reports {
         html.required = true
         xml.required = true
         csv.required = false
+    }
+}
+
+tasks.jacocoTestCoverageVerification {
+    classDirectories.setFrom(files(classDirectories.files.map {
+        fileTree(it) { exclude(jacocoExclusions) }
+    }))
+    violationRules {
+        rule {
+            limit {
+                counter = "INSTRUCTION"
+                minimum = "1.00".toBigDecimal()
+            }
+        }
+        rule {
+            limit {
+                counter = "BRANCH"
+                minimum = "1.00".toBigDecimal()
+            }
+        }
     }
 }

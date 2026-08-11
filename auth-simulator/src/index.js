@@ -4,17 +4,27 @@ const { generateKeyPair, SignJWT, exportJWK } = require('jose')
 const app = express()
 app.use(express.json())
 
-// Un usuario pre-configurado por grupo.
+// Usuarios del sistema.
+// Cada usuario tiene sus propios permisos (allowedTopics) independientemente de su grupo.
 // El Grupo 2 reemplazará esto con su propio sistema de usuarios/LDAP.
+//
+// Para agregar nuevos usuarios, solo hay que agregar una entrada más al objeto.
+// Los permisos son por usuario, no por grupo — un grupo puede tener múltiples usuarios
+// con distintos niveles de acceso.
+// Cada usuario tiene un namespace Avro asignado por el administrador.
+// El namespace determina qué tópicos puede registrar y publicar.
+// El gateway valida que el namespace del JWT coincida con el prefijo del tópico destino.
+// admin tiene namespace '*' que le permite operar sobre cualquier tópico.
+// Los usuarios consumer (grupo8) no tienen namespace: solo pueden suscribirse, no publicar.
 const USERS = {
-  admin:   { password: 'admin',    grupo: 'grupo1', role: 'admin',     allowedTopics: ['*'] },
-  grupo2:  { password: 'grupo2',   grupo: 'grupo2', role: 'publisher', allowedTopics: ['auth.*'] },
-  grupo3:  { password: 'grupo3',   grupo: 'grupo3', role: 'publisher', allowedTopics: ['movilidad.*'] },
-  grupo4:  { password: 'grupo4',   grupo: 'grupo4', role: 'publisher', allowedTopics: ['reclamos.*'] },
-  grupo5:  { password: 'grupo5',   grupo: 'grupo5', role: 'publisher', allowedTopics: ['emergencias.*'] },
-  grupo6:  { password: 'grupo6',   grupo: 'grupo6', role: 'publisher', allowedTopics: ['turismo.*'] },
-  grupo7:  { password: 'grupo7',   grupo: 'grupo7', role: 'publisher', allowedTopics: ['transporte.*'] },
-  grupo8:  { password: 'grupo8',   grupo: 'grupo8', role: 'consumer',  allowedTopics: [] },
+  admin:   { password: 'admin',  role: 'admin',     namespace: '*' },
+  grupo2:  { password: 'grupo2', role: 'publisher',  namespace: 'com.citypass.auth' },
+  grupo3:  { password: 'grupo3', role: 'publisher',  namespace: 'com.citypass.movilidad' },
+  grupo4:  { password: 'grupo4', role: 'publisher',  namespace: 'com.citypass.reclamos' },
+  grupo5:  { password: 'grupo5', role: 'publisher',  namespace: 'com.citypass.emergencias' },
+  grupo6:  { password: 'grupo6', role: 'publisher',  namespace: 'com.citypass.turismo' },
+  grupo7:  { password: 'grupo7', role: 'publisher',  namespace: 'com.citypass.transporte' },
+  grupo8:  { password: 'grupo8', role: 'consumer',   namespace: null },
 }
 
 let privateKey, publicJwk
@@ -28,7 +38,7 @@ async function init() {
 
 // POST /auth/login
 // Body: { "username": "grupo3", "password": "grupo3" }
-// Response: { "token": "...", "expiresIn": "8h", "grupo": "grupo3", "role": "publisher" }
+// Response: { "token": "...", "expiresIn": "8h", "username": "grupo3", "role": "publisher" }
 app.post('/auth/login', async (req, res) => {
   const { username, password } = req.body || {}
 
@@ -39,23 +49,24 @@ app.post('/auth/login', async (req, res) => {
   if (!user || user.password !== password)
     return res.status(401).json({ error: 'Credenciales inválidas' })
 
-  const token = await new SignJWT({
-    grupo:          user.grupo,
-    role:           user.role,
-    allowedTopics:  user.allowedTopics,
-  })
+  // El JWT contiene los permisos del usuario individual.
+  // El event-gateway usa `allowedTopics` para autorizar y `sub` para identificar.
+  const claims = { role: user.role }
+  if (user.namespace !== null) claims.namespace = user.namespace
+
+  const token = await new SignJWT(claims)
     .setProtectedHeader({ alg: 'RS256', kid: 'citypass-auth-key' })
     .setSubject(username)
     .setIssuedAt()
     .setExpirationTime('8h')
     .sign(privateKey)
 
-  console.log(`Login OK: ${username} (${user.grupo}, ${user.role})`)
-  res.json({ token, expiresIn: '8h', grupo: user.grupo, role: user.role })
+  console.log(`Login OK: ${username} (${user.role})`)
+  res.json({ token, expiresIn: '8h', username, role: user.role })
 })
 
 // GET /.well-known/jwks.json
-// Endpoint estándar OAuth2/OIDC — el REST Proxy lo usa para validar firmas JWT.
+// Endpoint estándar OAuth2/OIDC — el Event Gateway lo usa para validar firmas JWT.
 // Cuando el Grupo 2 implemente su servicio real, debe exponer esta misma ruta.
 app.get('/.well-known/jwks.json', (_req, res) => {
   res.json({ keys: [publicJwk] })
