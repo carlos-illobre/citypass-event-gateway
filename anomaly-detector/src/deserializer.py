@@ -6,24 +6,28 @@ Descarga el schema del Schema Registry usando el schemaId.
 """
 
 import io
+import json
 import struct
 import requests
 import fastavro
 from config import SCHEMA_REGISTRY_URL
 
 
+# Se cachea el schema ya *parseado*, no el JSON crudo: parsear en cada mensaje era
+# trabajo repetido por evento, y con el envelope metadata/data cada schema tiene dos
+# records anidados en vez de uno plano.
 _schema_cache: dict[int, dict] = {}
 
 
 def _get_schema(schema_id: int) -> dict:
     if schema_id in _schema_cache:
         return _schema_cache[schema_id]
+
     resp = requests.get(f"{SCHEMA_REGISTRY_URL}/schemas/ids/{schema_id}", timeout=5)
     resp.raise_for_status()
-    import json
-    schema = json.loads(resp.json()["schema"])
-    _schema_cache[schema_id] = schema
-    return schema
+    parsed = fastavro.parse_schema(json.loads(resp.json()["schema"]))
+    _schema_cache[schema_id] = parsed
+    return parsed
 
 
 def deserialize(raw: bytes) -> dict | None:
@@ -35,9 +39,7 @@ def deserialize(raw: bytes) -> dict | None:
         return None
     try:
         schema_id = struct.unpack(">I", raw[1:5])[0]
-        schema = _get_schema(schema_id)
-        parsed_schema = fastavro.parse_schema(schema)
         buf = io.BytesIO(raw[5:])
-        return fastavro.schemaless_reader(buf, parsed_schema)
+        return fastavro.schemaless_reader(buf, _get_schema(schema_id))
     except Exception:
         return None

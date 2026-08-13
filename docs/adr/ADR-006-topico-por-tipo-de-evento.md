@@ -37,7 +37,7 @@ Usar **un tópico por tipo de evento**, con la convención de nombres `dominio.e
 - Suscripción granular: un grupo que solo necesita `reclamos.creado` no recibe `reclamos.resuelto`.
 - Configuración independiente por tópico (retención, número de particiones).
 - Monitoreo claro en Kafka UI — cada tópico muestra exactamente un tipo de evento.
-- Los tópicos se crean automáticamente al publicar (`auto.create.topics.enable=true`).
+- Los tópicos los crea el Event Gateway al registrar el event type, no al publicar el primer evento. El broker corre con `auto.create.topics.enable=false`, así que no pueden aparecer por otra vía.
 
 ### Negativas
 - Si dos tipos de evento necesitan ordenamiento relativo (ej: `reclamo.creado` debe llegar antes que `reclamo.eliminado`), deben ir en el mismo tópico. En ese caso, la excepción documentada es usar un tópico por entidad (`reclamos`) con el `eventType` como campo del mensaje.

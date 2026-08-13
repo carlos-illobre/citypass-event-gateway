@@ -17,17 +17,88 @@ spring:
       auto-offset-reset: latest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        # Un consumer puede pedirle al broker que cree el tópico al que se suscribe.
+        # Con auto.create.topics.enable=false el broker ya se lo niega, pero se cierra
+        # también de este lado para no depender de una sola configuración.
+        allow.auto.create.topics: false
 
 gateway:
   schemas-dir: ${SCHEMAS_DIR}
   schema-registry-url: ${SCHEMA_REGISTRY_URL}
   data-dir: ${DATA_DIR}
-  security:
-    enabled: ${SECURITY_ENABLED}
   auth-service-url: ${AUTH_SERVICE_URL}
   dlq-topic: ${DLQ_TOPIC}
   cors-origin: ${GATEWAY_CORS_ORIGIN}
+  # Los tópicos se crean al registrar el event type, no al publicar el primer evento,
+  # así que estos valores reemplazan a los defaults del broker.
+  topic-partitions: ${TOPIC_PARTITIONS:1}
+  topic-replication-factor: ${TOPIC_REPLICATION_FACTOR:1}
+  # Audiencia que debe declarar el JWT para ser aceptado.
+  token-audience: ${TOKEN_AUDIENCE:citypass}
+  # Tope de espera por la confirmación de Kafka al publicar.
+  publish-timeout-ms: ${PUBLISH_TIMEOUT_MS:10000}
+  # ── Ajustes que dependen del ambiente ──────────────────────────────────────
+  #
+  # Los tres valores de acá abajo son los de PRODUCCIÓN y están escritos literales, sin
+  # variable de entorno de por medio. Para aflojarlos hay que activar el perfil
+  # `development` (SPRING_PROFILES_ACTIVE=development), que carga
+  # application-development.yml y los pisa a los tres de una sola vez.
+  #
+  # Antes eran tres variables sueltas, y ese era el problema: se podían poner dos y
+  # olvidar la tercera, y nada lo notaba. Con un perfil no hay estado parcial posible, y
+  # cualquier valor que no sea exactamente `development` —vacío, mal escrito, otro
+  # nombre— deja la configuración de producción.
+
+  # Acepta webhooks hacia direcciones de red interna. En true, una suscripción con la
+  # callbackUrl apuntada al endpoint de metadata del cloud convierte al gateway en un
+  # SSRF.
+  allow-private-callbacks: false
+
+  # ── Límites ────────────────────────────────────────────────────────────────
+  # Un evento es un hecho de negocio, no un archivo: 256 KB deja lugar de sobra para
+  # cualquier payload razonable y corta los que sólo pueden ser un error.
+  max-payload-bytes: ${MAX_PAYLOAD_BYTES:262144}
+  # Peticiones por minuto y por namespace. No frena a un atacante —para eso está la
+  # autenticación—; evita que el loop de un grupo deje sin servicio a los otros siete.
+  rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:600}
+  # Timeouts de la entrega de webhooks. Con la entrega sincrónica, un suscriptor que se
+  # cuelga sin estos topes bloquea el tópico entero.
+  webhook-connect-timeout-ms: ${WEBHOOK_CONNECT_TIMEOUT_MS:5000}
+  webhook-read-timeout-ms: ${WEBHOOK_READ_TIMEOUT_MS:10000}
+
+# La documentación OpenAPI: no hay forma de protegerla con Bearer —el navegador no lo
+# manda al cargar la página— así que en vez de dejarla pública o devolver un 401 que
+# parece un bug, directamente no existe. SecurityConfig lee esta misma propiedad para
+# decidir si abre las rutas, así que las dos cosas se mueven juntas.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# ── Observabilidad ────────────────────────────────────────────────────────────
+# Las métricas van en un puerto aparte del tráfico de negocio, y ese puerto se publica
+# sólo en loopback (ver docker-compose). Así no hay forma de llegar a ellas desde
+# internet ni a través del reverse-proxy: se leen por túnel SSH, igual que kafka-ui.
+# Por eso el chain de seguridad del puerto de management no exige token — el aislamiento
+# lo da la red, no un header.
+management:
+  server:
+    port: 9090
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      # Con varias instancias, distingue de cuál viene cada serie.
+      instance: ${HOSTNAME:local}
 
 logging:
   level:
-    com.citypass: DEBUG
+    # DEBUG vuelca payloads de negocio al log.
+    com.citypass: INFO

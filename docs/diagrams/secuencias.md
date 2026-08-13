@@ -10,7 +10,7 @@ sequenceDiagram
     participant SR as Schema Registry
     participant Kafka as Apache Kafka
 
-    G3->>Auth: POST /auth/login {username, password}
+    G3->>Auth: POST /oauth/token {grant_type, client_id, client_secret}
     Auth-->>G3: {token: "eyJ...", expiresIn: "8h"}
 
     G3->>Proxy: POST /api/v1/events<br/>Authorization: Bearer eyJ...<br/>{eventType, source, data}

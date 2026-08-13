@@ -1,0 +1,28 @@
+# Ajustes de DESARROLLO LOCAL del event-gateway.
+#
+# Se carga sólo con SPRING_PROFILES_ACTIVE=development y pisa los valores de
+# application.yml, que son los de producción.
+#
+# Todo lo que está acá afloja algo a propósito, así que este archivo es la lista
+# completa de lo que separa a un gateway local de uno expuesto. Si algo tiene que
+# comportarse distinto según el ambiente, va acá y no en una variable nueva: el punto
+# del perfil es que las tres decisiones se tomen juntas o ninguna.
+
+gateway:
+  # Los consumidores de este compose son contenedores de la misma red y tienen IP
+  # privada (172.x). Con la validación activa el gateway se negaría a entregarles.
+  allow-private-callbacks: true
+
+# Swagger UI en /swagger-ui/index.html. SecurityConfig lee esta misma propiedad y por
+# eso abre las rutas cuando está en true: sin las dos cosas, la página cargaría pero
+# respondería 401.
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+logging:
+  level:
+    # Muestra el payload de cada evento, que es lo que se quiere ver desarrollando.
+    com.citypass: DEBUG

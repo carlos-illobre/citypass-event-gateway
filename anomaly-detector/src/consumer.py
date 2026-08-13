@@ -26,6 +26,8 @@ def _consume_loop():
         "group.id": CONSUMER_GROUP_ID,
         "auto.offset.reset": "latest",
         "enable.auto.commit": True,
+        # No puede pedirle al broker que cree el tópico al que se suscribe.
+        "allow.auto.create.topics": False,
     })
     # Suscripción con regex: todos los tópicos excepto el de anomalías (evita loop)
     consumer.subscribe([f"^(?!{ANOMALIES_TOPIC.replace('.', '\\.')}).*$"])
@@ -59,7 +61,7 @@ def _consume_loop():
                     topic, event, score, features, feature_extractor.feature_names
                 )
                 recent_anomalies.appendleft(anomaly)
-                print(f"[anomaly] topic={topic} score={score:.4f} eventId={event.get('eventId', '?')}")
+                print(f"[anomaly] topic={topic} score={score:.4f} eventId={anomaly['originalEventId']}")
 
     finally:
         consumer.close()

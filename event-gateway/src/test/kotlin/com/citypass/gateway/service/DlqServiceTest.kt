@@ -1,11 +1,14 @@
 package com.citypass.gateway.service
 
 import org.apache.kafka.clients.producer.ProducerRecord
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.springframework.kafka.core.KafkaTemplate
+import tools.jackson.module.kotlin.jacksonObjectMapper
 
 class DlqServiceTest {
 
@@ -37,7 +40,8 @@ class DlqServiceTest {
             eventJson = eventJson,
             callbackUrl = "http://example.com/webhook",
             retryCount = 3,
-            error = RuntimeException("connection refused")
+            error = RuntimeException("connection refused"),
+            owner = "com.citypass.movilidad"
         )
 
         verify(kafkaTemplate).send(any<ProducerRecord<String, ByteArray>>())
@@ -52,7 +56,8 @@ class DlqServiceTest {
             eventJson = eventJson,
             callbackUrl = "http://example.com/webhook",
             retryCount = 3,
-            error = RuntimeException("timeout")
+            error = RuntimeException("timeout"),
+            owner = "com.citypass.movilidad"
         )
 
         verify(kafkaTemplate).send(any<ProducerRecord<String, ByteArray>>())
@@ -65,5 +70,29 @@ class DlqServiceTest {
         dlqService.sendDeserializationFailure("test.topic", null, rawBytes, RuntimeException())
 
         verify(kafkaTemplate).send(any<ProducerRecord<String, ByteArray>>())
+    }
+
+    @Test
+    fun `el owner de un fallo de deserializacion es el namespace del topico`() {
+        val captor = argumentCaptor<ProducerRecord<String, ByteArray>>()
+        dlqService.sendDeserializationFailure(
+            "com.citypass.movilidad.BiciDevuelta", null, byteArrayOf(0x00), RuntimeException("bad avro")
+        )
+
+        verify(kafkaTemplate).send(captor.capture())
+        val mensaje = jacksonObjectMapper().readValue(captor.firstValue.value(), Map::class.java)
+        assertEquals("com.citypass.movilidad", mensaje["owner"])
+    }
+
+    @Test
+    fun `un topico sin punto deja el owner vacio y no se lo atribuye a nadie`() {
+        // Un tópico así no debería existir, pero si existiera, adivinar un dueño sería
+        // peor que no mostrarle la entrada a ningún grupo.
+        val captor = argumentCaptor<ProducerRecord<String, ByteArray>>()
+        dlqService.sendDeserializationFailure("sinpuntos", null, byteArrayOf(0x00), RuntimeException("x"))
+
+        verify(kafkaTemplate).send(captor.capture())
+        val mensaje = jacksonObjectMapper().readValue(captor.firstValue.value(), Map::class.java)
+        assertEquals("", mensaje["owner"])
     }
 }

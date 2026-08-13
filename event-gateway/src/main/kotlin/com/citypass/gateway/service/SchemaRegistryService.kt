@@ -6,17 +6,21 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
+import org.apache.kafka.clients.admin.NewTopic
+import org.springframework.core.io.ClassPathResource
 import org.springframework.http.MediaType
+import org.springframework.kafka.core.KafkaAdmin
 import org.springframework.stereotype.Service
 import org.springframework.web.client.RestClient
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.io.File
+import java.time.Instant
 
 /**
  * Servicio central de gestión de schemas Avro.
  *
  * Responsabilidades:
- * - Cargar schemas desde archivos .avsc al arrancar.
+ * - Cargar schemas desde archivos .avsc al arrancar y asegurar sus tópicos Kafka.
  * - Registrar schemas en Confluent Schema Registry (con reintentos).
  * - Validar nuevos schemas y construir el schema Avro completo a partir de name + namespace + fields.
  * - Resolver schemas por FQN (namespace.Name) o por ID numérico del registry.
@@ -37,8 +41,11 @@ import java.io.File
 @Service
 class SchemaRegistryService(
     private val restClient: RestClient,
+    private val kafkaAdmin: KafkaAdmin,
     @Value("\${gateway.schemas-dir}") private val schemasDir: String,
-    @Value("\${gateway.schema-registry-url}") private val schemaRegistryUrl: String
+    @Value("\${gateway.schema-registry-url}") private val schemaRegistryUrl: String,
+    @Value("\${gateway.topic-partitions}") private val topicPartitions: Int,
+    @Value("\${gateway.topic-replication-factor}") private val topicReplicationFactor: Int
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val mapper = jacksonObjectMapper()
@@ -48,7 +55,37 @@ class SchemaRegistryService(
 
     private val namePattern = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
     private val namespacePattern = Regex("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$")
-    private val reservedFields = setOf("eventId", "eventType", "timestamp", "source")
+
+    /** FQN → instante en que se archivó. Su ausencia significa activo. */
+    private val archived = mutableMapOf<String, String>()
+
+    private companion object {
+        /** Los dos campos del envelope que envuelve todo schema de evento. */
+        const val METADATA_FIELD = "metadata"
+        const val DATA_FIELD = "data"
+
+        /**
+         * Archivo donde persiste qué event types están archivados.
+         *
+         * Va en el directorio de schemas y sin extensión .avsc para que `loadSchemas`
+         * lo ignore. El prefijo `_` evita chocar con cualquier FQN, que siempre
+         * empieza con letra minúscula.
+         */
+        const val ARCHIVED_FILE = "_archived.json"
+    }
+
+    /**
+     * Schema de la metadata, definido una única vez en `resources/avro/event-metadata.avsc`.
+     *
+     * Los schemas de evento lo referencian solo por nombre; al serializarlos, Avro expande
+     * la definición completa, de modo que lo que llega al Schema Registry y a los
+     * consumidores es siempre un schema autosuficiente.
+     */
+    private val metadataSchema: Schema =
+        Schema.Parser().parse(ClassPathResource("avro/event-metadata.avsc").inputStream)
+
+    /** Schema de la metadata que el gateway inyecta en todo evento. */
+    fun getMetadataSchema(): Schema = metadataSchema
 
     /**
      * Carga todos los archivos .avsc del directorio de schemas al arrancar.
@@ -68,17 +105,106 @@ class SchemaRegistryService(
             schemas[fqn] = schema
             logger.info("Loaded schema: $fqn")
         }
+
+        loadArchived()
+
+        // Los schemas anteriores al envelope siguen resolviendo por FQN, pero publicar
+        // en ellos falla. Se avisa acá y no recién al primer POST para que el problema
+        // aparezca al arrancar, con la lista completa de los que hay que re-registrar.
+        val legacy = schemas.filterValues { it.getField(DATA_FIELD) == null }.keys
+        if (legacy.isNotEmpty())
+            logger.warn(
+                "Schemas con el formato anterior (campos planos): ${legacy.joinToString(", ")}. " +
+                "No se puede publicar en ellos; hay que volver a registrarlos para que usen " +
+                "el envelope metadata/data."
+            )
+    }
+
+    private fun loadArchived() {
+        val file = File(schemasDir, ARCHIVED_FILE)
+        if (!file.exists()) return
+        try {
+            archived.putAll(mapper.readValue(file, Map::class.java).entries.associate {
+                it.key.toString() to it.value.toString()
+            })
+            logger.info("Loaded ${archived.size} archived event types")
+        } catch (e: Exception) {
+            logger.error("Failed to load archived event types: ${e.message}")
+        }
+    }
+
+    private fun saveArchived() {
+        File(schemasDir).mkdirs()
+        File(schemasDir, ARCHIVED_FILE).writeText(mapper.writeValueAsString(archived))
     }
 
     /**
-     * Registra todos los schemas cargados en el Schema Registry de Confluent.
+     * Indica si un event type está archivado, es decir cerrado a nuevos eventos.
      *
-     * Se ejecuta después de que la aplicación esté lista para dar tiempo a que
-     * el Schema Registry arranque. Cada schema se registra con reintentos.
+     * Un event type archivado conserva su schema y su tópico: los consumidores pueden
+     * seguir leyendo el historial e inspeccionando el contrato. Lo único que cambia es
+     * que deja de admitir publicaciones.
+     */
+    fun isArchived(fqn: String): Boolean = archived.containsKey(fqn)
+
+    /**
+     * Archiva un event type: baja lógica, sin borrar nada.
+     *
+     * No se toca el Schema Registry ni el tópico de Kafka, porque el schema es el
+     * contrato y el tópico es el historial: dar de baja el contrato no debería borrar
+     * la historia de lo que ya pasó.
+     *
+     * El estado se guarda como un mapa FQN → instante, de modo que revertirlo sea
+     * quitar una entrada. La operación inversa todavía no está expuesta en la API.
+     *
+     * @return Éxito, o falla con [NoSuchElementException] si el FQN no existe.
+     */
+    fun archiveEventType(fqn: String): Result<Unit> {
+        if (!schemas.containsKey(fqn))
+            return Result.failure(NoSuchElementException("No existe un event type registrado para '$fqn'"))
+
+        if (archived.containsKey(fqn)) return Result.success(Unit)
+
+        archived[fqn] = Instant.now().toString()
+        saveArchived()
+        logger.info("Archived event type $fqn")
+        return Result.success(Unit)
+    }
+
+    /**
+     * Crea el tópico Kafka de un event type.
+     *
+     * Se crea al registrar y no al publicar el primer evento: es el momento en que se
+     * declara el contrato, y permite fijar particiones y réplicas en vez de heredar
+     * los defaults del broker.
+     */
+    private fun createTopic(fqn: String) {
+        kafkaAdmin.createOrModifyTopics(
+            NewTopic(fqn, topicPartitions, topicReplicationFactor.toShort())
+        )
+        logger.info("Ensured Kafka topic $fqn ($topicPartitions particiones)")
+    }
+
+    /**
+     * Asegura tópico y schema de todo lo cargado del disco, al arrancar.
+     *
+     * Se ejecuta cuando la aplicación está lista, para darle tiempo a Kafka y al
+     * Schema Registry. La creación del tópico es idempotente, así que en el caso
+     * normal no hace nada: importa cuando el volumen de Kafka se recreó y los .avsc
+     * sobrevivieron, porque entonces hay event types registrados sin tópico donde
+     * publicar.
+     *
+     * Un fallo al crear un tópico no corta el arranque ni saltea el registro del
+     * schema: se deja anotado y el resto sigue.
      */
     @EventListener(ApplicationReadyEvent::class)
     fun registerSchemas() {
         schemas.forEach { (fqn, schema) ->
+            try {
+                createTopic(fqn)
+            } catch (e: Exception) {
+                logger.error("No se pudo asegurar el tópico $fqn al arrancar: ${e.message}")
+            }
             registerWithRetry(fqn, schema)
         }
     }
@@ -135,34 +261,82 @@ class SchemaRegistryService(
     fun getAvailableEventTypes(): Set<String> = schemas.keys
 
     /**
+     * Resumen de cada event type registrado, opcionalmente acotado a un namespace.
+     *
+     * Devuelve objetos y no FQN sueltos para que un cliente pueda listar y mostrar
+     * sin tener que pedir el schema completo de cada uno.
+     *
+     * @param namespace Si no es null, filtra por namespace exacto.
+     */
+    fun listEventTypes(namespace: String?): List<Map<String, Any?>> =
+        schemas.values
+            .filter { namespace == null || it.namespace == namespace }
+            .sortedBy { it.fullName }
+            .map {
+                mapOf(
+                    "fqn" to it.fullName,
+                    "namespace" to it.namespace,
+                    "name" to it.name,
+                    "schemaId" to schemaIds[it.fullName],
+                    "status" to if (isArchived(it.fullName)) "archived" else "active",
+                    "archivedAt" to archived[it.fullName]
+                )
+            }
+
+    /**
      * Registra un nuevo schema Avro a partir de su namespace, name y fields.
      *
-     * El gateway construye el schema Avro completo inyectando los campos base obligatorios
-     * (eventId, eventType, timestamp, source) antes de los campos del usuario.
+     * El schema resultante es un envelope de dos campos:
+     * - `metadata`: el record [EventMetadata], que calcula íntegramente el gateway.
+     * - `data`: un record con los campos del productor, en el namespace `<namespace>.data`.
+     *
+     * Al vivir en records separados, los datos de negocio no pueden pisar la metadata
+     * de auditoría, así que no hacen falta nombres reservados: un productor puede
+     * declarar un campo llamado `source` o `eventId` sin conflicto.
      *
      * Validaciones:
      * - [name] debe ser un identificador Avro válido (letras, dígitos, _).
      * - [namespace] debe seguir el formato de paquete inverso (ej: com.citypass.movilidad).
-     * - [userFields] no puede declarar campos con nombres reservados (eventId, eventType, etc.).
      * - El schema resultante debe ser un record Avro válido.
      * - No puede existir otro schema con el mismo FQN.
      *
      * @param namespace Namespace Avro del equipo emisor (ej: "com.citypass.movilidad").
      * @param name Nombre del record Avro (ej: "BiciDevuelta").
-     * @param userFields Lista de definiciones de campos del usuario (sin los campos base).
+     * @param userFields Lista de definiciones de campos de negocio del productor.
      * @return Result con el ID del schema si fue exitoso, o la excepción si falló.
      */
     fun registerNewSchema(namespace: String, name: String, userFields: List<Any>): Result<Int> {
-        val validationError = validateNewSchema(namespace, name, userFields)
+        val validationError = validateNewSchema(namespace, name)
         if (validationError != null) return Result.failure(IllegalArgumentException(validationError))
 
-        val baseFields = reservedFields.map { mapOf("name" to it, "type" to "string") }
-        val allFields = baseFields + userFields
-        val schemaMap = mapOf("type" to "record", "name" to name, "namespace" to namespace, "fields" to allFields)
+        val schemaMap = mapOf(
+            "type" to "record",
+            "name" to name,
+            "namespace" to namespace,
+            // `data` va primero: es lo que le importa a quien lee el evento. La metadata
+            // es el sobre y queda debajo.
+            "fields" to listOf(
+                mapOf(
+                    "name" to DATA_FIELD,
+                    "type" to mapOf(
+                        "type" to "record",
+                        "name" to name,
+                        "namespace" to "$namespace.data",
+                        "fields" to userFields
+                    )
+                ),
+                mapOf("name" to METADATA_FIELD, "type" to metadataSchema.fullName)
+            )
+        )
         val schemaJson = mapper.writeValueAsString(schemaMap)
 
+        // El parser se siembra con EventMetadata para resolver la referencia por nombre.
+        // Debe ser una instancia nueva en cada registro: Schema.Parser acumula los tipos
+        // que ya vio y rechaza redefinirlos, así que uno compartido fallaría al re-registrar.
         val schema = try {
-            Schema.Parser().parse(schemaJson)
+            Schema.Parser()
+                .apply { addTypes(listOf(metadataSchema)) }
+                .parse(schemaJson)
         } catch (e: Exception) {
             return Result.failure(IllegalArgumentException("Schema Avro inválido: ${e.message}"))
         }
@@ -170,6 +344,13 @@ class SchemaRegistryService(
         val fqn = schema.fullName
         if (schemas.containsKey(fqn))
             return Result.failure(IllegalArgumentException("Ya existe un schema registrado para '$fqn'"))
+
+        try {
+            createTopic(fqn)
+        } catch (e: Exception) {
+            logger.error("Failed to create Kafka topic for $fqn: ${e.message}")
+            return Result.failure(RuntimeException("No se pudo crear el tópico Kafka: ${e.message}"))
+        }
 
         schemas[fqn] = schema
 
@@ -185,25 +366,6 @@ class SchemaRegistryService(
             logger.error("Failed to register schema for $fqn: ${e.message}")
             Result.failure(RuntimeException("Failed to register schema in Schema Registry: ${e.message}"))
         }
-    }
-
-    /**
-     * Elimina un schema del sistema (memoria y disco).
-     *
-     * No elimina el schema del Schema Registry de Confluent.
-     *
-     * @param fqn FQN del tipo de evento a eliminar.
-     * @return true si existía y fue eliminado, false si no existía.
-     */
-    fun deleteSchema(fqn: String): Boolean {
-        if (!schemas.containsKey(fqn)) return false
-        schemas.remove(fqn)
-        val id = schemaIds.remove(fqn)
-        if (id != null) schemasByRegistryId.remove(id)
-        val file = File(schemasDir, "$fqn.avsc")
-        if (file.exists()) file.delete()
-        logger.info("Removed schema for $fqn")
-        return true
     }
 
     /**
@@ -254,22 +416,19 @@ class SchemaRegistryService(
     }
 
     /**
-     * Valida namespace, name y campos de usuario antes de construir el schema.
+     * Valida namespace y name antes de construir el schema.
+     *
+     * Los campos del productor no necesitan validación de nombres reservados: viven en
+     * su propio record `data`, separado de la metadata del gateway.
      *
      * @return Mensaje de error si la validación falla, null si es válido.
      */
-    private fun validateNewSchema(namespace: String, name: String, userFields: List<Any>): String? {
+    private fun validateNewSchema(namespace: String, name: String): String? {
         if (!namePattern.matches(name))
             return "El name debe ser un identificador Avro válido (letras, dígitos y _). Ejemplo: BiciDevuelta"
 
         if (!namespacePattern.matches(namespace))
             return "El namespace debe seguir el formato de paquete inverso en minúsculas. Ejemplo: com.citypass.movilidad"
-
-        @Suppress("UNCHECKED_CAST")
-        val userFieldNames = userFields.mapNotNull { (it as? Map<String, Any>)?.get("name") as? String }
-        val conflicts = userFieldNames.filter { it in reservedFields }
-        if (conflicts.isNotEmpty())
-            return "Los campos ${conflicts.joinToString(", ")} son campos base y se inyectan automáticamente"
 
         return null
     }

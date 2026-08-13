@@ -11,14 +11,13 @@ graph TB
     subgraph oracle["Oracle Cloud VM (Ubuntu)"]
         subgraph docker["Docker Engine"]
             subgraph red["Red interna: citypass-network"]
-                kafka["kafka<br/>:29092 interno<br/>:9092 externo"]
+                kafka["kafka-authorizer<br/>:29092 interno<br/>:9092 externo"]
                 schema_registry["schema-registry<br/>:8081"]
                 auth_simulator["auth-simulator<br/>:8083"]
                 event_gateway["event-gateway<br/>:8080"]
+                event_gateway_ui["event-gateway-ui<br/>:5173"]
                 anomaly_detector["anomaly-detector<br/>:8084"]
                 kafka_ui["kafka-ui<br/>:8090"]
-                movilidad_urbana["movilidad-urbana<br/>:3000"]
-                movilidad_consumer["movilidad-consumer"]
             end
 
             subgraph volumes["Volúmenes"]
@@ -27,7 +26,7 @@ graph TB
             end
         end
 
-        firewall["iptables / Oracle Security List<br/>9092, 8080, 8081, 8083, 8084, 8090, 3000"]
+        firewall["iptables / Oracle Security List<br/>80, 443, 9092"]
     end
 
     cliente -->|"HTTPS :8080"| firewall
@@ -55,8 +54,6 @@ graph TB
     kafka_ui -->|"PLAINTEXT :29092"| kafka
     kafka_ui -->|"REST :8081"| schema_registry
 
-    movilidad_urbana -->|"REST :8080"| event_gateway
-    movilidad_consumer -->|"PLAINTEXT :29092"| kafka
 
     kafka --- kafka_data
 ```
@@ -71,18 +68,17 @@ graph TB
 | 8083 | Sí | Auth Simulator |
 | 8084 | Sí | Anomaly Detector |
 | 8090 | Sí | Kafka UI |
-| 3000 | Sí | Simulador Movilidad Urbana |
 | 29092 | No (solo interno) | Kafka (comunicación entre contenedores) |
 
 ## Orden de arranque (Docker Compose `depends_on`)
 
 ```
-kafka (healthcheck) 
-  └── schema-registry (healthcheck)
-        └── auth-simulator (healthcheck)
-              └── event-gateway
-                    └── movilidad-urbana
-        └── anomaly-detector
-  └── movilidad-consumer
-  └── kafka-ui
+auth-simulator (healthcheck)
+  └── kafka-authorizer (healthcheck)          el broker valida los JWT contra su JWKS
+        ├── schema-registry (healthcheck)
+        │     ├── event-gateway (healthcheck)
+        │     │     └── event-gateway-ui
+        │     ├── anomaly-detector
+        │     └── kafka-ui
+        └── (event-gateway, anomaly-detector y kafka-ui también esperan a schema-registry)
 ```

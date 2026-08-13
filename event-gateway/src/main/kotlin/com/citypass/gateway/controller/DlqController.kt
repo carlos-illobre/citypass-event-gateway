@@ -4,8 +4,17 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.StringDeserializer
+import com.citypass.gateway.web.problem
+import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.media.Content
+import io.swagger.v3.oas.annotations.media.ExampleObject
+import io.swagger.v3.oas.annotations.responses.ApiResponse
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -25,26 +34,83 @@ import java.util.Properties
  * @param dlqTopic Nombre del tópico DLQ (variable de entorno DLQ_TOPIC).
  */
 @RestController
-@RequestMapping("/api/v1/dlq")
+@RequestMapping("/api/v1/dead-letters")
 class DlqController(
     @Value("\${spring.kafka.bootstrap-servers}") private val bootstrapServers: String,
     @Value("\${gateway.dlq-topic}") private val dlqTopic: String
 ) {
     private val mapper = jacksonObjectMapper()
 
+    private companion object {
+        /** Tope de mensajes que se leen del tópico en una consulta. */
+        const val MAX_LIMIT = 200
+    }
+
     /**
-     * Lee los últimos mensajes de la Dead Letter Queue.
+     * Lee los últimos mensajes de la Dead Letter Queue del grupo que consulta.
      *
-     * Crea un consumer efímero, busca las particiones del tópico DLQ,
-     * hace seek al offset `end - limit` en cada partición y lee los mensajes.
-     * El consumer se cierra automáticamente al terminar.
+     * Sólo devuelve las entradas cuyo `owner` coincide con el namespace del token. Una
+     * entrada de la DLQ lleva el payload del evento que falló y el mensaje de error: sin
+     * este filtro cualquier grupo autenticado leería los datos de negocio de los demás, y
+     * los errores de entrega de webhook le servirían además para mapear la red interna.
+     *
+     * Se lee siempre la ventana completa del tópico y se filtra después, porque la DLQ es
+     * un tópico compartido: pedir los últimos 50 mensajes y recién ahí filtrar podría no
+     * devolver ninguno propio aunque existan.
      *
      * @param limit Cantidad máxima de mensajes a retornar (default 50, máximo 200).
+     * @param jwt Token del grupo que consulta.
      * @return 200 con el tópico, cantidad retornada y lista de mensajes.
      */
+    @Operation(
+        summary = "Leer la Dead Letter Queue de mi grupo",
+        description = """Devuelve las entradas de la DLQ cuyo `owner` coincide con el namespace del token.
+
+Un fallo de deserialización es del grupo dueño del tópico; uno de entrega de webhook, del
+grupo dueño de la suscripción, que no es necesariamente el mismo.""",
+        responses = [ApiResponse(
+            responseCode = "200", description = "Entradas de la DLQ del grupo",
+            content = [Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE,
+                examples = [ExampleObject(
+                    name = "Fallo de deserialización",
+                    summary = "originalPayloadBase64 permite recuperar el mensaje crudo",
+                    value = """{
+  "topic": "sistema.dlq",
+  "returned": 1,
+  "messages": [
+    {
+      "dlqId": "7ebab899-1628-4594-b660-099715012813",
+      "timestamp": "2026-08-13T17:50:29Z",
+      "failureReason": "DESERIALIZATION_ERROR",
+      "errorMessage": "Invalid Confluent wire format: bad magic byte",
+      "retryCount": 0,
+      "owner": "com.citypass.movilidad",
+      "originalTopic": "com.citypass.movilidad.BiciDevuelta",
+      "originalKey": null,
+      "originalPayloadBase64": "aW52YWxpZCBkYXRh"
+    }
+  ]
+}"""
+                )]
+            )]
+        )]
+    )
     @GetMapping
-    fun getMessages(@RequestParam(defaultValue = "50") limit: Int): ResponseEntity<Any> {
-        val messages = readLastMessages(limit.coerceAtMost(200))
+    fun getMessages(
+        @RequestParam(defaultValue = "50") limit: Int,
+        @AuthenticationPrincipal jwt: Jwt
+    ): ResponseEntity<Any> {
+        val owner = jwt.claims["namespace"] as? String
+            ?: return problem(
+                HttpStatus.BAD_REQUEST, "Token sin namespace",
+                "El token JWT no contiene el claim 'namespace'."
+            )
+
+        val messages = readLastMessages(MAX_LIMIT)
+            .filter { (it as? Map<*, *>)?.get("owner") == owner }
+            .takeLast(limit.coerceAtMost(MAX_LIMIT))
+
         return ResponseEntity.ok(mapOf(
             "topic" to dlqTopic,
             "returned" to messages.size,
@@ -66,6 +132,7 @@ class DlqController(
             put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer::class.java.name)
             put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
             put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false)
+            put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, false)
         }
 
         KafkaConsumer<String, String>(props).use { consumer ->

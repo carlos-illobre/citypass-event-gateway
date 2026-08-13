@@ -1,32 +1,70 @@
 services:
-  kafka:
-    image: confluentinc/cp-kafka:7.7.1
-    container_name: kafka-broker
-    hostname: kafka
+  kafka-authorizer:
+    build:
+      context: ./kafka-authorizer
+    container_name: kafka-authorizer
+    hostname: kafka-authorizer
     ports:
-      - "${KAFKA_EXTERNAL_PORT:-9092}:9092"
-      - "${KAFKA_CONTROLLER_PORT:-9093}:9093"
+      # El 9093 (controller de KRaft) no se publica: es el plano de control del
+      # cluster —ahí vive el log de metadatos con las ACLs— y sólo lo usa el broker
+      # consigo mismo. Exponerlo sería una puerta lateral por encima de toda la
+      # autorización del listener externo.
+      - "${PUBLISH_ADDR:-127.0.0.1}:${KAFKA_HOST_PORT:-19092}:9092"
+    depends_on:
+      # El listener externo valida los JWT contra el JWKS del auth-simulator, así que
+      # necesita que esté arriba antes de aceptar conexiones.
+      auth-simulator:
+        condition: service_healthy
     environment:
-      KAFKA_NODE_ID: ${KAFKA_BROKER_ID:-1}
+      KAFKA_NODE_ID: 1
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
-      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:${KAFKA_INTERNAL_PORT:-29092},CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT:-9093},PLAINTEXT_HOST://0.0.0.0:9092'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:${KAFKA_INTERNAL_PORT:-29092},PLAINTEXT_HOST://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_EXTERNAL_PORT:-9092}'
-      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '${KAFKA_BROKER_ID:-1}@kafka:${KAFKA_CONTROLLER_PORT:-9093}'
+
+      # Tres listeners con propósitos distintos:
+      #   INTERNAL  (29092) — servicios del compose, sin autenticar, sólo red de Docker
+      #   CONTROLLER (9093) — quórum de KRaft, nunca sale del contenedor
+      #   EXTERNAL   (9092) — los grupos, autenticados con el JWT del auth-simulator
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:SASL_PLAINTEXT'
+      KAFKA_LISTENERS: 'INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'INTERNAL://kafka-authorizer:29092,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
+
+      # ── Autenticación del listener externo: OAUTHBEARER contra el auth-simulator ──
+      # El broker valida la firma del JWT con el mismo JWKS que usa el event-gateway,
+      # así que la identidad es una sola para toda la plataforma: revocar un cliente
+      # en el auth-simulator lo deja afuera del bus y de la API REST a la vez.
+      KAFKA_SASL_ENABLED_MECHANISMS: 'OAUTHBEARER'
+      KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required;'
+      KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_SERVER_CALLBACK_HANDLER_CLASS: 'org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerValidatorCallbackHandler'
+      KAFKA_SASL_OAUTHBEARER_JWKS_ENDPOINT_URL: 'http://auth-simulator:8083/.well-known/jwks.json'
+      KAFKA_SASL_OAUTHBEARER_EXPECTED_AUDIENCE: 'citypass'
+      # El principal es el namespace y no el `sub`: identifica al grupo, y un consumer
+      # group es por aplicación. Con el usuario individual, dos instancias del mismo
+      # grupo corriendo con credenciales distintas no podrían compartir el group.id.
+      KAFKA_SASL_OAUTHBEARER_SUB_CLAIM_NAME: 'namespace'
+
+      # ── Autorización ──
+      # El autorizador deriva la política del propio JWT en cada conexión, así que no
+      # hay ACLs ni ninguna lista de grupos que mantener sincronizada con el servicio
+      # de identidad: si deja de emitir tokens para un grupo, el acceso se corta solo.
+      KAFKA_AUTHORIZER_CLASS_NAME: 'com.citypass.kafka.NamespaceAuthorizer'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-authorizer:9093'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_JMX_PORT: ${KAFKA_JMX_PORT:-9101}
+      KAFKA_JMX_PORT: 9101
       KAFKA_JMX_HOSTNAME: localhost
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: '${KAFKA_AUTO_CREATE_TOPICS:-true}'
-      CLUSTER_ID: '${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}'
+      # Único mecanismo de la imagen de Confluent para fijar auto.create.topics.enable.
+      # En false, un tópico sólo puede nacer de una creación explícita: el gateway al
+      # registrar un event type, y cada servicio los suyos. Sin esto, un typo en un
+      # nombre crea un tópico nuevo en silencio en vez de fallar.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
       KAFKA_PROCESS_ROLES: 'broker,controller'
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:${KAFKA_INTERNAL_PORT:-29092} || exit 1"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -38,15 +76,15 @@ services:
     container_name: schema-registry
     hostname: schema-registry
     ports:
-      - "${SCHEMA_REGISTRY_PORT:-8081}:8081"
+      - "${PUBLISH_ADDR:-127.0.0.1}:8081:8081"
     depends_on:
-      kafka:
+      kafka-authorizer:
         condition: service_healthy
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'PLAINTEXT://kafka:${KAFKA_INTERNAL_PORT:-29092}'
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'PLAINTEXT://kafka-authorizer:29092'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-      SCHEMA_REGISTRY_AVRO_COMPATIBILITY_LEVEL: '${SCHEMA_REGISTRY_COMPAT_LEVEL:-backward}'
+      SCHEMA_REGISTRY_AVRO_COMPATIBILITY_LEVEL: 'backward'
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8081/subjects || exit 1"]
       interval: 10s
@@ -58,17 +96,42 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2
     container_name: kafka-ui
+    hostname: kafka-ui
     ports:
-      - "${KAFKA_UI_PORT:-8090}:8080"
+      # kafka-ui tiene su propia variable en vez de seguir a PUBLISH_ADDR: es la única
+      # consola con permisos de administración del cluster, así que conviene poder
+      # dejarla en loopback aunque el resto esté publicado.
+      #
+      # En 127.0.0.1 sigue corriendo y se llega por túnel SSH, que es el acceso normal
+      # en producción; en 0.0.0.0 queda expuesta a la red.
+      - "${KAFKA_UI_PUBLISH_ADDR:-127.0.0.1}:8090:8080"
     depends_on:
-      kafka:
+      kafka-authorizer:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
     environment:
       KAFKA_CLUSTERS_0_NAME: citypass
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:${KAFKA_INTERNAL_PORT:-29092}
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-authorizer:29092
       KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+
+      # kafka-ui administra el cluster entero y no puede usar el servicio de identidad:
+      # ese sólo soporta client_credentials y un navegador no tiene cómo autenticarse
+      # contra él. Así que lleva su propio login, que es la única credencial del sistema
+      # fuera del auth-simulator.
+      #
+      # La autenticación va acá dentro y no en el reverse-proxy a propósito: si algún día
+      # PUBLISH_ADDR queda en 0.0.0.0, kafka-ui se publica solo y se llega al 8090 sin
+      # pasar por nginx, así que una autenticación en el proxy no protegería nada.
+      #
+      # En producción no se llega igual: el acceso normal es por túnel SSH. Esto es la
+      # red que queda si la configuración de puertos sale mal.
+      #
+      # La sintaxis `:?` aborta el arranque si la variable falta, en vez de dejar la
+      # consola con una contraseña vacía.
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:?falta KAFKA_UI_USER en el .env}
+      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?falta KAFKA_UI_PASSWORD en el .env}
     restart: unless-stopped
 
   auth-simulator:
@@ -76,8 +139,9 @@ services:
       context: ./auth-simulator
       dockerfile: Dockerfile
     container_name: auth-simulator
+    hostname: auth-simulator
     ports:
-      - "${AUTH_SIMULATOR_PORT:-8083}:8083"
+      - "${PUBLISH_ADDR:-127.0.0.1}:8083:8083"
     environment:
       PORT: 8083
       AUTH_CORS_ORIGIN: '${AUTH_CORS_ORIGIN}'
@@ -94,10 +158,14 @@ services:
       context: ./event-gateway
       dockerfile: Dockerfile
     container_name: event-gateway
+    hostname: event-gateway
     ports:
-      - "${EVENT_GATEWAY_PORT:-8080}:8080"
+      - "${PUBLISH_ADDR:-127.0.0.1}:8080:8080"
+      # Métricas: siempre en loopback, nunca por PUBLISH_ADDR ni por el reverse-proxy.
+      # Se leen por túnel SSH, igual que kafka-ui.
+      - "127.0.0.1:9090:9090"
     depends_on:
-      kafka:
+      kafka-authorizer:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
@@ -105,65 +173,46 @@ services:
         condition: service_healthy
     environment:
       SERVER_PORT: 8080
-      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_INTERNAL_PORT:-29092}
+      KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       SCHEMAS_DIR: /app/schemas
       DATA_DIR: /app/data
-      SECURITY_ENABLED: ${SECURITY_ENABLED:-false}
       AUTH_SERVICE_URL: http://auth-simulator:8083
-      DLQ_TOPIC: ${DLQ_TOPIC:-sistema.dlq}
+      DLQ_TOPIC: sistema.dlq
+      TOPIC_PARTITIONS: 1
+      TOPIC_REPLICATION_FACTOR: 1
       GATEWAY_CORS_ORIGIN: '${GATEWAY_CORS_ORIGIN}'
+      # Único interruptor de ambiente del gateway: `development` afloja los webhooks
+      # hacia red interna, publica Swagger y sube el log a DEBUG, los tres juntos.
+      # Cualquier otro valor —vacío, mal escrito— deja la configuración de producción.
+      SPRING_PROFILES_ACTIVE: '${SPRING_PROFILES_ACTIVE:-}'
     volumes:
+      - event-gateway-schemas:/app/schemas
       - event-gateway-data:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/v1/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 60s
     restart: unless-stopped
 
-  ejemplo-productor:
+  event-gateway-ui:
     build:
-      context: ./ejemplo-productor
+      context: ./event-gateway-ui
       dockerfile: Dockerfile
-    container_name: ejemplo-productor
+      args:
+        VITE_LOGIN_API_URL: '${VITE_LOGIN_API_URL}'
+        VITE_EVENT_GATEWAY_API_URL: '${VITE_EVENT_GATEWAY_API_URL}'
+    container_name: event-gateway-ui
+    hostname: event-gateway-ui
     ports:
-      - "${EJEMPLO_PRODUCTOR_PORT:-3000}:3000"
+      - "${PUBLISH_ADDR:-127.0.0.1}:5173:80"
     depends_on:
       event-gateway:
         condition: service_healthy
-    environment:
-      EVENT_GATEWAY_URL: http://event-gateway:8080
-      PORT: 3000
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    restart: unless-stopped
-
-  ejemplo-consumidor:
-    build:
-      context: ./ejemplo-consumidor
-      dockerfile: Dockerfile
-    container_name: ejemplo-consumidor
-    ports:
-      - "${EJEMPLO_CONSUMIDOR_PORT:-3001}:3001"
-    depends_on:
-      event-gateway:
+      auth-simulator:
         condition: service_healthy
-    environment:
-      EVENT_GATEWAY_URL: http://event-gateway:8080
-      SELF_URL: http://ejemplo-consumidor:3001
-      PORT: 3001
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
     restart: unless-stopped
 
   anomaly-detector:
@@ -171,21 +220,22 @@ services:
       context: ./anomaly-detector
       dockerfile: Dockerfile
     container_name: anomaly-detector
+    hostname: anomaly-detector
     ports:
-      - "${ANOMALY_DETECTOR_PORT:-8084}:8084"
+      - "${PUBLISH_ADDR:-127.0.0.1}:8084:8084"
     depends_on:
-      kafka:
+      kafka-authorizer:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_INTERNAL_PORT:-29092}
+      KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       PORT: 8084
       CONSUMER_GROUP_ID: anomaly-detector-group
-      MIN_SAMPLES_TO_TRAIN: ${ANOMALY_MIN_SAMPLES:-50}
-      RETRAIN_EVERY_N: ${ANOMALY_RETRAIN_EVERY_N:-100}
-      CONTAMINATION: ${ANOMALY_CONTAMINATION:-0.05}
+      MIN_SAMPLES_TO_TRAIN: 50
+      RETRAIN_EVERY_N: 100
+      CONTAMINATION: 0.05
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8084/health')\" || exit 1"]
       interval: 15s
@@ -194,6 +244,55 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # ── Sólo producción ─────────────────────────────────────────────────────────
+  # Estos dos servicios existen únicamente cuando COMPOSE_PROFILES=prod en el
+  # .env. En desarrollo no se levantan y cada servicio se habla directo por su puerto.
+  reverse-proxy:
+    image: nginx:1.27-alpine
+    profiles: ["prod"]
+    container_name: reverse-proxy
+    hostname: reverse-proxy
+    ports:
+      # El único servicio que escucha en todas las interfaces. El resto publica sobre
+      # PUBLISH_ADDR, que en producción es 127.0.0.1.
+      - "80:80"
+      - "443:443"
+      - "9092:9092"
+    depends_on:
+      event-gateway:
+        condition: service_healthy
+    volumes:
+      - ./reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot-conf:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    # Recarga cada 6 horas para tomar el certificado renovado. certbot corre en otro
+    # contenedor y no puede señalizar a nginx, así que nginx se recarga solo; una
+    # recarga sin cambios no corta ninguna conexión.
+    command: >
+      sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'
+    restart: unless-stopped
+
+  # Emite y renueva el certificado. Un solo certificado con nombre fijo `citypass`
+  # sirve a la vez para HTTPS y para el listener TLS de Kafka.
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["prod"]
+    container_name: certbot
+    hostname: certbot
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    # Reintenta la renovación cada 12 horas. Let's Encrypt sólo renueva cuando falta
+    # menos de 30 días, así que las demás corridas no hacen nada.
+    entrypoint: >
+      sh -c 'trap exit TERM;
+      while :; do certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h & wait $${!}; done'
+    restart: unless-stopped
+
 volumes:
   kafka-data:
+  certbot-conf:
+  certbot-www:
+  event-gateway-schemas:
   event-gateway-data:

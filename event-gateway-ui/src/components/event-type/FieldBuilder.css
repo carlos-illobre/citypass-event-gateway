@@ -1,0 +1,229 @@
+.fb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.fb-list--nested {
+  margin-top: 0.5rem;
+  padding: 0.625rem 0 0.5rem 0.75rem;
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  border-radius: 0 6px 6px 0;
+}
+
+/* ── Fila de campo ── */
+
+.fb-field { min-width: 0; }
+
+.fb-field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.fb-input {
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;
+  outline: none;
+  min-width: 0;
+  transition: border-color 0.15s;
+}
+.fb-input:focus { border-color: var(--accent); }
+
+.fb-input--invalid { border-color: var(--danger); }
+
+.fb-input--num    { width: 56px; }
+.fb-input--symbol { width: 128px; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.8125rem; }
+
+.fb-field-name {
+  width: 128px;
+  flex-shrink: 0;
+}
+
+/* ── Chevron ── */
+
+.fb-chevron-btn { border: none; }
+
+.fb-chevron-spacer {
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.fb-chevron {
+  font-size: 1.0625rem;
+  line-height: 1;
+  display: inline-block;
+  transition: transform 0.18s;
+}
+.fb-chevron--open { transform: rotate(90deg); }
+
+/* ── Controles de tipo ── */
+
+.fb-type-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.fb-select {
+  padding: 0.375rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.8125rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.fb-select:focus { border-color: var(--accent); }
+
+.fb-select--kind      { width: 106px; }
+.fb-select--primitive { width: 84px; }
+.fb-select--logical   { width: 142px; }
+.fb-select--ref       { width: 120px; }
+
+.fb-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.fb-decimal {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.fb-mini-label {
+  display: flex;
+  align-items: center;
+  gap: 0.1875rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Badge de resumen (plegado) ── */
+
+.fb-badge {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--border);
+  border-radius: 99px;
+  padding: 0.0625rem 0.5rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Nullable ── */
+
+.fb-nullable {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* ── Acciones ── */
+
+.fb-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.fb-icon-btn {
+  width: 24px;
+  height: 26px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.fb-icon-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+.fb-icon-btn--danger:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.fb-icon-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+
+/* ── Botón agregar ── */
+
+.fb-btn-add {
+  align-self: flex-start;
+  margin-top: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+.fb-btn-add:hover { opacity: 0.75; }
+
+/* ── Panel de record / enum ── */
+
+.fb-panel {
+  margin-top: 0.375rem;
+  margin-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.fb-panel-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.fb-panel-name .fb-input { width: 180px; }
+
+/* ── Símbolos de enum ── */
+
+.fb-symbols {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+}
+
+.fb-symbol {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}

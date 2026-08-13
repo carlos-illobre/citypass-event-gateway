@@ -1,0 +1,257 @@
+/* .card, .card-header, .card-title from index.css */
+
+.pef-section { min-width: 0; }
+
+.pef-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pef-header-actions {
+  display: flex;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.pef-ghost {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.625rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.pef-ghost:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── Campos ── */
+
+.pef-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+/* ── Resumen de validación ── */
+
+.pef-issues {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  border-radius: 6px;
+  padding: 0.625rem 0.875rem;
+}
+
+.pef-issues-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: 0.25rem;
+}
+
+.pef-issues-list {
+  list-style: disc;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+/* ── Columna derecha: vista previa + historial ── */
+
+/*
+ * El pegajoso es la columna entera, no cada tarjeta. Con dos tarjetas apiladas y
+ * `position: sticky` en cada una haría falta calcular un `top` distinto para la de
+ * abajo, y ese número se rompe apenas cambia la altura de la de arriba.
+ *
+ * Altura definida y no max-height: las tarjetas reparten el sobrante con flex, y
+ * `flex` dentro de un contenedor de altura automática colapsa a cero.
+ */
+.pef-side {
+  position: sticky;
+  top: 68px;
+  min-width: 0;
+  height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/*
+ * La vista previa se queda con la mitad de arriba y el historial con la de abajo,
+ * pero ambas encogen si la otra necesita menos: con un solo evento en el historial
+ * la previa se queda con casi todo.
+ */
+.pef-preview {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 55%;
+  display: flex;
+  flex-direction: column;
+}
+
+.pef-side .sep {
+  flex: 1 1 45%;
+  min-height: 0;
+}
+
+.pef-preview-header { flex-shrink: 0; }
+
+.pef-preview-note {
+  padding: 0.625rem 1rem 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.pef-preview-note code {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.7rem;
+  padding: 0.05rem 0.25rem;
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.pef-preview-body {
+  padding: 0.75rem 0.5rem 1rem;
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+@media (max-width: 1000px) {
+  .pef-side {
+    position: static;
+    height: auto;
+  }
+  .pef-preview, .pef-side .sep { flex: 0 0 auto; }
+  .pef-preview-body { max-height: 50vh; }
+  .pef-side .sep-items { max-height: 50vh; }
+}
+
+.pef-body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+/* ── Error / Success ── */
+
+/* .error-banner from ui/ErrorBanner.css */
+
+.pef-success {
+  background: var(--success-bg, #f0fdf4);
+  border: 1px solid var(--success-border, #86efac);
+  border-radius: 6px;
+  padding: 0.625rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .pef-success { background: #052e16; border-color: #166534; }
+}
+:root[data-theme="dark"]  .pef-success { background: #052e16; border-color: #166534; }
+:root[data-theme="light"] .pef-success { background: #f0fdf4; border-color: #86efac; }
+
+.pef-success-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pef-success-label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #16a34a;
+}
+
+.pef-success-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.pef-success-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.875rem;
+}
+
+.pef-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8125rem;
+}
+
+.pef-muted { color: var(--text-muted); }
+
+.pef-detail-item code {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.8125rem;
+}
+
+/* ── Loading ── */
+
+.pef-loading {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.pef-no-fields {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Form ── */
+
+.pef-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.pef-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pef-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+
+/* .form-input from index.css */
+
+.pef-select-h { height: 36px; padding: 0 0.625rem; }
+
+
+/* ── Actions ── */
+
+.pef-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0.25rem;
+}
+
+/* .btn-primary from index.css */

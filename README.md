@@ -67,9 +67,10 @@ Cuando la seguridad está activada (`SECURITY_ENABLED=true`), los endpoints de e
 ### 1. Obtener un token
 
 ```bash
-curl -X POST http://localhost:8083/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "grupo3", "password": "grupo3"}'
+curl -X POST http://localhost:8083/oauth/token \
+  -d grant_type=client_credentials \
+  -d client_id=grupo3 \
+  -d client_secret=grupo3
 ```
 
 Respuesta:
@@ -240,12 +241,26 @@ Content-Type: application/json
 
 ### Respuesta exitosa (`202 Accepted`)
 
+El cuerpo es el **evento completo tal como quedó en el tópico**: tu payload bajo `data` y
+la `metadata` que estampó el gateway. Ninguno de esos campos lo podés calcular vos —de ahí
+que la respuesta te los devuelva— y son los mismos que va a recibir cada consumidor.
+
 ```json
 {
-  "status": "published",
-  "eventId": "ca33dcbb-f10e-4cf0-b30c-6ebe1d0b91fa",
-  "topic": "movilidad.bici.devuelta",
-  "timestamp": "2026-08-10T12:00:00Z"
+  "metadata": {
+    "eventId": "ca33dcbb-f10e-4cf0-b30c-6ebe1d0b91fa",
+    "eventType": "com.citypass.movilidad.BiciDevuelta",
+    "receivedAt": 1786547143000,
+    "source": "usuario1",
+    "tokenId": "9f2c1a4e-...",
+    "schemaId": 7,
+    "payloadHash": "3b1f...",
+    "gatewayVersion": "0.0.1-SNAPSHOT",
+    "instanceId": "event-gateway-1"
+  },
+  "data": {
+    "nroSerie": "BCL-00847"
+  }
 }
 ```
 
@@ -308,6 +323,14 @@ Respuesta (`201 Created`):
 
 Guardá el `id` para poder desuscribirte después.
 
+> **La `callbackUrl` tiene que ser pública.** El gateway corre en otra máquina que tu
+> servicio, así que `localhost` no apunta a tu aplicación sino al contenedor del gateway.
+> Se rechazan con `400` las URLs que resuelven a direcciones de red interna (`127.0.0.0/8`,
+> `10/8`, `172.16/12`, `192.168/16`, `169.254/16`), y la comprobación se repite en cada
+> entrega, no sólo al registrar. Levantando el sistema con el `docker-compose` de este repo
+> la restricción está desactivada (el perfil `development` del gateway), porque ahí los
+> consumidores son contenedores de la misma red.
+
 #### Qué recibe tu endpoint
 
 El proxy hará `POST` a tu URL con este body:
@@ -356,14 +379,43 @@ Tu servicio se conecta directamente al broker Kafka. Los mensajes se guardan en 
 **Desventajas:**
 - Requiere una librería Kafka para tu lenguaje
 - Tenés que manejar consumer groups y offsets
-- Los mensajes están en formato Avro (binario) — necesitás el Schema Registry para deserializar
+- Los mensajes están en formato Avro (binario) — necesitás resolver el schema para deserializar
 
 #### Datos de conexión
 
 | Parámetro | Valor local | Valor producción |
 |---|---|---|
 | Bootstrap servers | `localhost:9092` | `<IP-ORACLE>:9092` |
-| Schema Registry | `http://localhost:8081` | `http://<IP-ORACLE>:8081` |
+| Resolución de schemas | `http://localhost:8080/api/v1` | `http://<IP-ORACLE>:8080/api/v1` |
+
+La URL de schemas apunta **al gateway**, no al Schema Registry: expone la misma ruta
+`/schemas/ids/{id}` que espera cualquier deserializador estándar, pero de sólo lectura.
+
+#### Autenticación
+
+El puerto 9092 pide **el mismo JWT** que la API REST, con el mecanismo `OAUTHBEARER`.
+El cliente pide el token solo contra `/oauth/token`; vos le pasás `client_id` y
+`client_secret`.
+
+| Config | Valor |
+|---|---|
+| `security.protocol` | `SASL_PLAINTEXT` |
+| `sasl.mechanism` | `OAUTHBEARER` |
+| Endpoint de token | `http://<host>:8083/oauth/token` |
+
+#### Qué podés hacer
+
+| Operación | ¿Permitida? |
+|---|---|
+| Leer tópicos `com.citypass.*` | sí |
+| Usar consumer groups cuyo id empiece con tu namespace | sí |
+| **Publicar** eventos | no — se publica por el gateway, que valida el namespace y arma la metadata |
+| Crear o borrar tópicos | no — los crea el gateway al registrar un event type |
+
+Tu `group.id` **tiene que empezar con tu namespace** (`com.citypass.movilidad.loquesea`).
+El broker toma tu identidad del claim `namespace` del token y sólo te deja usar consumer
+groups con ese prefijo: sin esa regla, otro equipo podría entrar a tu consumer group y
+quedarse con tus mensajes mientras vos dejás de recibirlos, sin ningún error visible.
 
 ---
 
@@ -374,13 +426,18 @@ Tu servicio se conecta directamente al broker Kafka. Los mensajes se guardan en 
 #### JavaScript (Node.js)
 
 ```javascript
-const loginRes = await fetch('http://localhost:8083/auth/login', {
+// Flujo client_credentials de OAuth2: las credenciales van como formulario.
+const res = await fetch('http://localhost:8083/oauth/token', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ username: 'grupo3', password: 'grupo3' })
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({
+    grant_type:    'client_credentials',
+    client_id:     'grupo3',
+    client_secret: 'grupo3'
+  })
 });
-const { token } = await loginRes.json();
-// Usar token en cada request posterior
+const { access_token: token, expires_in } = await res.json();
+// Usar token en cada request posterior; vence a los expires_in segundos.
 ```
 
 #### Python
@@ -388,9 +445,12 @@ const { token } = await loginRes.json();
 ```python
 import requests
 
-res = requests.post('http://localhost:8083/auth/login',
-    json={'username': 'grupo3', 'password': 'grupo3'})
-token = res.json()['token']
+res = requests.post('http://localhost:8083/oauth/token', data={
+    'grant_type':    'client_credentials',
+    'client_id':     'grupo3',
+    'client_secret': 'grupo3',
+})
+token = res.json()['access_token']
 ```
 
 ---
@@ -400,25 +460,23 @@ token = res.json()['token']
 #### JavaScript (Node.js)
 
 ```javascript
-// Si SECURITY_ENABLED=false: omitir el header Authorization
-// Si SECURITY_ENABLED=true: incluirlo con el token obtenido en /auth/login
-const response = await fetch('http://localhost:8080/api/v1/events', {
+// El event type va en la ruta y el body son sólo los campos de negocio: el gateway
+// arma la metadata (eventId, source desde el JWT, payloadHash) y la agrega él.
+const fqn = 'com.citypass.movilidad.BiciDevuelta';
+const response = await fetch(
+  `http://localhost:8080/api/v1/event-types/${fqn}/events`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`   // omitir si seguridad desactivada
+    'Authorization': `Bearer ${token}`
   },
   body: JSON.stringify({
-    eventType: 'movilidad.bici.devuelta',
-    source: 'grupo3-movilidad',
-    data: {
-      userId: 'user-42',
-      biciId: 'bici-101',
-      estacionDevolucionId: 'est-003',
-      estacionDevolucionNombre: 'Estacion Congreso',
-      duracionMinutos: 35,
-      distanciaKm: 7.2
-    }
+    userId: 'user-42',
+    biciId: 'bici-101',
+    estacionDevolucionId: 'est-003',
+    estacionDevolucionNombre: 'Estacion Congreso',
+    duracionMinutos: 35,
+    distanciaKm: 7.2
   })
 });
 const result = await response.json();
@@ -583,17 +641,37 @@ client.delete()
 const { Kafka } = require('kafkajs');
 const { SchemaRegistry } = require('@kafkajs/confluent-schema-registry');
 
-const kafka = new Kafka({ brokers: ['localhost:9092'] });
-const registry = new SchemaRegistry({ host: 'http://localhost:8081' });
-const consumer = kafka.consumer({ groupId: 'mi-grupo-consumer' });
+// kafkajs no trae OAUTHBEARER con refresco automático: se le da una función que
+// devuelve el token, y la vuelve a llamar cuando vence.
+async function obtenerToken() {
+  const res = await fetch('http://localhost:8083/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials', client_id: 'grupo3', client_secret: 'grupo3'
+    })
+  });
+  const { access_token } = await res.json();
+  return { value: access_token };
+}
+
+const kafka = new Kafka({
+  brokers: ['localhost:9092'],
+  sasl: { mechanism: 'oauthbearer', oauthBearerProvider: obtenerToken }
+});
+
+// El gateway responde /schemas/ids/{id} igual que el Schema Registry, pero sin
+// permitir escrituras.
+const registry = new SchemaRegistry({ host: 'http://localhost:8080/api/v1' });
+const consumer = kafka.consumer({ groupId: 'com.citypass.movilidad.reportes' });
 
 await consumer.connect();
-await consumer.subscribe({ topic: 'movilidad.bici.devuelta', fromBeginning: false });
+await consumer.subscribe({ topic: 'com.citypass.movilidad.BicicletaLiberada' });
 
 await consumer.run({
-  eachMessage: async ({ topic, message }) => {
-    const event = await registry.decode(message.value);
-    console.log('Evento recibido:', event);
+  eachMessage: async ({ message }) => {
+    const evento = await registry.decode(message.value);
+    console.log(evento.data, evento.metadata.eventId);
   }
 });
 ```
@@ -606,15 +684,24 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from confluent_kafka.serialization import SerializationContext, MessageField
 
-schema_registry = SchemaRegistryClient({'url': 'http://localhost:8081'})
+# El gateway responde /schemas/ids/{id} igual que el Schema Registry, sin escrituras.
+schema_registry = SchemaRegistryClient({'url': 'http://localhost:8080/api/v1'})
 avro_deserializer = AvroDeserializer(schema_registry)
 
 consumer = Consumer({
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'mi-grupo-consumer',
+    # librdkafka pide el token solo y lo renueva al vencer.
+    'security.protocol': 'SASL_PLAINTEXT',
+    'sasl.mechanism': 'OAUTHBEARER',
+    'sasl.oauthbearer.method': 'oidc',
+    'sasl.oauthbearer.client.id': 'grupo3',
+    'sasl.oauthbearer.client.secret': 'grupo3',
+    'sasl.oauthbearer.token.endpoint.url': 'http://localhost:8083/oauth/token',
+    # El group.id debe empezar con tu namespace: es tu identidad ante el broker.
+    'group.id': 'com.citypass.movilidad.reportes',
     'auto.offset.reset': 'latest'
 })
-consumer.subscribe(['movilidad.bici.devuelta'])
+consumer.subscribe(['com.citypass.movilidad.BicicletaLiberada'])
 
 while True:
     msg = consumer.poll(1.0)
@@ -633,7 +720,7 @@ while True:
 // application.yml
 // spring.kafka.bootstrap-servers: localhost:9092
 // spring.kafka.consumer.group-id: mi-grupo-consumer
-// spring.kafka.consumer.properties.schema.registry.url: http://localhost:8081
+// spring.kafka.consumer.properties.schema.registry.url: http://localhost:8080/api/v1
 // spring.kafka.consumer.value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
 
 @Component
@@ -669,17 +756,33 @@ Repositorio de Confluent:
 
 Cuando un mensaje falla al procesarse (deserialización corrupta, webhook que no responde después de 3 reintentos), se envía automáticamente al tópico `sistema.dlq` con metadata del error. Ningún evento se pierde sin dejar rastro.
 
+La entrega es **at-least-once**: el gateway confirma el offset de Kafka recién cuando el
+evento fue entregado o registrado en la DLQ. Si el gateway se reinicia en el medio, el
+evento se vuelve a leer y se reintenta. La contrapartida es que tu endpoint puede recibir
+el mismo evento más de una vez — deduplicá por `metadata.eventId`, que es estable entre
+reintentos.
+
+Como la entrega bloquea al consumidor del tópico, un endpoint lento frena a los demás
+suscriptores de ese mismo tópico. Hay timeouts (5 s para conectar, 10 s para responder)
+para que un endpoint colgado no lo frene indefinidamente.
+
 ### Consultar mensajes fallidos
 
 ```bash
-GET /api/v1/dlq?limit=50
+GET /api/v1/dead-letters?limit=50
 ```
 
-El endpoint está en el Event Gateway (puerto `8080`):
+El endpoint está en el Event Gateway (puerto `8080`) y requiere token:
 
 ```bash
-curl http://localhost:8080/api/v1/dlq?limit=10
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/dead-letters?limit=10"
 ```
+
+Sólo devuelve las entradas de tu grupo. Cada entrada lleva el payload del evento que
+falló y el mensaje de error, así que el campo `owner` decide quién puede verla: los
+fallos de deserialización son del grupo dueño del tópico, y los de entrega de webhook
+del grupo dueño de la suscripción (que no es necesariamente el mismo).
 
 Respuesta:
 ```json
@@ -693,7 +796,8 @@ Respuesta:
       "failureReason": "DESERIALIZATION_ERROR",
       "errorMessage": "Invalid Confluent wire format: bad magic byte",
       "retryCount": 0,
-      "originalTopic": "movilidad.bici.devuelta",
+      "owner": "com.citypass.movilidad",
+      "originalTopic": "com.citypass.movilidad.BiciDevuelta",
       "originalKey": null,
       "originalPayloadBase64": "aW52YWxpZCBkYXRh..."
     }
@@ -706,7 +810,7 @@ Respuesta:
 | `failureReason` | Descripción |
 |---|---|
 | `DESERIALIZATION_ERROR` | El mensaje no se pudo deserializar (magic byte inválido, schemaId desconocido, Avro corrupto) |
-| `WEBHOOK_DELIVERY_FAILED` | El webhook no respondió después de 3 reintentos |
+| `WEBHOOK_DELIVERY_FAILED` | El webhook no respondió después de 3 reintentos, o su URL no apunta a un destino público |
 
 ### Reprocesar un mensaje
 

@@ -23,9 +23,11 @@ class TopicAuthorizationServiceTest {
     }
 
     @Test
-    fun `isAllowed returns true when namespace is wildcard star`() {
+    fun `a wildcard namespace is not privileged`() {
+        // No hay clientes todopoderosos: un comodín sería una llave maestra sobre
+        // todos los tópicos, y se trata como cualquier otro namespace literal.
         val jwt = jwtWithNamespace("*")
-        assertTrue(service.isAllowed(jwt, "com.citypass.movilidad.BiciDevuelta"))
+        assertFalse(service.isAllowed(jwt, "com.citypass.movilidad.BiciDevuelta"))
     }
 
     @Test

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Ejecuta los tests de integración de event-gateway (@Tag("integration")).
+# Comprueba la coherencia de la configuración por ambiente y ejecuta los tests de
+# integración de event-gateway (@Tag("integration")).
+#
 # REQUISITO: los servicios de infraestructura deben estar activos antes de correr este script.
-#   docker compose up -d kafka schema-registry
+#   docker compose up -d kafka-authorizer schema-registry
 # Uso: ./test-integration.sh
 set -uo pipefail
 
@@ -16,6 +18,52 @@ NC='\033[0m'
 echo -e "${BOLD}═══════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  CityPass+ EDA — Tests de Integración${NC}"
 echo -e "${BOLD}═══════════════════════════════════════════════${NC}"
+# ── Coherencia de la configuración por ambiente ──────────────────────────────
+#
+# .env.dev y .env.prod tienen que definir exactamente las mismas variables y sólo
+# diferir en los valores. Si una queda definida en uno solo, el ambiente que la pierde
+# cae en el default del compose sin que nada lo avise: en el mejor caso arranca
+# distinto de lo esperado, y en el peor —una variable de seguridad— arranca abierto.
+#
+# También se comprueba que no falte ninguna de las que el compose interpola.
+echo -e "\n${BLUE}${BOLD}▶ configuración (.env.dev / .env.prod)${NC}"
+
+nombres() { grep -oE '^[A-Z_]+=' "$1" | tr -d '=' | sort; }
+
+env_ok=1
+
+faltan_en_prod=$(comm -23 <(nombres "$ROOT_DIR/.env.dev") <(nombres "$ROOT_DIR/.env.prod"))
+faltan_en_dev=$(comm -13 <(nombres "$ROOT_DIR/.env.dev") <(nombres "$ROOT_DIR/.env.prod"))
+
+if [ -n "$faltan_en_prod" ]; then
+    echo -e "${RED}✗ definidas en .env.dev y ausentes en .env.prod:${NC}"
+    echo "$faltan_en_prod" | sed 's/^/    /'
+    env_ok=0
+fi
+if [ -n "$faltan_en_dev" ]; then
+    echo -e "${RED}✗ definidas en .env.prod y ausentes en .env.dev:${NC}"
+    echo "$faltan_en_dev" | sed 's/^/    /'
+    env_ok=0
+fi
+
+# Variables que docker-compose.yml interpola pero no define ningún .env. El compose
+# tiene defaults seguros, así que esto no rompe nada: avisa de una variable huérfana.
+sin_definir=$(comm -23 \
+    <(grep -oE '\$\{[A-Z_]+' "$ROOT_DIR/docker-compose.yml" | sed 's/\${//' | sort -u) \
+    <(nombres "$ROOT_DIR/.env.dev"))
+if [ -n "$sin_definir" ]; then
+    echo -e "${RED}✗ usadas en docker-compose.yml y no definidas en los .env:${NC}"
+    echo "$sin_definir" | sed 's/^/    /'
+    env_ok=0
+fi
+
+if [ "$env_ok" -eq 1 ]; then
+    echo -e "${GREEN}✓ configuración — $(nombres "$ROOT_DIR/.env.dev" | wc -l) variables, iguales en ambos ambientes${NC}"
+else
+    echo -e "\n${RED}✗ la configuración por ambiente es incoherente${NC}"
+    exit 1
+fi
+
 echo -e "\n${BLUE}${BOLD}▶ event-gateway (integration tests)${NC}"
 
 if (cd "$ROOT_DIR/event-gateway" && ./gradlew integrationTest --no-daemon -q 2>&1); then

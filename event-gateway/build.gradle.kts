@@ -28,6 +28,9 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+    // Métricas: actuator expone los endpoints, micrometer los traduce a formato Prometheus.
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.micrometer:micrometer-registry-prometheus")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
@@ -45,13 +48,23 @@ kotlin {
 // Deshabilitamos el plain JAR para que build/libs/ tenga siempre un único artefacto.
 tasks.named<Jar>("jar") { enabled = false }
 
+// Genera META-INF/build-info.properties con la versión de este bloque de arriba.
+// Spring lo expone como bean BuildProperties, que EventController publica en
+// metadata.gatewayVersion — así la versión sale del build y no de una env var
+// que hay que acordarse de actualizar.
+springBoot {
+    buildInfo()
+}
+
 // ── Clases excluidas de cobertura (adaptadores de infraestructura) ────────────
 // GatewayApplicationKt : función main de Spring Boot — no tiene lógica propia.
 // DlqController        : crea un KafkaConsumer directamente, requiere broker real.
+// EventsController     : ídem. Su lógica de selección vive en EventSelection, que sí se mide.
 // SecurityConfig       : configura el builder de Spring Security, requiere contexto.
 val jacocoExclusions = listOf(
     "**/GatewayApplicationKt*",
     "**/DlqController*",
+    "**/EventsController*",
     "**/SecurityConfig*"
 )
 
@@ -72,6 +85,15 @@ val integrationTest by tasks.registering(Test::class) {
     }
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
+}
+
+// Sin esto la tarea existe pero no la corre nadie: `build` no la ejecuta, así que un test
+// de integración roto pasaría desapercibido hasta que alguien se acordara de invocarla a
+// mano. No necesitan broker ni Schema Registry, así que no hay motivo para dejarlos afuera.
+tasks.check {
+    dependsOn(integrationTest)
+    // Ídem: el umbral del 100% no sirve de nada si hay que acordarse de pedirlo aparte.
+    dependsOn(tasks.jacocoTestCoverageVerification)
 }
 
 // ── JaCoCo ───────────────────────────────────────────────────────────────────

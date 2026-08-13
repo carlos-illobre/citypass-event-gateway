@@ -6,16 +6,49 @@ Features usadas:
 - day_of_week      : día de la semana (0=lunes, 6=domingo), captura patrones semanales
 - topic_freq_1min  : cuántos eventos del mismo tópico llegaron en el último minuto
 - topic_freq_5min  : cuántos eventos del mismo tópico llegaron en los últimos 5 minutos
-- payload_fields   : cantidad de campos en el payload (data), indica complejidad del evento
-- payload_size     : tamaño en bytes del payload serializado como string
-- numeric_mean     : media de todos los valores numéricos del payload (0 si no hay)
-- numeric_max      : máximo de valores numéricos del payload (0 si no hay)
+- payload_fields   : cantidad de campos de negocio de primer nivel, indica complejidad
+- payload_size     : tamaño en bytes del payload de negocio serializado como string
+- numeric_mean     : media de los valores numéricos del payload (0 si no hay)
+- numeric_max      : máximo de los valores numéricos del payload (0 si no hay)
 """
 
 from collections import deque, defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
 import time
+
+
+def business_payload(event: dict) -> dict:
+    """
+    Devuelve los campos que puso el productor.
+
+    El evento es un envelope de dos records: `metadata`, que calcula el gateway, y
+    `data`, con los datos de negocio. La separación es estructural, así que acá no
+    hace falta ninguna lista de nombres a excluir: una lista tendría que mantenerse
+    sincronizada con el gateway y se desactualizaría en silencio.
+    """
+    data = event.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def _numbers(value) -> list[float]:
+    """
+    Recolecta los valores numéricos de un valor, descendiendo por records y arrays.
+
+    Los schemas admiten anidamiento, así que los números pueden estar a cualquier
+    profundidad. Los booleanos se excluyen: en Python son int, pero promediarlos
+    junto a magnitudes de negocio no significa nada.
+    """
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, (int, float, Decimal)):
+        return [float(value)]
+    if isinstance(value, dict):
+        return [n for v in value.values() for n in _numbers(v)]
+    if isinstance(value, (list, tuple)):
+        return [n for v in value for n in _numbers(v)]
+    return []
 
 
 class FeatureExtractor:
@@ -34,13 +67,13 @@ class FeatureExtractor:
     def extract(self, topic: str, event: dict, ts: datetime) -> list[float]:
         self.record_event(topic, ts)
 
-        data = event.get("data", {}) if isinstance(event.get("data"), dict) else {}
-        payload_str = json.dumps(data)
+        data = business_payload(event)
 
-        numeric_values = [
-            v for v in data.values()
-            if isinstance(v, (int, float)) and not isinstance(v, bool)
-        ]
+        # default=str: los tipos lógicos de Avro (decimal, timestamp, bytes) no son
+        # serializables por json, y la excepción cortaría el loop del consumer.
+        payload_str = json.dumps(data, default=str)
+
+        numeric_values = _numbers(data)
 
         return [
             float(ts.hour),
@@ -49,8 +82,8 @@ class FeatureExtractor:
             float(self._freq_in_window(topic, 300)),
             float(len(data)),
             float(len(payload_str)),
-            float(sum(numeric_values) / len(numeric_values)) if numeric_values else 0.0,
-            float(max(numeric_values)) if numeric_values else 0.0,
+            sum(numeric_values) / len(numeric_values) if numeric_values else 0.0,
+            max(numeric_values) if numeric_values else 0.0,
         ]
 
     @property

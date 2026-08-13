@@ -47,7 +47,10 @@ class DlqService(
             originalPayloadBase64 = Base64.getEncoder().encodeToString(rawValue),
             failureReason = "DESERIALIZATION_ERROR",
             errorMessage = error.message ?: "Unknown error",
-            retryCount = 0
+            retryCount = 0,
+            // Un mensaje ilegible en un tópico es problema de quien lo publicó, y el
+            // tópico es `<namespace>.<Evento>`.
+            owner = topic.substringBeforeLast('.', "")
         )
     }
 
@@ -60,6 +63,10 @@ class DlqService(
      * @param callbackUrl URL del webhook que falló.
      * @param retryCount Cantidad de reintentos realizados antes de desistir.
      * @param error Excepción del último intento fallido.
+     * @param owner Namespace del grupo dueño de la suscripción, que es el único que
+     *   puede leer esta entrada. No es el dueño del tópico: quien se suscribe a los
+     *   eventos de otro grupo necesita ver por qué le fallan sus propias entregas, y el
+     *   dueño del tópico no tiene por qué ver la URL interna del suscriptor.
      */
     fun sendWebhookFailure(
         originalTopic: String,
@@ -67,7 +74,8 @@ class DlqService(
         eventJson: Map<String, Any?>,
         callbackUrl: String,
         retryCount: Int,
-        error: Exception
+        error: Exception,
+        owner: String
     ) {
         send(
             originalTopic = originalTopic,
@@ -75,7 +83,8 @@ class DlqService(
             originalPayloadBase64 = Base64.getEncoder().encodeToString(mapper.writeValueAsBytes(eventJson)),
             failureReason = "WEBHOOK_DELIVERY_FAILED",
             errorMessage = "Max retries ($retryCount) exceeded for $callbackUrl: ${error.message}",
-            retryCount = retryCount
+            retryCount = retryCount,
+            owner = owner
         )
     }
 
@@ -88,6 +97,10 @@ class DlqService(
      * @param failureReason Código de razón del fallo (DESERIALIZATION_ERROR o WEBHOOK_DELIVERY_FAILED).
      * @param errorMessage Descripción legible del error.
      * @param retryCount Cantidad de reintentos realizados.
+     * @param owner Namespace del grupo al que pertenece el fallo. Es el criterio con el
+     *   que [com.citypass.gateway.controller.DlqController] decide quién puede leerlo:
+     *   `errorMessage` y `originalPayloadBase64` contienen datos de negocio y URLs
+     *   internas que no pueden quedar a la vista de los demás grupos.
      */
     private fun send(
         originalTopic: String,
@@ -95,7 +108,8 @@ class DlqService(
         originalPayloadBase64: String,
         failureReason: String,
         errorMessage: String,
-        retryCount: Int
+        retryCount: Int,
+        owner: String
     ) {
         val dlqMessage = mapOf(
             "dlqId" to UUID.randomUUID().toString(),
@@ -103,6 +117,7 @@ class DlqService(
             "failureReason" to failureReason,
             "errorMessage" to errorMessage,
             "retryCount" to retryCount,
+            "owner" to owner,
             "originalTopic" to originalTopic,
             "originalKey" to originalKey,
             "originalPayloadBase64" to originalPayloadBase64

@@ -1,0 +1,60 @@
+.jfe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.jfe-hint {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.jfe-hint code {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.7rem;
+  padding: 0.05rem 0.25rem;
+  background: var(--border);
+  border-radius: 3px;
+}
+.jfe-hint kbd {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.65rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+/* La altura la fija el contenedor y el editor scrollea por dentro. */
+.jfe-host .cm-editor { max-height: 26rem; }
+.jfe-host .cm-scroller { overflow: auto; }
+
+.jfe-error,
+.jfe-ok {
+  font-size: 0.75rem;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+.jfe-error { color: var(--danger); }
+.jfe-ok    { color: var(--text-muted); opacity: 0.7; }
+
+.jfe-loading {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 1rem 0;
+}
+
+/*
+ * Color del cursor.
+ *
+ * Sin `drawSelection` el cursor es el nativo del navegador, y su color sale de
+ * `caret-color` en `.cm-content`. El tema base de CodeMirror lo fija en negro bajo
+ * su clase `cm-light`, que es la que aplica porque nuestro tema no se declara
+ * oscuro — es dinámico. Sobre fondo oscuro eso deja el cursor invisible.
+ *
+ * Se sobrescribe desde acá y no desde EditorView.theme para no depender del orden
+ * de inyección de las hojas de estilo: esta cadena de clases gana por especificidad.
+ */
+.jfe .jfe-host .cm-editor .cm-content {
+  caret-color: var(--text);
+}

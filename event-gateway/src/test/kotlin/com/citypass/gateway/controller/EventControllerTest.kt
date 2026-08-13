@@ -4,14 +4,21 @@ import com.citypass.gateway.service.AvroService
 import com.citypass.gateway.service.SchemaRegistryService
 import com.citypass.gateway.service.TopicAuthorizationService
 import org.apache.avro.Schema
-import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.*
+import org.springframework.boot.info.BuildProperties
 import org.springframework.http.HttpStatus
+import org.springframework.http.ProblemDetail
+import org.springframework.http.ResponseEntity
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.kafka.support.SendResult
 import org.springframework.security.oauth2.jwt.Jwt
+import java.util.Properties
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 class EventControllerTest {
 
@@ -22,172 +29,322 @@ class EventControllerTest {
 
     private lateinit var controller: EventController
 
+    private val fqn = "com.citypass.test.TestEvent"
+
+    /** Schema con el envelope metadata/data, como los que construye el gateway hoy. */
     private val schema = Schema.Parser().parse("""
     {
       "type": "record",
       "name": "TestEvent",
+      "namespace": "com.citypass.test",
+      "fields": [
+        {"name": "metadata", "type": {
+          "type": "record", "name": "EventMetadata", "namespace": "com.citypass.gateway",
+          "fields": [
+            {"name": "eventId",        "type": "string"},
+            {"name": "eventType",      "type": "string"},
+            {"name": "receivedAt",     "type": {"type": "long", "logicalType": "timestamp-millis"}},
+            {"name": "source",         "type": "string"},
+            {"name": "tokenId",        "type": "string"},
+            {"name": "schemaId",       "type": "int"},
+            {"name": "payloadHash",    "type": "string"},
+            {"name": "gatewayVersion", "type": "string"},
+            {"name": "instanceId",     "type": "string"}
+          ]
+        }},
+        {"name": "data", "type": {
+          "type": "record", "name": "TestEvent", "namespace": "com.citypass.test.data",
+          "fields": [{"name": "userId", "type": "string"}]
+        }}
+      ]
+    }
+    """.trimIndent())
+
+    /** Schema con el formato plano anterior al envelope. */
+    private val legacySchema = Schema.Parser().parse("""
+    {
+      "type": "record", "name": "Legacy", "namespace": "com.citypass.test",
       "fields": [{"name": "userId", "type": "string"}]
     }
     """.trimIndent())
 
     @BeforeEach
     fun setUp() {
-        controller = EventController(kafkaTemplate, schemaRegistryService, avroService, topicAuthorizationService, false)
+        val build = BuildProperties(Properties().apply { setProperty("version", "1.2.3") })
+        controller = EventController(
+            kafkaTemplate, schemaRegistryService, avroService, topicAuthorizationService, build,
+            publishTimeoutMs = 5_000
+        )
+    }
+
+    private fun authorizedJwt(topic: String, subject: String? = "testuser", jti: String? = "tok-1"): Jwt {
+        val jwt: Jwt = mock()
+        whenever(jwt.subject).thenReturn(subject)
+        whenever(jwt.id).thenReturn(jti)
+        whenever(topicAuthorizationService.isAllowed(jwt, topic)).thenReturn(true)
+        return jwt
+    }
+
+    /** Prepara el camino feliz y devuelve el JWT autorizado. */
+    private fun readyToPublish(subject: String? = "testuser", jti: String? = "tok-1"): Jwt {
+        val jwt = authorizedJwt(fqn, subject, jti)
+        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(schema)
+        whenever(schemaRegistryService.getSchemaId(fqn)).thenReturn(7)
+        whenever(avroService.payloadHash(any(), any())).thenReturn("a".repeat(64))
+        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(7))).thenReturn(byteArrayOf(1, 2, 3))
+        whenever(kafkaTemplate.send(eq(fqn), any<String>(), any()))
+            .thenReturn(CompletableFuture.completedFuture(mock()))
+        return jwt
+    }
+
+    /** El envelope que el controller le pasó a AvroService. */
+    private fun capturedEnvelope(): Map<*, *> {
+        val captor = argumentCaptor<Map<String, Any>>()
+        verify(avroService).jsonToAvroBytes(captor.capture(), any(), any())
+        return captor.firstValue
+    }
+
+    private fun capturedMetadata(): Map<*, *> = capturedEnvelope()["metadata"] as Map<*, *>
+
+    private fun problemOf(response: ResponseEntity<Any>): ProblemDetail = response.body as ProblemDetail
+
+    // ── autorización ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `returns 401 when there is no JWT`() {
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), null)
+
+        assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
+        assertEquals("Autenticación requerida", problemOf(response).title)
     }
 
     @Test
-    fun `publishEvent returns 400 when eventType is missing`() {
-        val request = mapOf<String, Any>("data" to mapOf("foo" to "bar"))
-        val response = controller.publishEvent(request, null)
-        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+    fun `returns 403 when the topic is not allowed`() {
+        val jwt: Jwt = mock()
+        whenever(jwt.subject).thenReturn("testuser")
+        whenever(topicAuthorizationService.isAllowed(jwt, fqn)).thenReturn(false)
+
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), jwt)
+
+        assertEquals(HttpStatus.FORBIDDEN, response.statusCode)
+        assertTrue(problemOf(response).detail!!.contains("testuser"))
+    }
+
+    // ── resolución del event type ────────────────────────────────────────────
+
+    @Test
+    fun `returns 404 when the event type is unknown`() {
+        val unknown = "com.citypass.test.Unknown"
+        val jwt = authorizedJwt(unknown)
+        whenever(schemaRegistryService.getSchema(unknown)).thenReturn(null)
+        whenever(schemaRegistryService.getAvailableEventTypes()).thenReturn(setOf(fqn))
+
+        val response = controller.publishEvent(unknown, mapOf("a" to "b"), jwt)
+
+        assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
+        assertEquals(setOf(fqn), problemOf(response).properties!!["availableEventTypes"])
     }
 
     @Test
-    fun `publishEvent returns 400 when data is missing`() {
-        val request = mapOf<String, Any>("eventType" to "test.event")
-        val response = controller.publishEvent(request, null)
-        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+    fun `returns 409 when the event type is archived`() {
+        val jwt = authorizedJwt(fqn)
+        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(schema)
+        whenever(schemaRegistryService.isArchived(fqn)).thenReturn(true)
+
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), jwt)
+
+        assertEquals(HttpStatus.CONFLICT, response.statusCode)
+        assertEquals("Event type archivado", problemOf(response).title)
     }
 
     @Test
-    fun `publishEvent returns 400 when schema is unknown`() {
-        whenever(schemaRegistryService.getSchema("unknown.event")).thenReturn(null)
-        val request = mapOf<String, Any>("eventType" to "unknown.event", "data" to mapOf("foo" to "bar"))
-        val response = controller.publishEvent(request, null)
-        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
-    }
+    fun `returns 503 when the schema is not registered yet`() {
+        val jwt = authorizedJwt(fqn)
+        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(schema)
+        whenever(schemaRegistryService.getSchemaId(fqn)).thenReturn(null)
 
-    @Test
-    fun `publishEvent returns 503 when schema is not yet registered`() {
-        whenever(schemaRegistryService.getSchema("test.event")).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId("test.event")).thenReturn(null)
-        val request = mapOf<String, Any>("eventType" to "test.event", "data" to mapOf("userId" to "u123"))
-        val response = controller.publishEvent(request, null)
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), jwt)
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.statusCode)
     }
 
     @Test
-    fun `publishEvent returns 202 on successful publish`() {
-        whenever(schemaRegistryService.getSchema("test.event")).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId("test.event")).thenReturn(1)
-        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(1))).thenReturn(byteArrayOf(1, 2, 3))
-        whenever(kafkaTemplate.send(eq("test.event"), eq("u123"), any()))
-            .thenReturn(CompletableFuture.completedFuture(mock()))
+    fun `returns 400 for a legacy flat schema`() {
+        val jwt = authorizedJwt(fqn)
+        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(legacySchema)
+        whenever(schemaRegistryService.getSchemaId(fqn)).thenReturn(3)
 
-        val request = mapOf<String, Any>("eventType" to "test.event", "data" to mapOf("userId" to "u123"))
-        val response = controller.publishEvent(request, null)
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), jwt)
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+        assertTrue(problemOf(response).detail!!.contains("campos planos"))
+    }
+
+    // ── el envelope ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `returns 202 and separates metadata from data`() {
+        val jwt = readyToPublish()
+
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
         assertEquals(HttpStatus.ACCEPTED, response.statusCode)
+
+        val envelope = capturedEnvelope()
+        assertEquals(setOf("metadata", "data"), envelope.keys)
+        assertEquals(mapOf("userId" to "u123"), envelope["data"])
     }
 
     @Test
-    fun `publishEvent uses source from request when provided`() {
-        whenever(schemaRegistryService.getSchema("test.event")).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId("test.event")).thenReturn(1)
-        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(1))).thenReturn(byteArrayOf(1, 2, 3))
-        whenever(kafkaTemplate.send(eq("test.event"), any(), any()))
-            .thenReturn(CompletableFuture.completedFuture(mock()))
+    fun `fills every metadata field from the gateway`() {
+        val jwt = readyToPublish()
 
-        // source present in request — should NOT fall back to jwt.subject
-        val request = mapOf<String, Any>(
-            "eventType" to "test.event",
-            "source" to "grupo3-movilidad",
-            "data" to mapOf("userId" to "u123")
+        controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        val metadata = capturedMetadata()
+        assertEquals(fqn, metadata["eventType"])
+        assertEquals("testuser", metadata["source"])
+        assertEquals("tok-1", metadata["tokenId"])
+        assertEquals(7, metadata["schemaId"])
+        assertEquals("a".repeat(64), metadata["payloadHash"])
+        assertEquals("1.2.3", metadata["gatewayVersion"])
+        assertNotNull(metadata["eventId"])
+        assertTrue(metadata["receivedAt"] is Long)
+        assertTrue((metadata["instanceId"] as String).startsWith("gw-"))
+    }
+
+    @Test
+    fun `data cannot forge metadata fields`() {
+        val jwt = readyToPublish()
+
+        // El body es directamente el payload de negocio: aunque traiga nombres de
+        // metadata, van a parar a `data` y no pueden alcanzar el record de auditoría.
+        controller.publishEvent(
+            fqn, mapOf("userId" to "u123", "source" to "grupo7", "eventId" to "falso"), jwt
         )
-        val response = controller.publishEvent(request, null)
-        assertEquals(HttpStatus.ACCEPTED, response.statusCode)
+
+        val metadata = capturedMetadata()
+        assertEquals("testuser", metadata["source"], "source debe venir del JWT, no del request")
+        assertNotEquals("falso", metadata["eventId"])
+
+        val data = capturedEnvelope()["data"] as Map<*, *>
+        assertEquals("grupo7", data["source"], "lo del productor se aísla, no se pierde")
     }
 
     @Test
-    fun `publishEvent uses jwt subject as source when source not in request`() {
-        val secureController = EventController(kafkaTemplate, schemaRegistryService, avroService, topicAuthorizationService, true)
-        val jwt: Jwt = mock()
-        whenever(jwt.subject).thenReturn("testuser")
-        whenever(topicAuthorizationService.isAllowed(jwt, "test.event")).thenReturn(true)
-        whenever(schemaRegistryService.getSchema("test.event")).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId("test.event")).thenReturn(1)
-        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(1))).thenReturn(byteArrayOf(1, 2, 3))
-        whenever(kafkaTemplate.send(eq("test.event"), any(), any()))
-            .thenReturn(CompletableFuture.completedFuture(mock()))
+    fun `hashes the business payload against the data schema`() {
+        val jwt = readyToPublish()
 
-        // No "source" in request — should fall back to jwt.subject ("testuser")
-        val request = mapOf<String, Any>("eventType" to "test.event", "data" to mapOf("userId" to "u123"))
-        val response = secureController.publishEvent(request, jwt)
-        assertEquals(HttpStatus.ACCEPTED, response.statusCode)
+        controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        verify(avroService).payloadHash(
+            eq(mapOf("userId" to "u123")),
+            eq(schema.getField("data").schema())
+        )
     }
 
     @Test
-    fun `publishEvent returns 500 when Kafka throws exception`() {
-        whenever(schemaRegistryService.getSchema("test.event")).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId("test.event")).thenReturn(1)
-        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(1))).thenReturn(byteArrayOf(1, 2, 3))
-        whenever(kafkaTemplate.send(eq("test.event"), any(), any()))
+    fun `falls back to unknown when the JWT has no subject or jti`() {
+        val jwt = readyToPublish(subject = null, jti = null)
+
+        controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        val metadata = capturedMetadata()
+        assertEquals("unknown", metadata["source"])
+        assertEquals("unknown", metadata["tokenId"])
+    }
+
+    // ── publicación en Kafka ─────────────────────────────────────────────────
+
+    @Test
+    fun `uses userId as the Kafka key`() {
+        val jwt = readyToPublish()
+
+        controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        verify(kafkaTemplate).send(eq(fqn), eq("u123"), any())
+    }
+
+    @Test
+    fun `falls back to eventId as the Kafka key when data has no userId`() {
+        val jwt = readyToPublish()
+
+        val response = controller.publishEvent(fqn, mapOf(), jwt)
+
+        assertEquals(HttpStatus.ACCEPTED, response.statusCode)
+        val metadata = (response.body as Map<*, *>)["metadata"] as Map<*, *>
+        verify(kafkaTemplate).send(eq(fqn), eq(metadata["eventId"] as String), any())
+    }
+
+    @Test
+    fun `returns 504 when Kafka does not confirm in time`() {
+        val jwt = readyToPublish()
+        val colgado = mock<CompletableFuture<SendResult<String, ByteArray>>>()
+        whenever(colgado.get(any(), any())).thenThrow(TimeoutException())
+        whenever(kafkaTemplate.send(eq(fqn), any<String>(), any())).thenReturn(colgado)
+
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        // Sin tope, el hilo de request esperaría para siempre y el pool se agotaría.
+        assertEquals(HttpStatus.GATEWAY_TIMEOUT, response.statusCode)
+        assertEquals("Kafka no respondió a tiempo", problemOf(response).title)
+    }
+
+    @Test
+    fun `waits for the confirmation with the configured timeout`() {
+        val jwt = readyToPublish()
+        val futuro = mock<CompletableFuture<SendResult<String, ByteArray>>>()
+        whenever(futuro.get(any(), any())).thenReturn(mock())
+        whenever(kafkaTemplate.send(eq(fqn), any<String>(), any())).thenReturn(futuro)
+
+        controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        verify(futuro).get(5_000L, TimeUnit.MILLISECONDS)
+    }
+
+    @Test
+    fun `returns 502 when Kafka fails`() {
+        val jwt = readyToPublish()
+        whenever(kafkaTemplate.send(eq(fqn), any<String>(), any()))
             .thenThrow(RuntimeException("Kafka broker unavailable"))
 
-        val request = mapOf<String, Any>("eventType" to "test.event", "data" to mapOf("userId" to "u123"))
-        val response = controller.publishEvent(request, null)
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.statusCode)
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        assertEquals(HttpStatus.BAD_GATEWAY, response.statusCode)
+        assertTrue(problemOf(response).detail!!.contains("Kafka broker unavailable"))
     }
 
     @Test
-    fun `publishEvent uses eventId as Kafka key when data has no userId`() {
-        // Cubre la rama data["userId"]?.toString() ?: eventId cuando userId no está en data.
-        whenever(schemaRegistryService.getSchema("test.event")).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId("test.event")).thenReturn(1)
-        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(1))).thenReturn(byteArrayOf(1, 2, 3))
-        whenever(kafkaTemplate.send(eq("test.event"), any<String>(), any()))
-            .thenReturn(CompletableFuture.completedFuture(mock()))
+    fun `reports a generic detail when the failure has no message`() {
+        val jwt = readyToPublish()
+        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(7))).thenThrow(RuntimeException())
 
-        val request = mapOf<String, Any>("eventType" to "test.event", "data" to mapOf<String, Any>())
-        val response = controller.publishEvent(request, null)
-        assertEquals(HttpStatus.ACCEPTED, response.statusCode)
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        assertEquals(HttpStatus.BAD_GATEWAY, response.statusCode)
+        assertEquals("No se pudo publicar el evento.", problemOf(response).detail)
     }
 
     @Test
-    fun `publishEvent returns 403 when security enabled and topic not allowed`() {
-        val secureController = EventController(kafkaTemplate, schemaRegistryService, avroService, topicAuthorizationService, true)
-        val jwt: Jwt = mock()
-        whenever(jwt.subject).thenReturn("testuser")
-        whenever(topicAuthorizationService.isAllowed(jwt, "reclamos.creado")).thenReturn(false)
+    fun `la respuesta devuelve el envelope completo, no un resumen`() {
+        // Quien publica no puede calcular por su cuenta lo que el gateway le estampó, así
+        // que si la respuesta recorta la metadata, la única forma de ver qué se publicó a
+        // su nombre es leerlo de Kafka.
+        val jwt = readyToPublish()
 
-        val request = mapOf<String, Any>("eventType" to "reclamos.creado", "data" to mapOf("foo" to "bar"))
-        val response = secureController.publishEvent(request, jwt)
-        assertEquals(HttpStatus.FORBIDDEN, response.statusCode)
+        val response = controller.publishEvent(fqn, mapOf("userId" to "u123"), jwt)
+
+        val body = response.body as Map<*, *>
+        assertEquals(setOf("metadata", "data"), body.keys)
+        assertEquals(mapOf("userId" to "u123"), body["data"])
+
+        val metadata = body["metadata"] as Map<*, *>
+        assertEquals(
+            setOf(
+                "eventId", "eventType", "receivedAt", "source", "tokenId",
+                "schemaId", "payloadHash", "gatewayVersion", "instanceId"
+            ),
+            metadata.keys
+        )
+        assertEquals(fqn, metadata["eventType"])
     }
-
-    @Test
-    fun `publishEvent returns 403 with unknown user when jwt is null and security enabled`() {
-        val secureController = EventController(kafkaTemplate, schemaRegistryService, avroService, topicAuthorizationService, true)
-        val request = mapOf<String, Any>("eventType" to "reclamos.creado", "data" to mapOf("foo" to "bar"))
-        val response = secureController.publishEvent(request, null)
-        assertEquals(HttpStatus.FORBIDDEN, response.statusCode)
-    }
-
-    @Test
-    fun `publishEvent returns 403 with unknown user when jwt subject is null`() {
-        // Cubre la rama jwt != null pero jwt.subject == null → ?: "unknown"
-        val secureController = EventController(kafkaTemplate, schemaRegistryService, avroService, topicAuthorizationService, true)
-        val jwt: Jwt = mock()
-        whenever(jwt.subject).thenReturn(null)
-        whenever(topicAuthorizationService.isAllowed(jwt, "reclamos.creado")).thenReturn(false)
-        val request = mapOf<String, Any>("eventType" to "reclamos.creado", "data" to mapOf("foo" to "bar"))
-        val response = secureController.publishEvent(request, jwt)
-        assertEquals(HttpStatus.FORBIDDEN, response.statusCode)
-    }
-
-    @Test
-    fun `publishEvent publishes when security enabled and topic is allowed`() {
-        val secureController = EventController(kafkaTemplate, schemaRegistryService, avroService, topicAuthorizationService, true)
-        val jwt: Jwt = mock()
-        whenever(topicAuthorizationService.isAllowed(jwt, "test.event")).thenReturn(true)
-        whenever(schemaRegistryService.getSchema("test.event")).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId("test.event")).thenReturn(1)
-        whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(1))).thenReturn(byteArrayOf(1, 2, 3))
-        whenever(kafkaTemplate.send(eq("test.event"), eq("u123"), any()))
-            .thenReturn(CompletableFuture.completedFuture(mock()))
-
-        val request = mapOf<String, Any>("eventType" to "test.event", "data" to mapOf("userId" to "u123"))
-        val response = secureController.publishEvent(request, jwt)
-        assertEquals(HttpStatus.ACCEPTED, response.statusCode)
-    }
-
 }

@@ -11,7 +11,10 @@ import org.springframework.stereotype.Service
  *
  * Un tópico sigue el formato `namespace.NombreEvento` (FQN Avro), por lo que
  * basta verificar que el tópico empiece con el namespace del usuario seguido de un punto.
- * El namespace especial `"*"` (admin) permite publicar en cualquier tópico.
+ *
+ * No hay ningún namespace privilegiado: un comodín sería una llave maestra sobre todos
+ * los tópicos, y bastaría con que se filtrara esa credencial para comprometer el bus
+ * entero. Cada grupo puede publicar exactamente en lo suyo.
  */
 @Service
 class TopicAuthorizationService {
@@ -28,7 +31,6 @@ class TopicAuthorizationService {
     fun isAllowed(jwt: Jwt?, topic: String): Boolean {
         if (jwt == null) return false
         val namespace = jwt.claims["namespace"] as? String ?: return false
-        if (namespace == "*") return true
         return topic.startsWith("$namespace.")
     }
 }

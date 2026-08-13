@@ -62,9 +62,9 @@ def model_features():
         "day_of_week": "Día de la semana (0=lunes, 6=domingo). Captura patrones semanales.",
         "topic_freq_1min": "Eventos del mismo tópico en el último minuto. Detecta picos repentinos.",
         "topic_freq_5min": "Eventos del mismo tópico en los últimos 5 minutos. Detecta tendencias.",
-        "payload_fields": "Cantidad de campos en el payload. Detecta eventos malformados o inesperadamente simples/complejos.",
-        "payload_size": "Tamaño en bytes del payload. Detecta payloads inusualmente grandes o vacíos.",
-        "numeric_mean": "Media de los valores numéricos del payload. Detecta rangos de valores inusuales.",
-        "numeric_max": "Máximo de los valores numéricos del payload. Detecta valores extremos.",
+        "payload_fields": "Cantidad de campos de negocio (record `data`) de primer nivel. Detecta eventos malformados o inesperadamente simples/complejos.",
+        "payload_size": "Tamaño en bytes del payload de negocio. Detecta payloads inusualmente grandes o vacíos.",
+        "numeric_mean": "Media de los valores numéricos del payload de negocio, incluidos los anidados. Detecta rangos de valores inusuales.",
+        "numeric_max": "Máximo de los valores numéricos del payload de negocio, incluidos los anidados. Detecta valores extremos.",
     }
     return {"features": descriptions}

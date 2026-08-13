@@ -1,0 +1,10 @@
+.error-banner {
+  font-size: 0.875rem;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.error-banner--dismissable { cursor: pointer; }

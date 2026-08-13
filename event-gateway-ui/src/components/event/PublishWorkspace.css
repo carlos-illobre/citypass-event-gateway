@@ -1,0 +1,63 @@
+/*
+ * Tres columnas: lista · formulario · payload, igual que la pantalla de schemas.
+ *
+ * El formulario devuelve el formulario y la columna derecha como hijos sueltos —sin
+ * envoltorio— para que caigan como hijas directas de la grilla y se ubiquen por área.
+ * La columna derecha lleva adentro la vista previa y el historial de la sesión.
+ */
+.pw {
+  display: grid;
+  gap: 1.25rem;
+  align-items: start;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.2fr) minmax(0, 1.05fr);
+  grid-template-areas: "list form preview";
+}
+
+.pw-list       { grid-area: list;    min-width: 0; }
+.pw .pef-section { grid-area: form;    min-width: 0; }
+.pw .pef-side    { grid-area: preview; min-width: 0; }
+
+/* La lista acompaña el scroll y scrollea por dentro si es larga. */
+.pw-list {
+  position: sticky;
+  top: 68px;
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+}
+.pw-list > * {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* Scrollea la lista, no la tarjeta: el encabezado y el contador quedan fijos. */
+.pw-list .et-items {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* Sin lugar para tres columnas: la lista pasa abajo, a todo el ancho. */
+@media (max-width: 1400px) {
+  .pw {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    grid-template-areas:
+      "form preview"
+      "list list";
+  }
+  .pw-list {
+    position: static;
+    max-height: none;
+  }
+  .pw-list .et-items { overflow: visible; }
+}
+
+@media (max-width: 900px) {
+  .pw {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "form"
+      "preview"
+      "list";
+  }
+}

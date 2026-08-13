@@ -1,0 +1,53 @@
+{
+  "type": "record",
+  "name": "EventMetadata",
+  "namespace": "com.citypass.gateway",
+  "doc": "Metadata que el event-gateway calcula por si mismo. Ningun productor puede escribir estos campos: viajan en un record separado del payload de negocio, por eso no hay nombres reservados y un campo de data puede llamarse igual que uno de aca.\n\nNO HAY CAMPO DE VERSION, a proposito. La forma de este record ya queda fijada por dos datos que viajan en todo evento: gatewayVersion, porque este archivo es parte del build del gateway y no puede cambiar sin que cambie la version; y schemaId, que resuelve contra el Schema Registry el schema exacto con esta metadata inlineada. Un numero de version seria una tercera copia de lo mismo, que alguien se puede olvidar de actualizar. Un consumidor que necesite saber si existe un campo debe preguntar por su presencia, no comparar versiones.\n\nPARA EVOLUCIONARLO: todo campo nuevo debe llevar 'default'. Sin default el Schema Registry rechaza la version nueva por incompatibilidad y los consumidores no pueden leer eventos viejos. Los schemas ya registrados conservan inlineada la forma vigente al momento de registrarse: es deliberado, un evento debe describirse con el contrato con el que fue escrito. Para uniformar hay que volver a registrarlos, lo que solo funciona si el campo nuevo tiene default.",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "UUID v4 generado por el gateway. Clave de deduplicacion para los consumidores."
+    },
+    {
+      "name": "eventType",
+      "type": "string",
+      "doc": "FQN del schema, que coincide con el nombre del topico Kafka."
+    },
+    {
+      "name": "receivedAt",
+      "type": { "type": "long", "logicalType": "timestamp-millis" },
+      "doc": "Instante en que el gateway acepto el request. NO es el momento del hecho de negocio: para eso el productor debe declarar su propio campo en data."
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "doc": "Subject del JWT del emisor. No proviene del body, por lo que no es falsificable."
+    },
+    {
+      "name": "tokenId",
+      "type": "string",
+      "doc": "Claim jti: identifica la emision concreta del token, no al usuario. Acota el impacto de una credencial filtrada. Vale 'unknown' si el emisor no envia jti."
+    },
+    {
+      "name": "schemaId",
+      "type": "int",
+      "doc": "ID en el Schema Registry. Hace el evento autodescriptivo aun fuera de Kafka, donde el wire format ya se perdio."
+    },
+    {
+      "name": "payloadHash",
+      "type": "string",
+      "doc": "SHA-256 en hex del encoding binario Avro del record data. Reproducible por cualquier consumidor que re-serialice lo que recibio."
+    },
+    {
+      "name": "gatewayVersion",
+      "type": "string",
+      "doc": "Version del build del gateway que proceso el evento. Explica diferencias de serializacion entre eventos del mismo schema."
+    },
+    {
+      "name": "instanceId",
+      "type": "string",
+      "doc": "Identifica el proceso del gateway. Permite atribuir lotes anomalos a una instancia concreta."
+    }
+  ]
+}

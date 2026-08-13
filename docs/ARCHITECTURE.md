@@ -35,7 +35,7 @@ Los diagramas de arquitectura están en formato Mermaid en [`diagrams/`](diagram
 - **Modo:** KRaft (sin ZooKeeper — más simple, menos recursos)
 - **Puertos:** `9092` (externo), `29092` (interno entre contenedores), `9093` (controller)
 - **Persistencia:** volumen Docker `kafka-data`
-- **Configuración relevante:** `KAFKA_AUTO_CREATE_TOPICS_ENABLE=true` — los tópicos se crean automáticamente al publicar el primer mensaje
+- **Configuración relevante:** `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false` — un tópico sólo nace de una creación explícita. Los de event types los crea el Event Gateway al registrarlos, con las particiones y réplicas de `TOPIC_PARTITIONS` y `TOPIC_REPLICATION_FACTOR`
 
 ### Schema Registry
 - **Imagen:** `confluentinc/cp-schema-registry:7.7.1`
@@ -115,7 +115,6 @@ Las decisiones de arquitectura están documentadas como Architecture Decision Re
 | Event Gateway | `8080` | `8080` |
 | Auth Simulator | `8083` | `8083` |
 | Anomaly Detector | `8084` | `8084` |
-| Movilidad Urbana Simulator | `3000` | `3000` |
 
 ---
 

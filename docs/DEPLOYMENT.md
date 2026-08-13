@@ -29,13 +29,12 @@ cd citypass-eda
 
 ### 2. Configurar el entorno
 
-Copiar el archivo de ejemplo y revisar los valores:
-
 ```bash
-cp .env.example .env
+cp .env.dev .env
 ```
 
-Los valores por defecto funcionan para desarrollo local sin cambios. Ver sección [Variables de entorno](#variables-de-entorno) para descripción de cada una.
+`.env.dev` ya trae los valores de desarrollo y explica para qué sirve cada variable; no
+hay que cambiar nada. Su gemelo `.env.prod` tiene los de producción.
 
 ### 3. Construir las imágenes
 
@@ -60,7 +59,8 @@ docker compose ps
 Todos deben mostrar `healthy` o `Up`. El orden de arranque es:
 
 ```
-kafka → schema-registry → auth-simulator → event-gateway → movilidad-urbana + movilidad-consumer + anomaly-detector
+auth-simulator → kafka-authorizer → schema-registry → event-gateway → event-gateway-ui
+                                                    └→ anomaly-detector + kafka-ui
 ```
 
 Si algún servicio queda en `starting`, esperar 30 segundos y volver a verificar.
@@ -82,46 +82,75 @@ newgrp docker
 ```bash
 git clone <url-del-repo>
 cd citypass-eda
-cp .env.example .env
 ```
 
-### 3. Editar `.env` con la IP pública de la VM
+### 3. Apuntar un dominio a la VM
+
+Hace falta un **nombre de dominio**, no la IP: Let's Encrypt no emite certificados para
+una IP pelada, y sin certificado de una CA pública cada grupo tendría que instalar un
+truststore propio en su cliente de Kafka. Un subdominio gratuito (DuckDNS y similares)
+alcanza. Crear un registro `A` que apunte a la IP pública de la VM.
+
+### 4. Editar `.env` con los valores de producción
 
 ```bash
+cp .env.prod .env
 nano .env
 ```
 
-Cambiar:
-```
-KAFKA_ADVERTISED_HOST=<IP-PUBLICA-DE-LA-VM>
-```
+`.env.prod` ya trae los valores listos y explica cada variable; sólo hay que reemplazar
+el dominio y el mail. Lo importante:
 
-Este es el único cambio necesario para que Kafka sea accesible desde fuera del servidor.
+| Variable | Valor | Efecto |
+|---|---|---|
+| `PUBLISH_ADDR` | `127.0.0.1` | Ningún servicio queda accesible desde internet salvo por el proxy |
+| `KAFKA_UI_PUBLISH_ADDR` | `127.0.0.1` | kafka-ui sólo por túnel SSH. En `0.0.0.0` queda expuesto a la red sin pasar por el proxy |
+| `COMPOSE_PROFILES` | `prod` | Levanta `reverse-proxy` y `certbot` |
+| `PUBLIC_DOMAIN` | tu dominio | Nombre del certificado |
+| `KAFKA_ADVERTISED_HOST` | tu dominio | Tiene que coincidir con el certificado |
+| `SPRING_PROFILES_ACTIVE` | vacío | Deja los valores de producción del gateway: sin webhooks hacia la red interna, sin Swagger y log en INFO |
 
-### 4. Abrir puertos en Oracle Cloud
+Si alguna de estas variables falta, el compose usa el valor de producción igual: los
+defaults son los seguros. Olvidarse nunca abre nada.
 
-En la consola de Oracle Cloud → VCN → Security Lists, agregar reglas de entrada para:
+### 5. Abrir puertos en Oracle Cloud
+
+En la consola → VCN → Security Lists, sólo estas tres reglas de entrada:
 
 | Puerto | Protocolo | Servicio |
 |---|---|---|
-| 9092 | TCP | Kafka (conexión directa) |
-| 8080 | TCP | Event Gateway |
-| 8081 | TCP | Schema Registry |
-| 8083 | TCP | Auth Simulator |
-| 8090 | TCP | Kafka UI |
-| 8084 | TCP | Anomaly Detector |
+| 80 | TCP | Desafío de ACME y redirección a HTTPS |
+| 443 | TCP | API, UI y servicio de identidad |
+| 9092 | TCP | Kafka sobre TLS |
 
-También ejecutar en la VM:
 ```bash
+sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT
 sudo iptables -I INPUT -p tcp --dport 9092 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 8080 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 8083 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 8090 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 8084 -j ACCEPT
 ```
 
-### 5. Levantar
+Los puertos 8080, 8081, 8083, 8084 y 8090 **no se abren**. El Schema Registry y kafka-ui
+no tienen autenticación propia: expuestos, cualquiera podría borrar subjects o administrar
+el cluster. Quedan alcanzables sólo desde la VM por `127.0.0.1`, útil para depurar por un
+túnel SSH.
+
+### 6. Emitir el certificado (una sola vez)
+
+nginx no arranca sin certificado y certbot necesita el puerto 80, así que la primera
+emisión se hace antes de levantar el stack:
+
+```bash
+source .env
+docker compose run --rm -p 80:80 certbot certonly --standalone \
+  --cert-name citypass -d "$PUBLIC_DOMAIN" \
+  --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email -n
+```
+
+El nombre `citypass` es fijo a propósito: la config de nginx referencia
+`/etc/letsencrypt/live/citypass/`, así no depende del dominio. A partir de acá el servicio
+`certbot` renueva solo, y nginx recarga cada 6 horas para tomar el certificado nuevo.
+
+### 7. Levantar
 
 ```bash
 docker compose build
@@ -146,8 +175,9 @@ docker compose up -d
 | `ANOMALY_MIN_SAMPLES` | `50` | Eventos mínimos para entrenar el modelo por primera vez |
 | `ANOMALY_RETRAIN_EVERY_N` | `100` | Re-entrenar el modelo cada N eventos nuevos |
 | `ANOMALY_CONTAMINATION` | `0.05` | Fracción esperada de anomalías (5%) |
-| `GROUP3_SIMULATOR_PORT` | `3000` | Puerto del simulador Movilidad Urbana |
-| `KAFKA_AUTO_CREATE_TOPICS` | `true` | Crear tópicos automáticamente al publicar |
+| `KAFKA_AUTO_CREATE_TOPICS_ENABLE` | `false` | Impide que un tópico nazca por publicar o consumir; sólo por creación explícita |
+| `TOPIC_PARTITIONS` | `1` | Particiones de cada tópico de event type |
+| `TOPIC_REPLICATION_FACTOR` | `1` | Réplicas de cada tópico de event type |
 | `KAFKA_CLUSTER_ID` | `MkU3OE...` | ID del cluster KRaft. No cambiar una vez iniciado. |
 | `SECURITY_ENABLED` | `false` | Activar validación JWT en el Event Gateway (`true`/`false`) |
 
@@ -163,27 +193,44 @@ docker compose up -d
 | Event Gateway — Swagger UI | `http://localhost:8080/swagger-ui/index.html` |
 | Event Gateway — Health | `http://localhost:8080/api/v1/health` |
 | Auth Simulator | `http://localhost:8083` |
-| Auth Simulator — Login | `http://localhost:8083/auth/login` |
+| Auth Simulator — Token | `http://localhost:8083/oauth/token` |
 | Auth Simulator — JWKS | `http://localhost:8083/.well-known/jwks.json` |
-| Schema Registry | `http://localhost:8081` |
+| Schema Registry | `http://localhost:8081` — sólo desde el VPS; los grupos resuelven schemas por el gateway |
 | Kafka UI | `http://localhost:8090` |
 | Kafka broker (externo) | `localhost:9092` |
-| Event Gateway — DLQ | `http://localhost:8080/api/v1/dlq` |
-| Movilidad Urbana Simulator | `http://localhost:3000` |
+| Event Gateway — DLQ | `http://localhost:8080/api/v1/dead-letters` |
 | Anomaly Detector | `http://localhost:8084` |
 | Anomaly Detector — Anomalías | `http://localhost:8084/api/v1/anomalies` |
 | Anomaly Detector — Estado modelo | `http://localhost:8084/api/v1/model/status` |
 
-### Oracle Cloud (reemplazar `<IP>` con la IP pública)
+### Oracle Cloud (reemplazar `<DOMINIO>` con el dominio de la VM)
+
+Todo entra por el reverse proxy; no hay un puerto por servicio.
 
 | Servicio | URL |
 |---|---|
-| Event Gateway | `http://<IP>:8080` |
-| Swagger UI | `http://<IP>:8080/swagger-ui/index.html` |
-| Auth Simulator | `http://<IP>:8083` |
-| Schema Registry | `http://<IP>:8081` |
-| Kafka UI | `http://<IP>:8090` |
-| Kafka broker | `<IP>:9092` |
+| UI | `https://<DOMINIO>/` |
+| Event Gateway | `https://<DOMINIO>/api/v1/...` |
+| Servicio de identidad | `https://<DOMINIO>/auth/oauth/token` |
+| Kafka broker | `<DOMINIO>:9092` (`security.protocol=SASL_SSL`) |
+
+Swagger UI, el Schema Registry y kafka-ui no se publican en producción. Para llegar a
+ellos, un túnel SSH:
+
+```bash
+ssh -L 8081:127.0.0.1:8081 -L 8090:127.0.0.1:8090 -L 9090:127.0.0.1:9090 usuario@<DOMINIO>
+```
+
+El 9090 son las métricas del gateway: `http://localhost:9090/actuator/prometheus`. Nunca
+se publican por el dominio ni pasan por el reverse-proxy.
+
+Después se navegan como `http://localhost:8081` y `http://localhost:8090`. kafka-ui pide
+además su propio usuario y contraseña (`KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` del `.env`
+de la VM).
+
+Como el túnel SSH pasa a ser la puerta de todo el acceso administrativo, conviene
+confirmar que el servidor esté con clave y no con contraseña — `PasswordAuthentication no`
+en `/etc/ssh/sshd_config`.
 
 ---
 
@@ -207,9 +254,10 @@ El `auth-simulator` viene con un usuario por grupo:
 ### Obtener un token
 
 ```bash
-curl -X POST http://localhost:8083/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "grupo3", "password": "grupo3"}'
+curl -X POST http://localhost:8083/oauth/token \
+  -d grant_type=client_credentials \
+  -d client_id=grupo3 \
+  -d client_secret=grupo3
 ```
 
 Respuesta:
@@ -302,9 +350,8 @@ curl -X POST http://localhost:8080/api/v1/events \
 
 ```bash
 # 1. Obtener token
-TOKEN=$(curl -s -X POST http://localhost:8083/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "grupo3", "password": "grupo3"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+TOKEN=$(curl -s -X POST http://localhost:8083/oauth/token \
+  -d grant_type=client_credentials -d client_id=grupo3 -d client_secret=grupo3 \
 
 # 2. Publicar con el token
 curl -X POST http://localhost:8080/api/v1/events \
@@ -328,12 +375,6 @@ curl -X POST http://localhost:8080/api/v1/events \
 
 ```bash
 docker logs event-gateway --tail 20
-```
-
-### Usar el simulador del Grupo 3
-
-```bash
-curl -X POST http://localhost:3000/api/simulate/bici-devuelta
 ```
 
 ### Demo del Anomaly Detector

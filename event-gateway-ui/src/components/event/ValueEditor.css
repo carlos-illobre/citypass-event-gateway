@@ -1,0 +1,176 @@
+/* ── Hoja ── */
+
+.ve-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.ve-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.ve-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.ve-badge {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ve-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.125rem;
+  flex-shrink: 0;
+}
+
+.ve-input { width: 100%; }
+
+.ve-textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.ve-textarea:focus { outline: none; border-color: var(--accent); }
+
+.ve-field--invalid .ve-input,
+.ve-field--invalid .ve-textarea { border-color: var(--danger); }
+
+.ve-error {
+  font-size: 0.6875rem;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+/* ── Grupos: record, lista y mapa ── */
+
+.ve-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 0.75rem 0.75rem;
+  min-width: 0;
+}
+.ve-group--invalid { border-color: var(--danger); }
+
+.ve-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.35rem;
+  width: calc(100% - 0.7rem);
+}
+
+.ve-collapse {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 1rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ve-collapse:hover { color: var(--accent); }
+
+.ve-children {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+  min-width: 0;
+}
+
+.ve-empty {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ve-add {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.625rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.ve-add:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── Botones de ítem ── */
+
+.ve-icon {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.ve-icon:hover:not(:disabled) { color: var(--text); background: var(--border); }
+.ve-icon:disabled { opacity: 0.3; cursor: default; }
+.ve-icon--danger:hover:not(:disabled) { color: var(--danger); background: var(--danger-bg); }
+
+/* ── Opcional ── */
+
+.ve-optional {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.ve-null-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.ve-null-label {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Entradas de mapa ── */
+
+.ve-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 0.5fr) minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.ve-key { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.75rem; }
+
+.ve-entry-value { min-width: 0; }
+
+@media (max-width: 520px) {
+  .ve-entry { grid-template-columns: minmax(0, 1fr); }
+}
