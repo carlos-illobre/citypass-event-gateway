@@ -25,8 +25,20 @@ deliberada y está explicada en [ARCHITECTURE.md](docs/ARCHITECTURE.md#por-qué-
 
 ## 1. Levantarlo en tu máquina
 
+### Requisitos previos
+
 Necesitás **Docker** con Compose v2. Nada más: no hace falta Java, Node ni Python
 instalados, todo se compila dentro de los contenedores.
+
+#### Instalación de Docker y Docker Compose **Windows / macOS:**
+
+1. Descargá e instalá [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. Docker Desktop ya incluye Docker Compose v2. Verificá la instalación abriendo una terminal y ejecutando:
+```bash
+docker --version
+docker compose version
+```
+#### Instalación del proyecto:
 
 ```bash
 git clone git@github.com:carlos-illobre/citypass-event-gateway.git
