@@ -17,7 +17,7 @@
 | Si querés… | Andá a |
 |---|---|
 | Levantarlo y publicar tu primer evento | [README](../README.md#1-levantarlo-en-tu-máquina) |
-| Consumir eventos desde tu código | [README §7](../README.md#7-consumir-eventos-desde-kafka) |
+| Consumir eventos desde tu código | [README §6](../README.md#6-consumir-eventos-desde-kafka) |
 | Entender cómo definir un event type | [README §5](../README.md#5-definir-un-event-type) y [CONTRACTS.md](CONTRACTS.md) |
 | Saber por qué se publica por HTTP y se consume por Kafka | [ARCHITECTURE.md](ARCHITECTURE.md#por-qué-publicar-por-http-y-consumir-por-kafka) |
 | Auditar la seguridad | [SECURITY.md](SECURITY.md) |

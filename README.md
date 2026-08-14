@@ -17,8 +17,8 @@ deliberada y está explicada en [ARCHITECTURE.md](docs/ARCHITECTURE.md#por-qué-
 3. [Autenticación](#3-autenticación)
 4. [Qué es un evento](#4-qué-es-un-evento)
 5. [Definir un event type](#5-definir-un-event-type)
-6. [Referencia de la API](#6-referencia-de-la-api)
-7. [Consumir eventos desde Kafka](#7-consumir-eventos-desde-kafka)
+6. [Consumir eventos desde Kafka](#6-consumir-eventos-desde-kafka)
+7. [El recorrido completo](#7-el-recorrido-completo)
 8. [Resto de la documentación](#8-resto-de-la-documentación)
 
 ---
@@ -548,96 +548,63 @@ certificado es de una CA pública, así que **no hace falta instalar ningún tru
 
 ---
 
-## 7. Referencia de la API
+## 7. El recorrido completo
 
-Base local: `http://localhost:8080`. Todos los errores son
-[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) (`application/problem+json`):
+Las tres cosas que vas a hacer, en orden, con un solo ejemplo de punta a punta: el Grupo 3
+declara que existen las devoluciones de bicicleta, publica una, y el Grupo 8 la recibe.
 
+> Acá está el recorrido, no el catálogo. La lista completa de endpoints con todos sus
+> parámetros y códigos de respuesta está en **[Swagger](http://localhost:8080/doc)**, que se
+> genera del código y por lo tanto nunca queda desactualizada.
+
+Todos los ejemplos usan `$TOKEN`, el que pediste en el [paso 3](#3-autenticación).
+
+---
+
+### Acto 1 — Declarar el tipo de evento
+
+Para publicar un evento primero tiene que estar creado el tipo de evento, el cual define qué campos tendrá el evento. Eso registra el contrato y crea
+el tópico.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/event-types \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "BiciDevuelta",
+    "fields": [
+      { "name": "biciId",      "type": "string" },
+      { "name": "userId",      "type": "string" },
+      { "name": "estacionId",  "type": "string" },
+      { "name": "duracionMin", "type": "int" }
+    ]
+  }'
+```
+Respuesta:
 ```json
 {
-  "type": "about:blank",
-  "title": "Event type no encontrado",
-  "status": 404,
-  "detail": "No hay ningún event type registrado con el FQN 'com.citypass.movilidad.NoExiste'.",
-  "instance": "/api/v1/event-types/com.citypass.movilidad.NoExiste/events",
-  "availableEventTypes": [
-    "com.citypass.movilidad.BiciDevuelta",
-    "com.citypass.movilidad.ViajeCompletado"
-  ]
+  "fqn": "com.citypass.movilidad.BiciDevuelta",
+  "namespace": "com.citypass.movilidad",
+  "name": "BiciDevuelta",
+  "schemaId": 7
 }
 ```
 
-Algunos errores agregan campos propios, como `availableEventTypes`: si te equivocaste en el
-nombre, la respuesta te dice cuáles existen.
+El **namespace no lo mandas**: sale del JWT. Por eso el `fqn` es
+`com.citypass.movilidad.BiciDevuelta` y no podrías haber registrado nada bajo el namespace
+de otro grupo aunque quisieras.
 
-### Event types
+Ese `fqn` es también el nombre del tópico en Kafka. Y el `schemaId` es el número que va a
+viajar dentro de cada evento para que quienes quieran leer el evento directamente desde Kafka sepan con qué schema deben leerlo.
 
-#### `GET /api/v1/event-types` — listar
+Los tipos de campo disponibles y cómo declarar records anidados están en el
+[paso 5](#5-definir-un-event-type).
 
-| Parámetro | En | Requerido | Descripción |
-|---|---|---|---|
-| `namespace` | query | no | Acota el listado a un namespace |
+---
 
-```bash
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/event-types
-```
+### Acto 2 — Publicar un evento
 
-```json
-[
-  {
-    "fqn": "com.citypass.movilidad.BiciDevuelta",
-    "namespace": "com.citypass.movilidad",
-    "name": "BiciDevuelta",
-    "schemaId": 7,
-    "status": "active",
-    "archivedAt": null
-  }
-]
-```
-
-`status` es `active` o `archived`. Un tipo archivado conserva su schema y su historial,
-pero no admite eventos nuevos.
-
-#### `POST /api/v1/event-types` — registrar
-
-| Campo | Requerido | Descripción |
-|---|---|---|
-| `name` | sí | Nombre del tipo, en `PascalCase`. El namespace sale del token |
-| `fields` | sí | Lista de campos de negocio, en formato Avro |
-
-Devuelve `201` con el `fqn`, el `namespace`, el `name` y el `schemaId` asignado por el
-registry. El tópico se crea **en este momento**, no al publicar el primer evento.
-
-Errores: `400` si el nombre o los campos son inválidos, `502` si el Schema Registry no
-responde.
-
-#### `GET /api/v1/event-types/{fqn}` — ver el schema
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/event-types/com.citypass.movilidad.BiciDevuelta
-```
-
-Devuelve el schema Avro completo, con los dos records: `data` y `metadata`.
-
-#### `PATCH /api/v1/event-types/{fqn}` — archivar
-
-```bash
-curl -X PATCH http://localhost:8080/api/v1/event-types/com.citypass.movilidad.BiciDevuelta \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{ "status": "archived" }'
-```
-
-Es una baja **lógica**: el schema sigue en el registry y los eventos ya publicados siguen
-en el tópico, para que los consumidores puedan seguir leyéndolos. Sólo deja de admitir
-eventos nuevos, que pasan a responder `409`.
-
-### Eventos
-
-#### `POST /api/v1/event-types/{fqn}/events` — publicar
-
-El body son **sólo los campos de negocio**.
+El body son **sólo los campos de negocio**. Nada más.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/event-types/com.citypass.movilidad.BiciDevuelta/events \
@@ -651,9 +618,7 @@ curl -X POST http://localhost:8080/api/v1/event-types/com.citypass.movilidad.Bic
   }'
 ```
 
-`202 Accepted` con **el evento completo tal como quedó en el tópico** — tu payload y la
-metadata que estampó el gateway. Ninguno de esos campos lo podés calcular vos, por eso la
-respuesta te los devuelve:
+La respuesta es `202` con **el evento completo tal como quedó en el tópico**:
 
 ```json
 {
@@ -677,74 +642,42 @@ respuesta te los devuelve:
 }
 ```
 
-| Código | Cuándo |
-|---|---|
-| `202` | Publicado y confirmado por Kafka |
-| `400` | El payload no cumple el schema. El `detail` dice qué campo |
-| `403` | El fqn no pertenece a tu namespace |
-| `404` | El event type no existe |
-| `409` | El event type está archivado |
-| `504` | Kafka no confirmó a tiempo. **Puede haberse publicado igual**: reintentá y deduplicá por `payloadHash` |
+Mandaste cuatro campos y te vuelven trece. Los nueve de `metadata` **no los podés calcular
+vos** —el `payloadHash`, el `schemaId`, el `tokenId`— así que la respuesta te los devuelve:
+es la única forma de saber con qué quedó sellado tu evento sin ir a leerlo de Kafka.
 
-Hay dos límites: el body no puede superar **256 KB**, y cada namespace tiene un tope de
-**600 peticiones por minuto** (`429` con `Retry-After` si lo pasás).
+Fijate que `source` dice `grupo3` sin que lo hayas escrito en ningún lado. Sale de tu token,
+y por eso es confiable.
 
-#### `GET /api/v1/events` — mis últimos eventos
-
-| Parámetro | En | Default | Descripción |
-|---|---|---|---|
-| `limit` | query | 50 | Máximo a devolver (tope 200) |
+#### Si el evento no cumple el contrato
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/v1/events?limit=10'
+-d '{ "biciId": "bici-101", "duracionMin": "treinta y cinco" }'
 ```
 
 ```json
 {
-  "returned": 1,
-  "topicsScanned": 2,
-  "events": [ { "metadata": { }, "data": { } } ]
+  "title": "El evento no cumple el schema",
+  "status": 400,
+  "detail": "El campo 'duracionMin' esperaba int y recibió String."
 }
 ```
 
-Devuelve los eventos cuyo `metadata.source` coincide con el `sub` de tu token, del más
-reciente al más antiguo.
+El error llega **del lado del que envía el evento y en el momento**, nombrando el campo. Sin contrato,
+este evento se habría enviado igual y se habría descubierto el error días después, al romperse la
+deserialización de algún consumidor.
 
-> **No es el historial completo.** Kafka es un log, no una base con índices: el gateway lee
-> la cola de los tópicos de tu namespace y filtra en memoria, así que un evento anterior a
-> esa ventana no aparece. `topicsScanned` te dice cuántos tópicos se miraron, para
-> distinguir «no publicaste nada» de «tu namespace no tiene tipos registrados».
+Todos los errores del gateway tienen esta forma
+([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), `application/problem+json`), y algunos
+agregan campos que ayudan: si te equivocás en el nombre del event type, el `404` incluye un
+`availableEventTypes` con los que sí existen.
 
-### Schemas
+---
 
-#### `GET /api/v1/schemas/ids/{id}` — resolver un schema
+### Acto 3 — Recibirlo por webhook (Simple, facil, pero No Recomendado, pueden perderse eventos o haber duplicados)
 
-**Es el único endpoint sin token además de health.** Existe para que los deserializadores estándar de Avro
-funcionen sin configuración especial: es compatible con la API del Schema Registry de
-Confluent, así que las librerías apuntan acá y resuelven solas.
-
-```bash
-curl http://localhost:8080/api/v1/schemas/ids/7
-```
-
-```json
-{ "schema": "{\"type\":\"record\",\"name\":\"BiciDevuelta\",...}" }
-```
-
-#### `GET /api/v1/event-metadata` — el schema de la metadata
-
-El record `EventMetadata` con sus nueve campos, por si querés generar clases a partir de él.
-
-### Webhooks
-
-Alternativa a conectarse a Kafka: el gateway te hace un `POST` con cada evento.
-
-#### `POST /api/v1/subscriptions` — suscribirse
-
-| Campo | Requerido | Descripción |
-|---|---|---|
-| `topic` | sí | El fqn del event type |
-| `callbackUrl` | sí | URL pública donde recibís los POST |
+Ya viste [cómo consumir directo de Kafka](#6-consumir-eventos-desde-kafka), que es la vía
+eficiente. El webhook es la alternativa simple: creas un endpoint público en tu backend, le pasas la URL al siguiente endpoint y el gateway te hace un `POST` cada vez que ocurre un evento de un tipo en especifico, sin librerias de Kafka ni complicaciones:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/subscriptions \
@@ -755,32 +688,74 @@ curl -X POST http://localhost:8080/api/v1/subscriptions \
     "callbackUrl": "https://mi-servicio.example.com/webhooks/citypass"
   }'
 ```
+Respuesta:
+```json
+{
+  "id": "2501ae02-89dc-48b8-a008-d0ffaec0545d",
+  "topic": "com.citypass.movilidad.BiciDevuelta",
+  "callbackUrl": "https://mi-servicio.example.com/webhooks/citypass",
+  "owner": "com.citypass.movilidad",
+  "createdBy": "grupo3",
+  "createdAt": "2026-08-13T12:00:00Z"
+}
+```
 
-La `callbackUrl` tiene que ser **pública**: el gateway corre en otra máquina, así que
-`localhost` no apunta a tu servicio. Las URLs que resuelven a direcciones de red interna se
-rechazan con `400`.
+Guardá el `id`: es con lo que después la das de baja.
 
-La entrega es **at-least-once**: tu endpoint puede recibir el mismo evento más de una vez,
-deduplicá por `metadata.eventId`. Si falla, reintenta 3 veces y después va a la
-Dead Letter Queue.
+A partir de ahí, cada evento que llegue al tópico aparece en tu endpoint como un `POST` con
+**el mismo envelope** que viste arriba — `metadata` y `data`, exactamente lo que hay en
+Kafka.
 
-#### `GET /api/v1/subscriptions` — listar las propias
+La url puede tener cualquier nombre o formato, solo tiene que aceptar POST y ser pública.
 
-Con `?topic=` acota a un tópico. Sólo devuelve las de tu namespace.
+#### Cuatro cosas que conviene saber antes de escribir el receptor
 
-#### `DELETE /api/v1/subscriptions/{id}` — dar de baja
+**La URL tiene que ser pública.** El gateway corre en otra máquina, así que `localhost` no
+apunta a tu servicio sino al contenedor del gateway. Las URLs que resuelven a direcciones de
+red interna se rechazan con `400`, y no sólo al registrarlas: se vuelven a verificar en cada
+entrega, porque un dominio puede devolver una IP pública al registro y una privada después.
 
-`204` si era tuya, `404` si no existe **o no es tuya**.
+> En **este** compose esa validación está desactivada, porque acá los consumidores son
+> contenedores de la misma red y tienen IP privada. La activa el perfil de producción, así
+> que una `callbackUrl` que te funciona en tu máquina puede ser rechazada al desplegar.
 
-### Dead Letter Queue
+**El cuerpo llega en `Transfer-Encoding: chunked`.** No hay header `Content-Length`. Si tu
+receptor lee exactamente `Content-Length` bytes, va a recibir un cuerpo **vacío** sin ningún
+error — la mayoría de los frameworks lo manejan solos, pero si armás el servidor a mano es
+la trampa más fácil de pisar.
 
-#### `GET /api/v1/dead-letters` — eventos que no se pudieron procesar
+**Vas a recibir duplicados.** La entrega es *at-least-once*: el gateway confirma su posición
+en Kafka recién cuando tu endpoint respondió, así que si se reinicia en el medio, el evento
+se vuelve a mandar. Podes deduplicar por `metadata.eventId`, que se mantiene estable entre reintentos.
 
-| Parámetro | En | Default | Descripción |
-|---|---|---|---|
-| `limit` | query | 50 | Máximo a devolver (tope 200) |
+**Si tu endpoint no responde, el evento no se pierde.** Reintenta tres veces con dos
+segundos de espera, y si igual falla lo deja en la Dead Letter Queue con el payload y el
+error. Podés consultarla —sólo ves las entradas de tu grupo— y ahí está el porqué:
 
-Devuelve sólo las entradas de tu grupo, con el payload original en base64 y el error.
+```bash
+curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/v1/dead-letters?limit=10'
+```
+
+Y para darte de baja:
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/subscriptions/2501ae02-89dc-48b8-a008-d0ffaec0545d \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Y si querés ver qué mandaste
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/v1/events?limit=10'
+```
+
+Devuelve tus últimos eventos, del más reciente al más antiguo. Es lo que muestra la UI en el
+panel «Últimos enviados».
+
+No es el historial completo: Kafka es un log, no una base con índices, así que el gateway
+lee la cola de tus tópicos y filtra. Un evento más viejo que esa ventana no aparece.
 
 ---
 

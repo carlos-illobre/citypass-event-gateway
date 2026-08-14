@@ -333,7 +333,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 Y la prueba definitiva, con el bus levantado: **conectá un consumidor de Kafka** con tu
 servicio como emisor. Es lo que ejercita el camino completo —Basic, `expires_in`, JWKS,
 `namespace` como principal— de una sola vez. Hay ejemplos en JavaScript, Python y Java en el
-[README](../README.md#7-consumir-eventos-desde-kafka).
+[README](../README.md#6-consumir-eventos-desde-kafka).
 
 ---
 
