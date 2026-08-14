@@ -76,6 +76,8 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+    # La UI se sirve en /doc en vez de la ruta larga por defecto.
+    path: /doc
 
 # ── Observabilidad ────────────────────────────────────────────────────────────
 # Las métricas van en un puerto aparte del tráfico de negocio, y ese puerto se publica
@@ -94,6 +96,13 @@ management:
     health:
       show-details: never
   metrics:
+    distribution:
+      # Sin los buckets, micrometer sólo publica el total y la suma de duraciones, así que
+      # lo único calculable es el promedio. El promedio esconde justo lo que interesa: una
+      # petición de 10 segundos entre mil de 5 ms no lo mueve. Con histograma se puede
+      # pedir el percentil 95.
+      percentiles-histogram:
+        http.server.requests: true
     tags:
       # Con varias instancias, distingue de cuál viene cada serie.
       instance: ${HOSTNAME:local}

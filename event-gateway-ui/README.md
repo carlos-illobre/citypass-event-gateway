@@ -1,77 +1,72 @@
-# React + TypeScript + Vite
+# event-gateway-ui
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend del bus de eventos. React + TypeScript + Vite.
 
-Currently, two official plugins are available:
+Permite registrar event types con un editor de schemas Avro, publicar eventos con un
+formulario generado a partir del schema elegido, y ver los últimos eventos publicados.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+> Para levantar **todo el sistema** —que es lo habitual— usá el
+> [README de la raíz](../README.md#1-levantarlo-en-tu-máquina). Este documento es sólo para
+> trabajar sobre el frontend.
 
-## React Compiler
+---
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+## Desarrollo con recarga en caliente
 
-Note: This will impact Vite dev & build performances.
+El contenedor `event-gateway-ui` sirve el build de producción en el 5173. Para trabajar
+sobre el código conviene `vite dev`, que recarga al guardar:
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+cd event-gateway-ui
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Queda en **http://localhost:5174**, y podés tenerlo corriendo **a la vez** que el
+contenedor. Los dos orígenes están permitidos por CORS en desarrollo.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+El puerto está fijo con `strictPort: true`: si el 5174 está ocupado, Vite falla en vez de
+correrse a otro puerto. Sin eso, el origen dejaría de coincidir con el permitido por CORS y
+el login fallaría con un error que no menciona el puerto por ningún lado.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Variables de entorno
+
+**No hay un `.env` en esta carpeta.** `vite.config.ts` tiene `envDir: '../'`, así que Vite
+lee el `.env` de la raíz del repositorio — el mismo que usa Docker Compose.
+
+Las dos que le importan al frontend:
+
+| Variable | Para qué |
+|---|---|
+| `VITE_LOGIN_API_URL` | Base del servicio de identidad |
+| `VITE_EVENT_GATEWAY_API_URL` | Base de la API del gateway |
+
+Se resuelven en el navegador del usuario, no dentro de Docker, así que en desarrollo apuntan
+a `localhost`. Son argumentos de **build**: cambiarlas exige reconstruir la imagen, no
+alcanza con reiniciar el contenedor.
+
+## Comandos
+
+```bash
+npm run dev      # servidor de desarrollo en el 5174
+npm run build    # typecheck + build de producción
+npm run lint     # ESLint
+```
+
+## Estructura
 
 ```
+src/
+├── api/          cliente HTTP del gateway y del servicio de identidad
+├── components/
+│   ├── event/        publicar eventos y ver los últimos enviados
+│   ├── event-type/   registrar y listar event types
+│   └── ui/           componentes compartidos (JsonView, ErrorBanner)
+├── contexts/     sesión y token
+├── domain/       lógica de Avro: formularios desde el schema, ejemplos, conversión
+└── config/       lectura de las variables de entorno
+```
+
+La carpeta `domain/` es la que tiene la lógica interesante: genera el formulario a partir
+del schema Avro —incluidos records anidados, arrays, mapas, enums y uniones— y convierte lo
+que el usuario carga al payload que espera el gateway.

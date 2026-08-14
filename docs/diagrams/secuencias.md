@@ -1,6 +1,6 @@
 # Diagramas de Secuencia
 
-## 1. Publicación de un evento (con seguridad activada)
+## 1. Publicación de un evento
 
 ```mermaid
 sequenceDiagram
@@ -10,27 +10,30 @@ sequenceDiagram
     participant SR as Schema Registry
     participant Kafka as Apache Kafka
 
-    G3->>Auth: POST /oauth/token {grant_type, client_id, client_secret}
-    Auth-->>G3: {token: "eyJ...", expiresIn: "8h"}
+    G3->>Auth: POST /oauth/token<br/>grant_type=client_credentials
+    Auth-->>G3: {access_token, token_type, expires_in}
 
-    G3->>Proxy: POST /api/v1/events<br/>Authorization: Bearer eyJ...<br/>{eventType, source, data}
-    
+    G3->>Proxy: POST /api/v1/event-types/com.citypass.movilidad.BiciDevuelta/events<br/>Authorization: Bearer eyJ...<br/>{biciId, userId, estacionId, duracionMin}
+
     activate Proxy
     Proxy->>Auth: GET /.well-known/jwks.json
     Auth-->>Proxy: {keys: [publicKey]}
-    Note over Proxy: Valida firma JWT RS256.<br/>Extrae claims: grupo, allowedTopics
+    Note over Proxy: Valida firma RS256, audiencia y expiración.<br/>Lee claims: sub, namespace, jti
 
-    Proxy->>Proxy: Verifica topic en allowedTopics<br/>(ej: "movilidad.*" cubre "movilidad.bici.devuelta")
+    Proxy->>Proxy: ¿el fqn empieza con el namespace del token?
 
-    Proxy->>SR: GET /subjects/movilidad.bici.devuelta-value/versions/latest
-    SR-->>Proxy: {schemaId: 3, schema: "..."}
+    Proxy->>SR: schema de com.citypass.movilidad.BiciDevuelta
+    SR-->>Proxy: {schemaId: 7, schema: "..."}
 
-    Proxy->>Proxy: Serializa a Avro binario<br/>[0x00][schemaId:4bytes][payload Avro]
+    Proxy->>Proxy: Valida el payload contra el record `data`
+    Note over Proxy: Arma `metadata` desde el token:<br/>source=sub, tokenId=jti, payloadHash, schemaId
 
-    Proxy->>Kafka: produce(topic="movilidad.bici.devuelta", bytes)
+    Proxy->>Proxy: Serializa el envelope a Avro<br/>[0x00][schemaId:4bytes][binario]
+
+    Proxy->>Kafka: produce(topic="com.citypass.movilidad.BiciDevuelta", bytes)
     Kafka-->>Proxy: ack (offset)
-    
-    Proxy-->>G3: 202 Accepted<br/>{status: "published", topic, schemaId}
+
+    Proxy-->>G3: 202 Accepted<br/>{metadata, data} — el envelope completo
     deactivate Proxy
 ```
 

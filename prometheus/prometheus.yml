@@ -1,0 +1,25 @@
+# Prometheus del bus de eventos.
+#
+# Consulta el endpoint de métricas del gateway cada 15 segundos y guarda la serie. Sin
+# esto, /actuator/prometheus sólo muestra el valor instantáneo: no hay historial, y un
+# reinicio del gateway pone los contadores en cero sin dejar rastro de lo anterior.
+#
+# El scrape va por la red interna de Docker al puerto de management (9090), que no está
+# publicado hacia afuera. Prometheus no necesita credenciales porque no sale de esa red.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: event-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['event-gateway:9090']
+        labels:
+          servicio: event-gateway
+
+  # Prometheus se mide a sí mismo: sirve para saber si el scrape está funcionando.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

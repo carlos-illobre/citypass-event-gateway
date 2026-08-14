@@ -162,8 +162,9 @@ El tópico Kafka resultante es el FQN: namespace.Name.""",
                         summary = "El tópico se crea en el momento del registro, no al publicar el primer evento",
                         value = """{
   "fqn": "com.citypass.movilidad.BicicletaReservada",
-  "schemaId": 7,
-  "topic": "com.citypass.movilidad.BicicletaReservada"
+  "namespace": "com.citypass.movilidad",
+  "name": "BicicletaReservada",
+  "schemaId": 7
 }"""
                     )]
                 )]

@@ -1,6 +1,7 @@
 package com.citypass.gateway.controller
 
 import com.citypass.gateway.service.AvroService
+import com.citypass.gateway.service.PayloadInvalidoException
 import com.citypass.gateway.service.SchemaRegistryService
 import com.citypass.gateway.service.TopicAuthorizationService
 import com.citypass.gateway.web.problem
@@ -165,8 +166,13 @@ con lo que envió el productor. No hay forma de escribir metadata desde el reque
         val eventId = UUID.randomUUID().toString()
         val receivedAt = Instant.now()
 
+        return try {
         // El payload de negocio y la metadata viajan en records separados: `data` nunca
         // puede pisar un campo de `metadata`, así que la auditoría no depende de ningún guard.
+        //
+        // Se arma DENTRO del try: `payloadHash` ya convierte el payload contra el schema,
+        // así que un campo con el tipo equivocado fallaba acá, antes de que hubiera un
+        // catch, y salía como un 500 sin ninguna pista.
         val envelope = mapOf<String, Any>(
             "metadata" to mapOf(
                 "eventId" to eventId,
@@ -183,7 +189,6 @@ con lo que envió el productor. No hay forma de escribir metadata desde el reque
             "data" to data
         )
 
-        return try {
             val bytes = avroService.jsonToAvroBytes(envelope, schema, schemaId)
             val key = (data["userId"] ?: eventId).toString()
             // Con `get()` sin tope, un broker lento deja el hilo de request esperando
@@ -199,6 +204,11 @@ con lo que envió el productor. No hay forma de escribir metadata desde el reque
             // muestra, la única forma de saber qué se publicó a su nombre es leerlo de
             // Kafka. El cuerpo es exactamente lo que quedó en el tópico.
             ResponseEntity.accepted().body(envelope)
+        } catch (e: PayloadInvalidoException) {
+            // Es un error del productor, no del bus: el 400 nombra el campo que no cumple.
+            problem(
+                HttpStatus.BAD_REQUEST, "El evento no cumple el schema", e.descripcion
+            )
         } catch (e: TimeoutException) {
             logger.error("Timeout publishing event $eventId to $fqn after ${publishTimeoutMs}ms")
             problem(

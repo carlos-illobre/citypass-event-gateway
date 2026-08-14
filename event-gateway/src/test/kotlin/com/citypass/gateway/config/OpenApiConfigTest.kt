@@ -13,18 +13,25 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.springframework.boot.info.BuildProperties
+import java.util.Properties
 
 class OpenApiConfigTest {
 
+    /** El bean real lo arma Spring desde META-INF/build-info.properties. */
+    private val buildProperties = BuildProperties(Properties().apply { setProperty("version", "9.9.9") })
+
+    private fun config() = OpenApiConfig(buildProperties)
+
     @Test
     fun `openApi bean returns valid OpenAPI document`() {
-        val config = OpenApiConfig()
-        val openApi = config.openApi()
+        val openApi = config().openApi()
 
         assertNotNull(openApi)
         assertNotNull(openApi.info)
         assertEquals("CityPass+ EDA - Event Gateway", openApi.info.title)
-        assertEquals("1.0.0", openApi.info.version)
+        // La versión sale del build, no de una constante que hay que acordarse de subir.
+        assertEquals("9.9.9", openApi.info.version)
     }
 
     /** Documento mínimo: una operación con las respuestas indicadas. */
@@ -43,7 +50,7 @@ class OpenApiConfigTest {
         // controllers devuelven ResponseEntity<Any> y springdoc no puede inferir el tipo.
         val doc = documentoCon("404" to ApiResponse(), "500" to ApiResponse())
 
-        OpenApiConfig().erroresComoProblemDetail().customise(doc)
+        config().erroresComoProblemDetail().customise(doc)
 
         listOf("404", "500").forEach { codigo ->
             val contenido = respuestasDe(doc)[codigo]!!.content
@@ -58,7 +65,7 @@ class OpenApiConfigTest {
         // peor que dejarlo vacío.
         val doc = documentoCon("200" to ApiResponse(), "202" to ApiResponse())
 
-        OpenApiConfig().erroresComoProblemDetail().customise(doc)
+        config().erroresComoProblemDetail().customise(doc)
 
         assertNull(respuestasDe(doc)["200"]!!.content)
         assertNull(respuestasDe(doc)["202"]!!.content)
@@ -71,7 +78,7 @@ class OpenApiConfigTest {
         val comodin = ApiResponse().content(Content().addMediaType("*/*", MediaType()))
         val doc = documentoCon("204" to comodin)
 
-        OpenApiConfig().erroresComoProblemDetail().customise(doc)
+        config().erroresComoProblemDetail().customise(doc)
 
         assertNull(respuestasDe(doc)["204"]!!.content)
     }
@@ -81,7 +88,7 @@ class OpenApiConfigTest {
         val propio = ApiResponse().content(Content().addMediaType("application/json", MediaType()))
         val doc = documentoCon("409" to propio)
 
-        OpenApiConfig().erroresComoProblemDetail().customise(doc)
+        config().erroresComoProblemDetail().customise(doc)
 
         assertNull(respuestasDe(doc)["409"]!!.content["application/problem+json"])
     }
@@ -91,21 +98,21 @@ class OpenApiConfigTest {
         // OpenAPI admite `default` como clave de respuesta.
         val doc = documentoCon("default" to ApiResponse())
 
-        OpenApiConfig().erroresComoProblemDetail().customise(doc)
+        config().erroresComoProblemDetail().customise(doc)
 
         assertNull(respuestasDe(doc)["default"]!!.content)
     }
 
     @Test
     fun `un documento sin paths no rompe`() {
-        OpenApiConfig().erroresComoProblemDetail().customise(OpenAPI())
+        config().erroresComoProblemDetail().customise(OpenAPI())
     }
 
     @Test
     fun `una operación sin respuestas declaradas no rompe`() {
         val doc = OpenAPI().paths(Paths().addPathItem("/x", PathItem().get(Operation())))
 
-        OpenApiConfig().erroresComoProblemDetail().customise(doc)
+        config().erroresComoProblemDetail().customise(doc)
 
         assertNull(doc.paths["/x"]!!.get.responses)
     }
@@ -120,7 +127,7 @@ class OpenApiConfigTest {
         )
         val doc = documentoCon("404" to comodin)
 
-        OpenApiConfig().erroresComoProblemDetail().customise(doc)
+        config().erroresComoProblemDetail().customise(doc)
 
         val contenido = respuestasDe(doc)["404"]!!.content
         assertNull(contenido["*/*"])

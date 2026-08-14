@@ -1,127 +1,118 @@
-# CityPass+ EDA — Guía de Despliegue
+# Despliegue en producción
 
-Grupo 1 — Event Driven Architecture  
-Stack: Kafka · Avro · Schema Registry · Spring Boot · Node.js · Docker
+Cómo poner el bus en una VM de la nube, con TLS y sin exponer más de lo necesario.
 
----
-
-## Requisitos
-
-| Herramienta | Versión mínima |
-|---|---|
-| Docker | 24.x |
-| Docker Compose | 2.x (`docker compose`, no `docker-compose`) |
-| Git | cualquiera |
-| curl | cualquiera (para pruebas) |
-
-No se requiere Java, Node ni Gradle instalados localmente — todo compila dentro de Docker.
+> Para levantarlo en tu máquina, mirá el [README](../README.md#1-levantarlo-en-tu-máquina).
+> Este documento es sólo producción.
 
 ---
 
-## Instalación local (primera vez)
+## Contenido
 
-### 1. Clonar el repositorio
-
-```bash
-git clone <url-del-repo>
-cd citypass-eda
-```
-
-### 2. Configurar el entorno
-
-```bash
-cp .env.dev .env
-```
-
-`.env.dev` ya trae los valores de desarrollo y explica para qué sirve cada variable; no
-hay que cambiar nada. Su gemelo `.env.prod` tiene los de producción.
-
-### 3. Construir las imágenes
-
-```bash
-docker compose build
-```
-
-Primera vez tarda ~3-5 minutos (descarga dependencias de Gradle y npm).
-
-### 4. Levantar todos los servicios
-
-```bash
-docker compose up -d
-```
-
-### 5. Verificar que todos los servicios están sanos
-
-```bash
-docker compose ps
-```
-
-Todos deben mostrar `healthy` o `Up`. El orden de arranque es:
-
-```
-auth-simulator → kafka-authorizer → schema-registry → event-gateway → event-gateway-ui
-                                                    └→ anomaly-detector + kafka-ui
-```
-
-Si algún servicio queda en `starting`, esperar 30 segundos y volver a verificar.
+1. [Qué hace falta antes de empezar](#1-qué-hace-falta-antes-de-empezar)
+2. [Preparar la VM](#2-preparar-la-vm)
+3. [Configurar el ambiente](#3-configurar-el-ambiente)
+4. [Abrir los puertos](#4-abrir-los-puertos)
+5. [Emitir el certificado](#5-emitir-el-certificado)
+6. [Levantar](#6-levantar)
+7. [Verificar](#7-verificar)
+8. [Operación](#8-operación)
 
 ---
 
-## Despliegue en Oracle Cloud (VPS)
+## 1. Qué hace falta antes de empezar
 
-### 1. En la VM, instalar Docker
+### Un dominio apuntando a la VM
+
+**No alcanza con la IP.** Let's Encrypt no emite certificados para una IP pelada, y sin un
+certificado de una CA pública cada grupo tendría que instalar un truststore propio en su
+cliente de Kafka. El que no lo lograra terminaría desactivando la verificación, que es peor
+que no tener TLS porque parece seguro.
+
+Un subdominio gratuito alcanza. Creá un registro `A` que apunte a la IP pública de la VM y
+esperá a que resuelva:
+
+```bash
+dig +short citypass.tudominio.com
+```
+
+### El servicio de identidad real
+
+El `auth-simulator` que viene en el repo es un **mock**: credenciales fijas en el código y
+clave de firma que se regenera en cada arranque, o sea que cada reinicio invalida todos los
+tokens emitidos. Sirve para desarrollar y para la demo, no para producción.
+
+El gateway ya está preparado para un emisor real —valida firma, audiencia y expiración
+contra el JWKS— pero mientras el emisor sea el mock, la plataforma entera confía en él. El
+contrato que tiene que cumplir el reemplazo está en [AUTH.md](AUTH.md).
+
+### Recursos
+
+Con una VM de 2 vCPU y 4 GB alcanza. El broker y el gateway son los que más consumen.
+
+---
+
+## 2. Preparar la VM
 
 ```bash
 sudo apt update && sudo apt install -y docker.io docker-compose-v2
 sudo usermod -aG docker $USER
 newgrp docker
-```
 
-### 2. Clonar y configurar
-
-```bash
 git clone <url-del-repo>
 cd citypass-eda
 ```
 
-### 3. Apuntar un dominio a la VM
+---
 
-Hace falta un **nombre de dominio**, no la IP: Let's Encrypt no emite certificados para
-una IP pelada, y sin certificado de una CA pública cada grupo tendría que instalar un
-truststore propio en su cliente de Kafka. Un subdominio gratuito (DuckDNS y similares)
-alcanza. Crear un registro `A` que apunte a la IP pública de la VM.
-
-### 4. Editar `.env` con los valores de producción
+## 3. Configurar el ambiente
 
 ```bash
 cp .env.prod .env
 nano .env
 ```
 
-`.env.prod` ya trae los valores listos y explica cada variable; sólo hay que reemplazar
-el dominio y el mail. Lo importante:
+`.env.prod` ya trae los valores correctos y explica cada variable. Sólo hay que reemplazar
+el dominio, el mail y la contraseña de kafka-ui:
 
-| Variable | Valor | Efecto |
+| Variable | Valor | Qué produce |
 |---|---|---|
 | `PUBLISH_ADDR` | `127.0.0.1` | Ningún servicio queda accesible desde internet salvo por el proxy |
-| `KAFKA_UI_PUBLISH_ADDR` | `127.0.0.1` | kafka-ui sólo por túnel SSH. En `0.0.0.0` queda expuesto a la red sin pasar por el proxy |
+| `KAFKA_UI_PUBLISH_ADDR` | `127.0.0.1` | kafka-ui sólo por túnel SSH |
+| `KAFKA_HOST_PORT` | `19092` | El 9092 pasa a ser del proxy, que termina TLS |
 | `COMPOSE_PROFILES` | `prod` | Levanta `reverse-proxy` y `certbot` |
 | `PUBLIC_DOMAIN` | tu dominio | Nombre del certificado |
+| `CERTBOT_EMAIL` | tu mail | Avisos de vencimiento de Let's Encrypt |
 | `KAFKA_ADVERTISED_HOST` | tu dominio | Tiene que coincidir con el certificado |
-| `SPRING_PROFILES_ACTIVE` | vacío | Deja los valores de producción del gateway: sin webhooks hacia la red interna, sin Swagger y log en INFO |
+| `SPRING_PROFILES_ACTIVE` | vacío | Deja los valores de producción del gateway |
+| `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` | los tuyos | **No dejar `CAMBIAR`** |
+| `GRAFANA_USER` / `GRAFANA_PASSWORD` | los tuyos | Ídem: el compose no arranca si faltan |
+| `AUTH_CORS_ORIGIN` / `GATEWAY_CORS_ORIGIN` | `https://tu-dominio` | Un solo origen, nunca `*` |
+| `VITE_*` | `https://tu-dominio/...` | Se embeben en el build de la UI |
 
-Si alguna de estas variables falta, el compose usa el valor de producción igual: los
-defaults son los seguros. Olvidarse nunca abre nada.
+**Si alguna variable falta, el compose usa el valor de producción igual**: los defaults son
+los seguros. Olvidarse nunca abre nada.
 
-### 5. Abrir puertos en Oracle Cloud
+La única excepción son las credenciales de kafka-ui: si faltan, el compose se niega a
+arrancar, porque para una contraseña no existe un default seguro.
 
-En la consola → VCN → Security Lists, sólo estas tres reglas de entrada:
+> `.env.prod` **se versiona** —es una plantilla— así que la contraseña real va sólo en el
+> `.env` de la VM, que está en `.gitignore`.
 
-| Puerto | Protocolo | Servicio |
+---
+
+## 4. Abrir los puertos
+
+En la consola del proveedor (en Oracle Cloud: VCN → Security Lists), sólo estas tres reglas
+de entrada:
+
+| Puerto | Protocolo | Para qué |
 |---|---|---|
 | 80 | TCP | Desafío de ACME y redirección a HTTPS |
 | 443 | TCP | API, UI y servicio de identidad |
 | 9092 | TCP | Kafka sobre TLS |
+
+Y en la VM:
 
 ```bash
 sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
@@ -129,15 +120,17 @@ sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT
 sudo iptables -I INPUT -p tcp --dport 9092 -j ACCEPT
 ```
 
-Los puertos 8080, 8081, 8083, 8084 y 8090 **no se abren**. El Schema Registry y kafka-ui
-no tienen autenticación propia: expuestos, cualquiera podría borrar subjects o administrar
-el cluster. Quedan alcanzables sólo desde la VM por `127.0.0.1`, útil para depurar por un
-túnel SSH.
+Los puertos 8080, 8081, 8083, 8084, 8090, 9090, 9091 y 3000 **no se abren**. El Schema Registry y
+kafka-ui no tienen autenticación propia: expuestos, cualquiera podría borrar subjects o
+administrar el cluster. Quedan alcanzables sólo desde la VM por `127.0.0.1`.
 
-### 6. Emitir el certificado (una sola vez)
+---
 
-nginx no arranca sin certificado y certbot necesita el puerto 80, así que la primera
-emisión se hace antes de levantar el stack:
+## 5. Emitir el certificado
+
+Hay un orden obligatorio: nginx no arranca sin certificado, y certbot necesita el puerto 80,
+que en régimen normal usa nginx. Por eso la primera emisión se hace **antes** de levantar el
+stack:
 
 ```bash
 source .env
@@ -146,11 +139,17 @@ docker compose run --rm -p 80:80 certbot certonly --standalone \
   --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email -n
 ```
 
-El nombre `citypass` es fijo a propósito: la config de nginx referencia
-`/etc/letsencrypt/live/citypass/`, así no depende del dominio. A partir de acá el servicio
-`certbot` renueva solo, y nginx recarga cada 6 horas para tomar el certificado nuevo.
+El nombre `citypass` es fijo a propósito: la configuración de nginx referencia
+`/etc/letsencrypt/live/citypass/`, así que no depende del dominio y no necesita plantillas
+ni sustitución de variables.
 
-### 7. Levantar
+A partir de acá el servicio `certbot` renueva solo cada 12 horas —Let's Encrypt sólo renueva
+cuando faltan menos de 30 días— y nginx se recarga cada 6 horas para tomar el certificado
+nuevo.
+
+---
+
+## 6. Levantar
 
 ```bash
 docker compose build
@@ -159,313 +158,115 @@ docker compose up -d
 
 ---
 
-## Variables de entorno (`.env`)
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `KAFKA_ADVERTISED_HOST` | `localhost` | IP o dominio público del broker. **Cambiar en producción.** |
-| `KAFKA_EXTERNAL_PORT` | `9092` | Puerto externo de Kafka |
-| `KAFKA_INTERNAL_PORT` | `29092` | Puerto interno entre contenedores (no exponer) |
-| `SCHEMA_REGISTRY_PORT` | `8081` | Puerto del Schema Registry |
-| `KAFKA_UI_PORT` | `8090` | Puerto del Kafka UI |
-| `EVENT_GATEWAY_PORT` | `8080` | Puerto del Event Gateway |
-| `DLQ_TOPIC` | `sistema.dlq` | Tópico para mensajes fallidos (Dead Letter Queue) |
-| `AUTH_SIMULATOR_PORT` | `8083` | Puerto del simulador de autenticación |
-| `ANOMALY_DETECTOR_PORT` | `8084` | Puerto del detector de anomalías |
-| `ANOMALY_MIN_SAMPLES` | `50` | Eventos mínimos para entrenar el modelo por primera vez |
-| `ANOMALY_RETRAIN_EVERY_N` | `100` | Re-entrenar el modelo cada N eventos nuevos |
-| `ANOMALY_CONTAMINATION` | `0.05` | Fracción esperada de anomalías (5%) |
-| `KAFKA_AUTO_CREATE_TOPICS_ENABLE` | `false` | Impide que un tópico nazca por publicar o consumir; sólo por creación explícita |
-| `TOPIC_PARTITIONS` | `1` | Particiones de cada tópico de event type |
-| `TOPIC_REPLICATION_FACTOR` | `1` | Réplicas de cada tópico de event type |
-| `KAFKA_CLUSTER_ID` | `MkU3OE...` | ID del cluster KRaft. No cambiar una vez iniciado. |
-| `SECURITY_ENABLED` | `false` | Activar validación JWT en el Event Gateway (`true`/`false`) |
-
----
-
-## Puertos y URLs
-
-### Local
-
-| Servicio | URL |
-|---|---|
-| Event Gateway | `http://localhost:8080` |
-| Event Gateway — Swagger UI | `http://localhost:8080/swagger-ui/index.html` |
-| Event Gateway — Health | `http://localhost:8080/api/v1/health` |
-| Auth Simulator | `http://localhost:8083` |
-| Auth Simulator — Token | `http://localhost:8083/oauth/token` |
-| Auth Simulator — JWKS | `http://localhost:8083/.well-known/jwks.json` |
-| Schema Registry | `http://localhost:8081` — sólo desde el VPS; los grupos resuelven schemas por el gateway |
-| Kafka UI | `http://localhost:8090` |
-| Kafka broker (externo) | `localhost:9092` |
-| Event Gateway — DLQ | `http://localhost:8080/api/v1/dead-letters` |
-| Anomaly Detector | `http://localhost:8084` |
-| Anomaly Detector — Anomalías | `http://localhost:8084/api/v1/anomalies` |
-| Anomaly Detector — Estado modelo | `http://localhost:8084/api/v1/model/status` |
-
-### Oracle Cloud (reemplazar `<DOMINIO>` con el dominio de la VM)
-
-Todo entra por el reverse proxy; no hay un puerto por servicio.
-
-| Servicio | URL |
-|---|---|
-| UI | `https://<DOMINIO>/` |
-| Event Gateway | `https://<DOMINIO>/api/v1/...` |
-| Servicio de identidad | `https://<DOMINIO>/auth/oauth/token` |
-| Kafka broker | `<DOMINIO>:9092` (`security.protocol=SASL_SSL`) |
-
-Swagger UI, el Schema Registry y kafka-ui no se publican en producción. Para llegar a
-ellos, un túnel SSH:
+## 7. Verificar
 
 ```bash
-ssh -L 8081:127.0.0.1:8081 -L 8090:127.0.0.1:8090 -L 9090:127.0.0.1:9090 usuario@<DOMINIO>
-```
-
-El 9090 son las métricas del gateway: `http://localhost:9090/actuator/prometheus`. Nunca
-se publican por el dominio ni pasan por el reverse-proxy.
-
-Después se navegan como `http://localhost:8081` y `http://localhost:8090`. kafka-ui pide
-además su propio usuario y contraseña (`KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` del `.env`
-de la VM).
-
-Como el túnel SSH pasa a ser la puerta de todo el acceso administrativo, conviene
-confirmar que el servidor esté con clave y no con contraseña — `PasswordAuthentication no`
-en `/etc/ssh/sshd_config`.
-
----
-
-## Autenticación y seguridad JWT
-
-### Usuarios pre-configurados
-
-El `auth-simulator` viene con un usuario por grupo:
-
-| Usuario | Password | Grupo | Tópicos permitidos |
-|---|---|---|---|
-| `admin` | `admin` | grupo1 | todos (`*`) |
-| `grupo2` | `grupo2` | grupo2 | `auth.*` |
-| `grupo3` | `grupo3` | grupo3 | `movilidad.*` |
-| `grupo4` | `grupo4` | grupo4 | `reclamos.*` |
-| `grupo5` | `grupo5` | grupo5 | `emergencias.*` |
-| `grupo6` | `grupo6` | grupo6 | `turismo.*` |
-| `grupo7` | `grupo7` | grupo7 | `transporte.*` |
-| `grupo8` | `grupo8` | grupo8 | solo consumir (sin publicación) |
-
-### Obtener un token
-
-```bash
-curl -X POST http://localhost:8083/oauth/token \
-  -d grant_type=client_credentials \
-  -d client_id=grupo3 \
-  -d client_secret=grupo3
-```
-
-Respuesta:
-```json
-{
-  "token": "eyJ...",
-  "expiresIn": "8h",
-  "grupo": "grupo3",
-  "role": "publisher"
-}
-```
-
-### Usar el token en requests
-
-```bash
-curl -X POST http://localhost:8080/api/v1/events \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer eyJ..." \
-  -d '{ ... }'
-```
-
-### Activar/desactivar seguridad
-
-En `.env`:
-```
-# Desactivado (desarrollo local — no requiere token)
-SECURITY_ENABLED=false
-
-# Activado (producción — todos los endpoints de escritura requieren token)
-SECURITY_ENABLED=true
-```
-
-Reiniciar el proxy después de cambiar:
-```bash
-docker compose restart event-gateway
-```
-
-### Reemplazar auth-simulator por el Grupo 2
-
-Cuando el Grupo 2 tenga su servicio de autenticación real:
-
-1. El Grupo 2 debe exponer `GET /.well-known/jwks.json` con su clave pública RS256
-2. El JWT debe incluir los claims `grupo`, `role`, y `allowedTopics`
-3. En `.env`, cambiar:
-   ```
-   AUTH_SERVICE_URL=http://<host-del-grupo2>:<puerto>
-   ```
-4. Reiniciar el proxy: `docker compose restart event-gateway`
-5. Opcionalmente, remover el `auth-simulator` del `docker-compose.yml`
-
----
-
-## Pruebas post-despliegue
-
-### Health checks
-
-```bash
-curl http://localhost:8080/api/v1/health
-curl http://localhost:8083/health
-```
-
-Ambos deben responder `{"status":"UP"}`.
-
-### Listar schemas disponibles
-
-```bash
-curl http://localhost:8080/api/v1/schemas
-```
-
-### Enviar un evento de prueba (sin seguridad)
-
-```bash
-curl -X POST http://localhost:8080/api/v1/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "movilidad.bici.devuelta",
-    "source": "test-despliegue",
-    "data": {
-      "userId": "user-1",
-      "biciId": "bici-1",
-      "estacionDevolucionId": "est-001",
-      "estacionDevolucionNombre": "Estacion Obelisco",
-      "duracionMinutos": 10,
-      "distanciaKm": 2.5
-    }
-  }'
-```
-
-### Enviar un evento de prueba (con seguridad activada)
-
-```bash
-# 1. Obtener token
-TOKEN=$(curl -s -X POST http://localhost:8083/oauth/token \
-  -d grant_type=client_credentials -d client_id=grupo3 -d client_secret=grupo3 \
-
-# 2. Publicar con el token
-curl -X POST http://localhost:8080/api/v1/events \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "eventType": "movilidad.bici.devuelta",
-    "source": "grupo3-movilidad",
-    "data": {
-      "userId": "user-1",
-      "biciId": "bici-1",
-      "estacionDevolucionId": "est-001",
-      "estacionDevolucionNombre": "Estacion Obelisco",
-      "duracionMinutos": 10,
-      "distanciaKm": 2.5
-    }
-  }'
-```
-
-### Verificar que el evento fue procesado
-
-```bash
-docker logs event-gateway --tail 20
-```
-
-### Demo del Anomaly Detector
-
-Publica eventos normales para entrenar el modelo y luego inyecta anomalías (valores extremos, negativos, ráfagas):
-
-```bash
-./anomaly-detector/demo.sh
-```
-
-El script muestra el estado del modelo antes y después, y lista las anomalías detectadas con sus scores y features.
-
-### Consultar la Dead Letter Queue
-
-```bash
-curl http://localhost:8080/api/v1/dlq?limit=10
-```
-
----
-
-## Comandos útiles
-
-```bash
-# Ver estado de todos los servicios
 docker compose ps
-
-# Ver logs en tiempo real de un servicio
-docker logs -f event-gateway
-docker logs -f auth-simulator
-docker logs -f anomaly-detector
-docker logs -f movilidad-consumer
-
-# Reiniciar un servicio sin bajar los demás
-docker compose restart event-gateway
-
-# Bajar todo (conserva volúmenes de datos)
-docker compose down
-
-# Bajar todo y eliminar volúmenes (reseteo completo)
-docker compose down -v
-
-# Reconstruir una imagen después de cambios en el código
-docker compose build event-gateway
-docker compose up -d event-gateway
 ```
+
+Tienen que figurar nueve servicios: los siete de siempre más `reverse-proxy` y `certbot`. Si
+el proxy no aparece, lo primero a revisar es que `COMPOSE_PROFILES` diga exactamente `prod`
+— Compose ignora en silencio un perfil que no existe.
+
+```bash
+curl https://citypass.tudominio.com/health
+```
+
+Y que nada más esté expuesto:
+
+```bash
+# desde afuera de la VM, tienen que fallar todos
+for p in 8080 8081 8083 8084 8090 9090; do
+  nc -z -w2 citypass.tudominio.com $p && echo "PUERTO $p ABIERTO — revisar" || echo "$p cerrado"
+done
+```
+
+### URLs públicas
+
+Todo entra por el proxy; no hay un puerto por servicio.
+
+| Servicio | URL |
+|---|---|
+| UI | `https://citypass.tudominio.com/` |
+| API del gateway | `https://citypass.tudominio.com/api/v1/...` |
+| Servicio de identidad | `https://citypass.tudominio.com/auth/oauth/token` |
+| Kafka broker | `citypass.tudominio.com:9092` con `security.protocol=SASL_SSL` |
+
+Swagger (`/doc`), el Schema Registry, kafka-ui, Prometheus y Grafana **no se publican**.
 
 ---
 
-## Estructura de volúmenes
+## 8. Operación
 
-| Volumen | Contenido | Se pierde al `down -v` |
-|---|---|---|
-| `kafka-data` | Mensajes de Kafka | Sí |
-| `event-gateway-data` | Suscripciones webhook (`subscriptions.json`) | Sí |
+### Acceso administrativo
 
-Para backup de suscripciones antes de un reseteo:
+Por túnel SSH, sin abrir ningún puerto:
 
 ```bash
-docker cp event-gateway:/app/data/subscriptions.json ./subscriptions-backup.json
+ssh -L 8081:127.0.0.1:8081 -L 8090:127.0.0.1:8090 \
+    -L 9090:127.0.0.1:9090 -L 9091:127.0.0.1:9091 -L 3000:127.0.0.1:3000 \
+    usuario@citypass.tudominio.com
 ```
+
+Y se navegan como `http://localhost:8081` (registry), `http://localhost:8090` (kafka-ui),
+`http://localhost:9091` (Prometheus) y `http://localhost:3000` (Grafana). kafka-ui y Grafana
+piden además su propio usuario y contraseña.
+
+Como el túnel SSH pasa a ser la puerta de todo el acceso administrativo, conviene confirmar
+que el servidor esté con clave y no con contraseña — `PasswordAuthentication no` en
+`/etc/ssh/sshd_config`.
+
+### Logs
+
+```bash
+docker compose logs -f event-gateway
+docker compose logs -f reverse-proxy
+```
+
+En producción el gateway loguea en `INFO`. `DEBUG` vuelca los payloads de los eventos al
+log, o sea datos de negocio de todos los grupos.
+
+### Actualizar
+
+```bash
+git pull
+docker compose build
+docker compose up -d
+```
+
+Las suscripciones y los event types archivados viven en volúmenes, así que sobreviven. Los
+tópicos y los schemas también.
+
+### Backup
+
+El estado que importa está en tres volúmenes:
+
+```bash
+docker run --rm -v citypass-eda_kafka-data:/d -v $PWD:/b alpine tar czf /b/kafka-data.tgz -C /d .
+docker run --rm -v citypass-eda_event-gateway-data:/d -v $PWD:/b alpine tar czf /b/gateway-data.tgz -C /d .
+docker run --rm -v citypass-eda_event-gateway-schemas:/d -v $PWD:/b alpine tar czf /b/schemas.tgz -C /d .
+```
+
+Perder `event-gateway-data` borra las suscripciones webhook, que hoy no están replicadas en
+ningún lado. Es la limitación descrita en [ARCHITECTURE.md](ARCHITECTURE.md#6-limitaciones-conocidas).
 
 ---
 
-## Agregar un nuevo tipo de evento
+## Problemas frecuentes
 
-### Via API (recomendado — sin reiniciar)
+| Síntoma | Causa probable |
+|---|---|
+| El proxy no aparece en `docker compose ps` | `COMPOSE_PROFILES` no dice exactamente `prod` |
+| nginx en bucle de reinicios quejándose de los upstreams | Conflicto de puertos: el contenedor quedó sin red. Revisar que `KAFKA_HOST_PORT` no sea 9092 |
+| nginx no arranca por certificado faltante | Falta la emisión inicial del paso 5 |
+| Los clientes de Kafka no conectan | `KAFKA_ADVERTISED_HOST` tiene que ser el dominio, y coincidir con el certificado |
+| El navegador bloquea las llamadas de la UI | `GATEWAY_CORS_ORIGIN` tiene que ser el origen exacto, con `https://` |
+| Los tokens dejan de servir tras un reinicio | El `auth-simulator` regenera su clave. Es el mock: hace falta el servicio real |
 
-```bash
-curl -X POST http://localhost:8080/api/v1/schemas \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "reclamos.creado",
-    "schema": {
-      "type": "record",
-      "name": "ReclamoCreado",
-      "namespace": "com.citypass.reclamos.events",
-      "doc": "Evento emitido cuando se crea un reclamo",
-      "fields": [
-        {"name": "eventId", "type": "string"},
-        {"name": "eventType", "type": "string"},
-        {"name": "timestamp", "type": "string"},
-        {"name": "source", "type": "string"},
-        {"name": "reclamoId", "type": "string"}
-      ]
-    }
-  }'
-```
+---
 
-### Via archivo (alternativa)
+## Referencias
 
-1. Crear el schema en `event-gateway/schemas/<nombre-del-evento>.avsc`
-2. Reiniciar el Event Gateway: `docker compose restart event-gateway`
-
-Ver [`docs/CONTRACTS.md`](docs/CONTRACTS.md) para las reglas y formato de schemas.
+- [SECURITY.md](SECURITY.md) — por qué está expuesto sólo lo que está expuesto
+- [ADR-014](adr/ADR-014-un-compose-configuracion-en-env.md) — un solo compose, la configuración en el `.env`
+- [diagrams/despliegue.md](diagrams/despliegue.md) — diagrama de despliegue

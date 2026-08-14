@@ -1,0 +1,12 @@
+# Datasource provisionado: Grafana arranca con Prometheus ya configurado, sin que nadie
+# tenga que cargarlo a mano por la interfaz.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Nombre del servicio en la red de Docker, no localhost: Grafana corre en otro contenedor.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

@@ -1,0 +1,79 @@
+{
+  "title": "Event Gateway",
+  "uid": "citypass-event-gateway",
+  "tags": ["citypass"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Peticiones por segundo, por código",
+      "description": "Un salto de 4xx suele ser un grupo con el token vencido o publicando contra un tópico ajeno.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latencia de la API (p95)",
+      "description": "Si sube sólo en el endpoint de publicar, suele ser Kafka tardando en confirmar.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket[5m])))",
+          "legendFormat": "{{uri}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Entregas de webhook por resultado",
+      "description": "entregado / agotado / bloqueado. Es la única forma de ver por qué un grupo dejó de recibir eventos: la entrega no pasa por ningún endpoint HTTP propio.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (resultado, topic) (rate(citypass_webhook_entregas_total[5m]))",
+          "legendFormat": "{{resultado}} · {{topic}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rechazos por rate limit, por namespace",
+      "description": "Si un namespace aparece acá, está pasándose de las 600 peticiones por minuto.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (namespace) (rate(citypass_rate_limit_rechazos_total[5m]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Memoria de la JVM",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by (area) (jvm_memory_used_bytes)",
+          "legendFormat": "{{area}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Tiempo desde el último arranque",
+      "description": "Un reinicio pone los contadores en cero: si los valores caen de golpe, mirá acá primero.",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 16 },
+      "targets": [{ "expr": "process_uptime_seconds" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    }
+  ]
+}

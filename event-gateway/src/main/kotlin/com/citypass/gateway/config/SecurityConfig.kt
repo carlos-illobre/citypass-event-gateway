@@ -83,7 +83,9 @@ class SecurityConfig(
                     // para que exista.
                     .apply {
                         if (openapiEnabled) {
-                            requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+                            // `/doc` es la ruta configurada; springdoc redirige desde ahí
+                            // a los recursos estáticos de swagger-ui, que también hay que abrir.
+                            requestMatchers("/doc", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         }
                     }
 

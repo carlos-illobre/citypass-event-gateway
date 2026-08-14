@@ -244,6 +244,46 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # ── Observabilidad ──────────────────────────────────────────────────────────
+  # El gateway expone sus métricas, pero sin alguien que las consulte sólo se ve el valor
+  # instantáneo. Prometheus guarda la serie y Grafana la muestra.
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus
+    hostname: prometheus
+    ports:
+      # 9091 en el host porque el 9090 ya lo usa el puerto de management del gateway.
+      # Adentro de la red sigue siendo 9090, que es su puerto por convención.
+      - "${PUBLISH_ADDR:-127.0.0.1}:9091:9090"
+    depends_on:
+      event-gateway:
+        condition: service_healthy
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    container_name: grafana
+    hostname: grafana
+    ports:
+      - "${PUBLISH_ADDR:-127.0.0.1}:3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      # Mismo criterio que kafka-ui: sin default seguro para una contraseña, el compose
+      # se niega a arrancar antes que quedar con `admin`/`admin`.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:?falta GRAFANA_USER en el .env}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?falta GRAFANA_PASSWORD en el .env}
+      # Nadie se registra solo: los usuarios los crea el administrador.
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
   # ── Sólo producción ─────────────────────────────────────────────────────────
   # Estos dos servicios existen únicamente cuando COMPOSE_PROFILES=prod en el
   # .env. En desarrollo no se levantan y cada servicio se habla directo por su puerto.
@@ -292,6 +332,8 @@ services:
 
 volumes:
   kafka-data:
+  prometheus-data:
+  grafana-data:
   certbot-conf:
   certbot-www:
   event-gateway-schemas:

@@ -12,7 +12,7 @@ C4Component
     Person_Ext(cliente, "Cliente HTTP", "Otros grupos")
 
     Container_Boundary(proxy, "Event Gateway") {
-        Component(security_config, "SecurityConfig", "Spring Security", "Configura filtros JWT. Toggle SECURITY_ENABLED. Conecta al JwkSet del auth service.")
+        Component(security_config, "SecurityConfig", "Spring Security", "Valida firma, audiencia y expiración contra el JWKS. Sólo /health y GET /schemas son públicos.")
         Component(topic_auth, "TopicAuthorizationService", "Spring Service", "Valida que el JWT tiene permiso para publicar en el tópico solicitado. Soporta wildcards (*, dominio.*).")
         Component(event_controller, "EventController", "Spring REST Controller", "POST /api/v1/events — orquesta la publicación. GET /api/v1/health. GET/POST/DELETE /api/v1/schemas.")
         Component(sub_controller, "SubscriptionController", "Spring REST Controller", "POST /api/v1/subscriptions — registra webhooks. DELETE — cancela suscripciones. GET — lista activas.")

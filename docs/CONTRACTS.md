@@ -1,204 +1,261 @@
-# CityPass+ EDA — Contratos y Políticas de Publicación/Suscripción
+# Contratos de eventos
 
-Este documento define las reglas que todos los grupos deben seguir para publicar y consumir eventos del bus de mensajería.
+Las reglas que tiene que cumplir un evento para entrar al bus: cómo se nombra, cómo se
+declara su schema, cómo evoluciona y cuánto vive.
+
+> Para *cómo* registrar un tipo y publicar, mirá el
+> [README](../README.md#5-definir-un-event-type). Acá están las **políticas**.
 
 ---
 
-## Convención de nombres de tópicos
+## Contenido
 
-Los nombres de tópicos (y de `eventType`) siguen el formato:
+1. [Nombres](#1-nombres)
+2. [Estructura de un evento](#2-estructura-de-un-evento)
+3. [Tipos permitidos](#3-tipos-permitidos)
+4. [Evolución de un schema](#4-evolución-de-un-schema)
+5. [Ciclo de vida de un event type](#5-ciclo-de-vida-de-un-event-type)
+6. [Retención](#6-retención)
+7. [Validaciones del gateway](#7-validaciones-del-gateway)
+
+---
+
+## 1. Nombres
+
+El nombre completo de un event type —su **fqn**— es:
 
 ```
-dominio.entidad.accion
+<namespace>.<Nombre>
 ```
 
-- Todo en **minúsculas**
-- Separado por **puntos**
-- Sin espacios, guiones ni caracteres especiales
+El **namespace** no lo elegís: sale del claim `namespace` de tu token. El **nombre** lo
+elegís vos, en `PascalCase`, y describe **un hecho que ya ocurrió**.
 
-### Ejemplos válidos
-
-| eventType | Grupo | Descripción |
-|---|---|---|
-| `movilidad.bici.devuelta` | G3 | Una bicicleta fue devuelta en una estación |
-| `movilidad.bici.alquilada` | G3 | Una bicicleta fue alquilada |
-| `reclamos.creado` | G4 | Se creó un nuevo reclamo |
-| `auth.login` | G2 | Un usuario inició sesión |
-| `emergencias.reportada` | G5 | Se reportó una emergencia |
-| `turismo.reserva.creada` | G6 | Se creó una reserva turística |
-| `transporte.viaje.iniciado` | G7 | Un viaje de transporte inició |
-
-### Ejemplos inválidos
-
-| eventType | Problema |
+| Grupo | Namespace |
 |---|---|
-| `Reclamos.Creado` | Mayúsculas |
-| `reclamo-creado` | Guiones en vez de puntos |
-| `reclamo_creado` | Guiones bajos en vez de puntos |
-| `reclamo` | Falta la acción |
+| 2 | `com.citypass.auth` |
+| 3 | `com.citypass.movilidad` |
+| 4 | `com.citypass.reclamos` |
+| 5 | `com.citypass.emergencias` |
+| 6 | `com.citypass.turismo` |
+| 7 | `com.citypass.transporte` |
+| 8 | `com.citypass.analitica` |
+
+### El fqn es también el nombre del tópico
+
+No hay traducción entre uno y otro. `com.citypass.movilidad.BiciDevuelta` es a la vez el
+tipo del evento y el tópico de Kafka donde vive, y eso es lo que permite que el autorizador
+del broker decida por prefijo sin consultar nada.
+
+### Ejemplos
+
+| Correcto | Por qué |
+|---|---|
+| `BiciDevuelta` | Un hecho consumado |
+| `ReclamoCreado` | Ídem |
+| `EmergenciaReportada` | Ídem |
+| `ViajeCompletado` | Ídem |
+
+| Incorrecto | Por qué |
+|---|---|
+| `DevolverBici` | Es una orden, no un hecho. Un evento no le pide nada a nadie |
+| `bici_devuelta` | No es `PascalCase` |
+| `BiciDevueltaEvent` | El sufijo sobra: todo lo que hay acá es un evento |
+| `com.citypass.movilidad.BiciDevuelta` | El namespace no se manda, sale del token |
+| `ActualizarEstado` | Ambiguo: ¿qué pasó exactamente? |
+
+El nombre en imperativo es el error más común. Un evento **notifica**, no **ordena**: si el
+nombre suena a instrucción, el diseño se está pareciendo a una llamada a un servicio.
 
 ---
 
-## Campos base obligatorios
+## 2. Estructura de un evento
 
-Todo schema Avro **debe** incluir estos 4 campos al principio, todos de tipo `string`:
+Todo evento del bus tiene exactamente dos partes:
 
-| Campo | Tipo | Descripción | Generado por |
-|---|---|---|---|
-| `eventId` | string | UUID único del evento | Event Gateway (automático) |
-| `eventType` | string | Nombre del tópico/tipo de evento | Event Gateway (automático) |
-| `timestamp` | string | Fecha y hora UTC en formato ISO 8601 | Event Gateway (automático) |
-| `source` | string | Identificador del servicio que emitió el evento | El productor |
-
-Estos campos son **inyectados automáticamente** por el Event Gateway al publicar. El productor solo necesita enviar `source` y los campos específicos del evento dentro de `data`.
-
----
-
-## Estructura de un schema Avro
-
-```json
-{
-  "type": "record",
-  "name": "NombreDelEvento",
-  "namespace": "com.citypass.<dominio>.events",
-  "doc": "Descripcion del evento",
-  "fields": [
-    {"name": "eventId", "type": "string"},
-    {"name": "eventType", "type": "string"},
-    {"name": "timestamp", "type": "string"},
-    {"name": "source", "type": "string"},
-    ... campos específicos del evento ...
-  ]
-}
+```
+record <Nombre>
+├── data      ← los campos de negocio, los declarás vos
+└── metadata  ← los nueve campos que calcula el gateway
 ```
 
-### Tipos de datos soportados
+Vos declarás **sólo los campos de `data`**. El gateway arma el envelope.
 
-| Tipo Avro | Ejemplo JSON | Descripción |
+`metadata` es siempre la misma para todos los event types de la plataforma, y su schema se
+puede consultar en `GET /api/v1/event-metadata`. No la declares ni la mandes: no hay dónde
+escribirla.
+
+### No hay campos obligatorios de negocio
+
+Un diseño anterior exigía que cada schema declarara `eventId`, `eventType`, `timestamp` y
+`source`. Ya no: esos campos viven en `metadata`, así que `data` puede tener los campos que
+tenga sentido para el dominio, y **ninguno está reservado**. Un campo de negocio puede
+llamarse `source` sin colisionar con nada.
+
+→ [ADR-012](adr/ADR-012-envelope-metadata-data.md)
+
+---
+
+## 3. Tipos permitidos
+
+Son los de Avro. Los primitivos:
+
+| Tipo | Valor JSON al publicar |
+|---|---|
+| `string` | `"bici-101"` |
+| `int` | `35` (32 bits) |
+| `long` | `1786547143000` (64 bits) |
+| `float` / `double` | `7.2` |
+| `boolean` | `true` |
+| `bytes` | Base64 al recibirlo |
+| `null` | Sólo dentro de una unión |
+
+Los compuestos:
+
+| Tipo | Declaración | Valor |
 |---|---|---|
-| `string` | `"texto"` | Texto |
-| `int` | `35` | Entero de 32 bits |
-| `long` | `1234567890` | Entero de 64 bits |
-| `double` | `7.2` | Número decimal de 64 bits |
-| `float` | `3.14` | Número decimal de 32 bits |
-| `boolean` | `true` | Verdadero o falso |
+| Array | `{ "type": "array", "items": "string" }` | `["a","b"]` |
+| Map | `{ "type": "map", "values": "int" }` | `{ "x": 1 }` |
+| Enum | `{ "type": "enum", "name": "Estado", "symbols": ["ALTA","BAJA"] }` | `"ALTA"` |
+| Record | `{ "type": "record", "name": "Usuario", "fields": [...] }` | Objeto anidado |
+| Unión | `["null", "string"]` | `null` o `"texto"` |
+
+Y los tipos lógicos, que son primitivos con semántica:
+
+| Tipo lógico | Declaración | Valor |
+|---|---|---|
+| Timestamp | `{ "type": "long", "logicalType": "timestamp-millis" }` | `1786547143000` |
+| Decimal | `{ "type": "bytes", "logicalType": "decimal", "precision": 9, "scale": 2 }` | `12.34` |
 
 ### Campos opcionales
 
-Para hacer un campo opcional, usar `default`:
+Un campo opcional es una unión que empieza con `null`:
 
 ```json
-{"name": "prioridad", "type": "string", "default": "media"}
+{ "name": "email", "type": ["null", "string"] }
 ```
 
----
+El orden importa: `null` primero significa que el valor por defecto es ausente.
 
-## Cómo registrar un nuevo schema
+### Reutilizar un record
 
-### Via REST API (recomendado)
+Una vez declarado un record con nombre, se lo referencia por ese nombre en el resto del
+schema:
 
-```bash
-curl -X POST http://localhost:8080/api/v1/schemas \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "reclamos.creado",
-    "schema": {
-      "type": "record",
-      "name": "ReclamoCreado",
-      "namespace": "com.citypass.reclamos.events",
-      "doc": "Evento emitido cuando se crea un nuevo reclamo",
-      "fields": [
-        {"name": "eventId", "type": "string"},
-        {"name": "eventType", "type": "string"},
-        {"name": "timestamp", "type": "string"},
-        {"name": "source", "type": "string"},
-        {"name": "reclamoId", "type": "string"},
-        {"name": "userId", "type": "string"},
-        {"name": "categoria", "type": "string"},
-        {"name": "descripcion", "type": "string"}
-      ]
-    }
-  }'
-```
-
-Respuesta exitosa (`201 Created`):
 ```json
-{
-  "status": "registered",
-  "eventType": "reclamos.creado",
-  "schemaId": 3
-}
+{ "name": "origen",  "type": { "type": "record", "name": "Estacion", "fields": [...] } },
+{ "name": "destino", "type": "Estacion" }
 ```
 
-### Via archivo (alternativa)
+Hay un ejemplo completo en el
+[README](../README.md#un-tipo-con-records-anidados).
 
-1. Crear el archivo `.avsc` en la carpeta `schemas/`
-2. Reiniciar el Event Gateway: `docker compose restart event-gateway`
+### Usá el tipo más específico
+
+`duracionMin` como `int` y no como `string`. `precio` como `decimal` y no como `double` —los
+flotantes acumulan error y un importe no lo perdona. `ocurridoEn` como `timestamp-millis` y
+no como `string` con una fecha ISO.
+
+Es la ventaja concreta de tener contrato: el consumidor recibe el tipo que corresponde sin
+tener que parsear ni adivinar.
 
 ---
 
-## Cómo publicar un evento
+## 4. Evolución de un schema
 
-Una vez registrado el schema, se publica con:
+El Schema Registry está configurado en compatibilidad **`backward`**: una versión nueva
+tiene que poder leer los eventos escritos con la versión anterior.
+
+En la práctica:
+
+| Cambio | ¿Se puede? | Por qué |
+|---|---|---|
+| Agregar un campo **con default** | Sí | Un consumidor viejo lo ignora; uno nuevo leyendo un evento viejo usa el default |
+| Agregar un campo **sin default** | No | Un consumidor nuevo no sabría qué poner al leer un evento viejo |
+| Eliminar un campo con default | Sí | |
+| Eliminar un campo sin default | No | |
+| Renombrar un campo | No | Equivale a eliminar uno y agregar otro |
+| Cambiar el tipo de un campo | No | Salvo ensanchamientos que Avro considera compatibles, como `int` → `long` |
+| Agregar un símbolo a un enum | No | Un consumidor viejo no sabría interpretarlo |
+
+**Si necesitás un cambio incompatible, registrá un event type nuevo.** Por ejemplo
+`BiciDevueltaV2`, y archivá el anterior cuando todos los consumidores hayan migrado. Es
+preferible a romperle la deserialización a siete equipos.
+
+---
+
+## 5. Ciclo de vida de un event type
+
+```
+registrado ──────────► activo ──────────► archivado
+                                              │
+                                              └─► el schema y los eventos siguen disponibles
+```
+
+Un event type archivado:
+
+- **No admite eventos nuevos**: publicar responde `409`.
+- **Conserva su schema** en el registry, así que los consumidores pueden seguir
+  deserializando lo ya publicado.
+- **Conserva su tópico** y todos sus eventos.
+
+Es una baja **lógica** a propósito. Borrar un schema rompería a cualquier consumidor que
+esté releyendo el histórico, incluso años después.
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "reclamos.creado",
-    "source": "grupo4-reclamos",
-    "data": {
-      "reclamoId": "rec-001",
-      "userId": "user-42",
-      "categoria": "infraestructura",
-      "descripcion": "Semaforo roto en Av. Corrientes y Florida"
-    }
-  }'
+curl -X PATCH .../api/v1/event-types/com.citypass.movilidad.BiciDevuelta \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{ "status": "archived" }'
 ```
 
-Los campos `eventId`, `eventType`, `timestamp` y `source` se inyectan automáticamente — no enviarlos dentro de `data`.
-
 ---
 
-## Política de retención de mensajes
+## 6. Retención
 
-- **Retención por defecto:** 7 días (`168 horas`)
-- Después de 7 días, los mensajes se eliminan automáticamente de Kafka
-- Los consumidores que se conecten después de este período no verán mensajes anteriores
-
----
-
-## Versionado de schemas
-
-La compatibilidad está configurada en modo **backward**:
-
-- Se **pueden** agregar campos nuevos con valor `default`
-- Se **pueden** eliminar campos opcionales (que tienen `default`)
-- **No se pueden** eliminar campos obligatorios
-- **No se pueden** cambiar el tipo de un campo existente
-
-Esto garantiza que los consumidores existentes sigan funcionando cuando el schema evoluciona.
-
----
-
-## Validaciones del Event Gateway
-
-El proxy valida automáticamente al registrar un schema:
-
-| Validación | Error si no cumple |
+| Tópico | Retención |
 |---|---|
-| Formato `dominio.entidad.accion` | "El eventType debe seguir el formato..." |
-| Campos base presentes | "Faltan campos base obligatorios: ..." |
-| Campos base de tipo string | "El campo 'X' debe ser de tipo 'string'" |
-| Schema Avro válido | "Schema Avro inválido: ..." |
-| eventType no duplicado | "Ya existe un schema registrado para '...'" |
+| Tópicos de negocio | La del broker (7 días por defecto) |
+| `sistema.dlq` | Ídem |
+
+Un consumidor nuevo que arranque con `auto.offset.reset=earliest` lee todo lo que quede
+dentro de la ventana de retención, no la historia completa desde el principio de los
+tiempos.
+
+Si un dominio necesita retención indefinida, se configura por tópico en el broker — no es
+algo que el gateway decida.
 
 ---
 
-## Eliminar un schema
+## 7. Validaciones del gateway
 
-```bash
-curl -X DELETE http://localhost:8080/api/v1/schemas/reclamos.creado
-```
+Qué rechaza el gateway y con qué código:
 
-Esto elimina el schema del proxy. Los mensajes ya publicados en Kafka siguen siendo legibles via Schema Registry.
+| Validación | Código | Detalle |
+|---|---|---|
+| El token es válido y trae `namespace` | `401` / `400` | Firma, audiencia y expiración |
+| El fqn pertenece a tu namespace | `403` | No podés publicar en tópicos ajenos |
+| El event type existe | `404` | |
+| El event type no está archivado | `409` | |
+| El payload cumple el schema | `400` | El `detail` dice qué campo falta o tiene mal el tipo |
+| El body no supera 256 KB | `413` | |
+| No superaste 600 peticiones por minuto | `429` | Con `Retry-After` |
+| Kafka confirmó la publicación | `504` | Puede haberse publicado igual: deduplicá por `payloadHash` |
+
+Al **registrar** un event type:
+
+| Validación | Código |
+|---|---|
+| El nombre está presente y es válido | `400` |
+| Los campos son un schema Avro válido | `400` |
+| No existe ya un event type con ese fqn | `400` |
+| El Schema Registry responde | `502` |
+
+---
+
+## Referencias
+
+- [README](../README.md#5-definir-un-event-type) — cómo registrar y publicar
+- [ARCHITECTURE.md](ARCHITECTURE.md) — por qué Avro y por qué un tópico por tipo
+- [ADR-002](adr/ADR-002-avro-schema-registry.md) — Avro y Schema Registry
+- [ADR-006](adr/ADR-006-topico-por-tipo-de-evento.md) — un tópico por tipo de evento
+- [ADR-012](adr/ADR-012-envelope-metadata-data.md) — el envelope de dos records

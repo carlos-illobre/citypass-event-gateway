@@ -19,6 +19,32 @@ import java.math.RoundingMode
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 
+/**
+ * El payload no cumple el schema del event type.
+ *
+ * Existe como tipo propio para que el controller pueda distinguir un error del productor
+ * —que es un 400— de un fallo al publicar en Kafka, que es un 502. Sin esta distinción, un
+ * campo con el tipo equivocado se reportaba como «Error al publicar en Kafka», mandando a
+ * investigar el broker por un problema del request.
+ *
+ * @param campo Nombre del campo que no cumple, o null si todavía no se conoce.
+ * @param detalle Qué se esperaba y qué llegó.
+ */
+class PayloadInvalidoException(val campo: String?, val detalle: String) :
+    IllegalArgumentException(textoDe(campo, detalle)) {
+    /**
+     * Lo mismo que `message`, pero no nulo.
+     *
+     * `Throwable.message` es `String?`, así que usarlo obliga a un `?:` que ningún test
+     * puede alcanzar —esta excepción siempre lleva texto—, y una rama inalcanzable es
+     * código muerto que el umbral de cobertura marca con razón.
+     */
+    val descripcion: String = textoDe(campo, detalle)
+}
+
+private fun textoDe(campo: String?, detalle: String): String =
+    if (campo == null) detalle else "El campo '$campo' $detalle"
+
 @Service
 class AvroService(private val schemaRegistryService: SchemaRegistryService) {
 
@@ -101,7 +127,15 @@ class AvroService(private val schemaRegistryService: SchemaRegistryService) {
         schema.fields.forEach { field ->
             val value = json[field.name()]
             if (value != null) {
-                record.put(field.name(), convertValue(value, field.schema()))
+                try {
+                    record.put(field.name(), convertValue(value, field.schema()))
+                } catch (e: PayloadInvalidoException) {
+                    // El error viaja sin nombre desde la conversión y lo nombra el primer
+                    // record que lo ve, que es el que conoce el campo. En un record
+                    // anidado gana el de adentro, que es el que señala el campo exacto.
+                    if (e.campo != null) throw e
+                    throw PayloadInvalidoException(field.name(), e.detalle)
+                }
             }
         }
         return record
@@ -146,7 +180,16 @@ class AvroService(private val schemaRegistryService: SchemaRegistryService) {
 
     private fun convertValue(value: Any?, schema: Schema): Any? {
         if (value == null) return null
-        return typeConverters.getValue(schema.type)(value, schema)
+        return try {
+            typeConverters.getValue(schema.type)(value, schema)
+        } catch (e: ClassCastException) {
+            // Los convertidores castean directo. Sin esto, un `int` que recibe texto sale
+            // como ClassCastException y el productor recibe un 500 sin ninguna pista.
+            throw PayloadInvalidoException(
+                null,
+                "esperaba ${schema.type.getName()} y recibió ${value.javaClass.simpleName}."
+            )
+        }
     }
 
     /** Elige la rama no-nula de una unión que mejor corresponde al valor recibido. */

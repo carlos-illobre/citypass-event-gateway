@@ -7,6 +7,7 @@ import io.swagger.v3.oas.models.media.Content
 import io.swagger.v3.oas.models.media.Schema
 import io.swagger.v3.oas.models.security.SecurityScheme
 import org.springdoc.core.customizers.OpenApiCustomizer
+import org.springframework.boot.info.BuildProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
@@ -17,7 +18,7 @@ import org.springframework.context.annotation.Configuration
  * que se muestran en la UI interactiva de Swagger (/swagger-ui/index.html).
  */
 @Configuration
-class OpenApiConfig {
+class OpenApiConfig(private val buildProperties: BuildProperties) {
 
     /**
      * Crea el documento OpenAPI con la información del servicio y el esquema de seguridad.
@@ -29,7 +30,10 @@ class OpenApiConfig {
         .info(
             Info()
                 .title("CityPass+ EDA - Event Gateway")
-                .version("1.0.0")
+                // Sale del build, igual que `metadata.gatewayVersion` de cada evento.
+                // Escrita a mano quedaba desincronizada: el documento se declaraba 1.0.0
+                // mientras el gateway publicaba eventos sellados con 0.0.1-SNAPSHOT.
+                .version(buildProperties.version)
                 .description(
                     """
                     **Grupo 1 - Event Driven Architecture**
@@ -135,9 +139,9 @@ class OpenApiConfig {
             .example(
                 mapOf(
                     "type" to "about:blank",
-                    "title" to "Event type desconocido",
+                    "title" to "Event type no encontrado",
                     "status" to 404,
-                    "detail" to "No hay ningún event type registrado con el nombre 'com.citypass.movilidad.NoExiste'.",
+                    "detail" to "No hay ningún event type registrado con el FQN 'com.citypass.movilidad.NoExiste'.",
                     "instance" to "/api/v1/event-types/com.citypass.movilidad.NoExiste/events"
                 )
             )

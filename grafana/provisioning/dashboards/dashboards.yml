@@ -1,0 +1,13 @@
+# Carga los dashboards versionados de /var/lib/grafana/dashboards al arrancar.
+apiVersion: 1
+
+providers:
+  - name: citypass
+    orgId: 1
+    folder: CityPass+
+    type: file
+    # Los dashboards viven en el repo: editarlos desde la interfaz no los persiste.
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

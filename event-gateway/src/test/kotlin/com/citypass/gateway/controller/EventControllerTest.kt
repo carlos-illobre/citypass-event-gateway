@@ -1,6 +1,7 @@
 package com.citypass.gateway.controller
 
 import com.citypass.gateway.service.AvroService
+import com.citypass.gateway.service.PayloadInvalidoException
 import com.citypass.gateway.service.SchemaRegistryService
 import com.citypass.gateway.service.TopicAuthorizationService
 import org.apache.avro.Schema
@@ -346,5 +347,27 @@ class EventControllerTest {
             metadata.keys
         )
         assertEquals(fqn, metadata["eventType"])
+    }
+
+    @Test
+    fun `un payload que no cumple el schema devuelve 400 y nombra el campo`() {
+        // Antes escapaba como ClassCastException sin capturar: un 500 con el cuerpo de
+        // error por defecto de Spring, sin `detail` y sin decir qué campo estaba mal.
+        val jwt = readyToPublish()
+        // El payloadHash ya convierte el payload contra el schema, así que es donde falla
+        // primero un campo con el tipo equivocado.
+        whenever(avroService.payloadHash(any(), any()))
+            .thenThrow(PayloadInvalidoException("userId", "esperaba string y recibió Integer."))
+
+        val response = controller.publishEvent(fqn, mapOf("userId" to 42), jwt)
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+        assertEquals("El evento no cumple el schema", problemOf(response).title)
+        assertTrue(
+            problemOf(response).detail!!.contains("userId"),
+            "el detalle tiene que nombrar el campo: ${problemOf(response).detail}"
+        )
+        // Y no llega a publicarse.
+        verifyNoInteractions(kafkaTemplate)
     }
 }
