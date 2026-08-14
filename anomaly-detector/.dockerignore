@@ -1,0 +1,8 @@
+# El caché de Python lo compila el intérprete de la máquina de desarrollo, que no es el
+# mismo que corre en la imagen: un .pyc de otra versión no sirve y sólo ocupa lugar.
+#
+# El `**/` no es decorativo: sin él, Docker sólo aplica el patrón en la raíz del contexto
+# de construcción y los de `src/` se copian igual.
+**/__pycache__
+**/*.pyc
+**/.venv

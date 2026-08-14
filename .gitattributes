@@ -1,0 +1,26 @@
+# Normalización de finales de línea.
+#
+# Sin esto, Git en Windows entrega los archivos con CRLF (es el default de su instalador),
+# y `gradlew` deja de funcionar dentro de los contenedores: el kernel busca un intérprete
+# llamado `/bin/sh\r`, que no existe, y falla con «not found» sobre un archivo que sí está.
+#
+# `text=auto eol=lf` hace que el árbol de trabajo tenga LF en cualquier sistema operativo.
+# En Linux no cambia nada porque ya es así.
+#
+# Ojo: agregar este archivo no reescribe los clones que ya existen. Quien ya tenga el repo
+# bajado necesita `git add --renormalize .` o volver a clonar.
+* text=auto eol=lf
+
+# Los scripts de Windows sí necesitan CRLF para ejecutarse.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binarios: que Git no los toque ni intente adivinar.
+*.jar   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.pyc   binary

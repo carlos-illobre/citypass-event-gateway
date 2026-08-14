@@ -56,3 +56,8 @@ logs/
 # Docker
 *.pid
 docker-compose.override.yml
+# Python — producto del intérprete, se regenera solo desde los .py
+__pycache__/
+*.pyc
+*.pyo
+.venv/
