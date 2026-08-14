@@ -63,6 +63,13 @@ services:
       KAFKA_PROCESS_ROLES: 'broker,controller'
     volumes:
       - kafka-data:/var/lib/kafka/data
+      # Las imágenes de Confluent declaran un `VOLUME` para los certificados TLS. Acá el
+      # TLS termina en el reverse-proxy, así que ese directorio queda vacío — pero si no se
+      # monta nada, Docker le crea un volumen anónimo con nombre de hash que queda huérfano
+      # en cada `down`. Montarle uno con nombre no lo evita, pero lo hace identificable.
+      #
+      # Un `tmpfs` no sirve para esto: se monta, y Docker crea el volumen anónimo igual.
+      - kafka-secrets:/etc/kafka/secrets
     healthcheck:
       test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 || exit 1"]
       interval: 10s
@@ -85,6 +92,10 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'PLAINTEXT://kafka-authorizer:29092'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       SCHEMA_REGISTRY_AVRO_COMPATIBILITY_LEVEL: 'backward'
+    volumes:
+      # Mismo caso que el broker: el VOLUME de la imagen es para certificados TLS que acá
+      # no se usan, y sin montarle nada Docker genera un volumen anónimo con nombre de hash.
+      - schema-registry-secrets:/etc/schema-registry/secrets
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8081/subjects || exit 1"]
       interval: 10s
@@ -332,6 +343,10 @@ services:
 
 volumes:
   kafka-data:
+  # Vacíos a propósito: existen sólo para que el `VOLUME` de las imágenes de Confluent no
+  # genere volúmenes anónimos. Si algún día el TLS se mueve al broker, van acá los keystores.
+  kafka-secrets:
+  schema-registry-secrets:
   prometheus-data:
   grafana-data:
   certbot-conf:
