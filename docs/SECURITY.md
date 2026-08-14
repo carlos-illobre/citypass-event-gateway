@@ -188,10 +188,6 @@ Consecuencias:
 - **`payloadHash` permite verificar** que el payload no se alteró, y deduplicar por
   contenido.
 
-Un diseño anterior mezclaba ambos en un solo record y necesitaba una lista de campos
-reservados. Esa lista es exactamente el tipo de cosa que se olvida de actualizar; la
-separación estructural la hace innecesaria.
-
 ---
 
 ## 5. Aislamiento entre grupos
@@ -246,7 +242,7 @@ peor que no tener TLS, porque parece seguro.
 
 ### kafka-ui
 
-Es la única credencial del sistema fuera del servicio de identidad, y es una excepción
+Utiliza excepcionalmente una credencial del sistema fuera del servicio de autenticacion, y es una excepción
 justificada: kafka-ui es una herramienta de administración y el emisor sólo soporta
 `client_credentials`, así que un navegador no tiene cómo autenticarse contra él.
 

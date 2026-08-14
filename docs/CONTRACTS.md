@@ -28,7 +28,7 @@ El nombre completo de un event type —su **fqn**— es:
 <namespace>.<Nombre>
 ```
 
-El **namespace** no lo elegís: sale del claim `namespace` de tu token. El **nombre** lo
+El **namespace** no lo elegís: sale del claim `namespace` de tu JWT. El **nombre** lo
 elegís vos, en `PascalCase`, y describe **un hecho que ya ocurrió**.
 
 | Grupo | Namespace |
@@ -79,7 +79,7 @@ record <Nombre>
 └── metadata  ← los nueve campos que calcula el gateway
 ```
 
-Vos declarás **sólo los campos de `data`**. El gateway arma el envelope.
+Vos declarás **sólo los campos de `data`**. El gateway arma el resto.
 
 `metadata` es siempre la misma para todos los event types de la plataforma, y su schema se
 puede consultar en `GET /api/v1/event-metadata`. No la declares ni la mandes: no hay dónde
@@ -87,10 +87,8 @@ escribirla.
 
 ### No hay campos obligatorios de negocio
 
-Un diseño anterior exigía que cada schema declarara `eventId`, `eventType`, `timestamp` y
-`source`. Ya no: esos campos viven en `metadata`, así que `data` puede tener los campos que
-tenga sentido para el dominio, y **ninguno está reservado**. Un campo de negocio puede
-llamarse `source` sin colisionar con nada.
+`data` puede tener cualquier campo que tenga sentido para el dominio, y **ninguno está reservado**.
+Un campo de negocio puede llamarse `source` o `eventId` sin colisionar con nada.
 
 → [ADR-012](adr/ADR-012-envelope-metadata-data.md)
 
@@ -232,23 +230,23 @@ Qué rechaza el gateway y con qué código:
 
 | Validación | Código | Detalle |
 |---|---|---|
-| El token es válido y trae `namespace` | `401` / `400` | Firma, audiencia y expiración |
-| El fqn pertenece a tu namespace | `403` | No podés publicar en tópicos ajenos |
-| El event type existe | `404` | |
-| El event type no está archivado | `409` | |
-| El payload cumple el schema | `400` | El `detail` dice qué campo falta o tiene mal el tipo |
-| El body no supera 256 KB | `413` | |
-| No superaste 600 peticiones por minuto | `429` | Con `Retry-After` |
-| Kafka confirmó la publicación | `504` | Puede haberse publicado igual: deduplicá por `payloadHash` |
+| El token no es válido o no trae `namespace` | `401` / `400` | Firma, audiencia y expiración |
+| El fqn no pertenece a tu namespace | `403` | No podés publicar en tópicos ajenos |
+| El event type no existe | `404` | |
+| El event type fué archivado | `409` | |
+| El payload no cumple el schema | `400` | El `detail` dice qué campo falta o tiene mal el tipo |
+| El body supera 256 KB | `413` | |
+| Superaste 600 peticiones por minuto | `429` | Con `Retry-After` |
+| Kafka no confirmó la publicación | `504` | Puede haberse publicado igual: deduplicá por `payloadHash` |
 
 Al **registrar** un event type:
 
 | Validación | Código |
 |---|---|
-| El nombre está presente y es válido | `400` |
-| Los campos son un schema Avro válido | `400` |
-| No existe ya un event type con ese fqn | `400` |
-| El Schema Registry responde | `502` |
+| El nombre no está presente o no es válido | `400` |
+| Los campos no son un schema Avro válido | `400` |
+| Existe un event type con ese fqn | `400` |
+| El Schema Registry no responde | `502` |
 
 ---
 

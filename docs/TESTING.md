@@ -2,7 +2,7 @@
 
 Qué se prueba, cómo, y —lo más importante— **qué no**.
 
-La rúbrica pide 60% de cobertura. El proyecto exige **100% de instrucciones y ramas**, y el
+La rúbrica pide 60% de cobertura. Nosotros exigimos el **100% de instrucciones y ramas**, y el
 build falla si baja. Esa decisión tiene un motivo y también un costo, y los dos están
 explicados acá.
 

@@ -26,7 +26,7 @@ mismo, entra sin cambios.
 
 En esta plataforma **la identidad es la única fuente de verdad sobre quién puede hacer qué**.
 No hay listas de permisos en ningún otro lado: ni ACLs en Kafka, ni tabla de grupos en el
-gateway, ni configuración que haya que mantener sincronizada.
+EDA, ni configuración que haya que mantener sincronizada.
 
 Eso tiene una consecuencia buena y una exigente:
 
