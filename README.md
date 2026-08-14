@@ -42,7 +42,7 @@ docker compose version
 
 ```bash
 git clone git@github.com:carlos-illobre/citypass-event-gateway.git
-cd citypass-eda
+cd citypass-event-gateway
 cp .env.dev .env
 docker compose up -d --build
 ```
