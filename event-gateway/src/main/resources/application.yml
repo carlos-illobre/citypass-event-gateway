@@ -48,6 +48,13 @@ gateway:
   # multiplica a la retención de Kafka y por lo tanto lo que ocupa el disco. Si se agota,
   # no puede crear nadie —tenga o no lugar en su propio cupo— hasta que se borre alguno.
   max-event-types-total: ${MAX_EVENT_TYPES_TOTAL:200}
+
+  # Máximo de versiones mayores de un mismo event type.
+  #
+  # Cada versión es un tópico con su propia retención. Sin este techo, un PUT en bucle con
+  # schemas incompatibles multiplica los tópicos de a uno por llamada, que es la forma más
+  # rápida de llenar el disco teniendo credenciales.
+  max-versions-per-event-type: ${MAX_VERSIONS_PER_EVENT_TYPE:5}
   topic-replication-factor: ${TOPIC_REPLICATION_FACTOR:1}
   # Audiencia que debe declarar el JWT para ser aceptado.
   token-audience: ${TOKEN_AUDIENCE:citypass}

@@ -91,7 +91,7 @@ fi
 # rate limit), que tardan varios minutos.
 RAPIDO="${1:-}"
 
-for script in techos-de-recursos limites-de-la-api retencion-kafka alerta-de-disco; do
+for script in techos-de-recursos limites-de-la-api techo-de-topicos retencion-kafka alerta-de-disco; do
     echo
     if ! bash "$ROOT_DIR/tests/${script}.sh" $RAPIDO; then
         echo -e "${RED}✗ ${script} — falló${NC}"

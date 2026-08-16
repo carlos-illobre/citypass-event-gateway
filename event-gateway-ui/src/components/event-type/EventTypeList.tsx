@@ -286,7 +286,7 @@ export function EventTypeList({
               // es lo que hace falta saber antes de intentar crear uno más.
               ? <span
                   className={`et-count${cupo.remaining === 0 || cupo.totalRemaining === 0 ? ' et-count--lleno' : ''}`}
-                  title={`${cupo.used} de ${cupo.limit} en ${cupo.namespace} · ${cupo.totalUsed} de ${cupo.totalLimit} en todo el bus`}
+                  title={`${cupo.used} de ${cupo.limit} tópicos en ${cupo.namespace} · ${cupo.totalUsed} de ${cupo.totalLimit} en todo el bus. Cada versión mayor de un event type cuenta como un tópico.`}
                 >
                   {cupo.used} / {cupo.limit}
                 </span>
@@ -306,13 +306,13 @@ export function EventTypeList({
           propio y el otro puede estar agotado por event types de otros equipos. */}
       {cupo && cupo.remaining === 0 && (
         <p className="et-cupo-lleno">
-          Llegaste al máximo de {cupo.limit} event types. Para crear otro hay que borrar
-          alguno que ya no se use.
+          Llegaste al máximo de {cupo.limit} tópicos. Cada versión mayor cuenta como uno,
+          así que también liberan lugar las versiones viejas que ya nadie lee.
         </p>
       )}
       {cupo && cupo.remaining > 0 && cupo.totalRemaining === 0 && (
         <p className="et-cupo-lleno">
-          El bus llegó a su máximo de {cupo.totalLimit} event types entre todos los
+          El bus llegó a su máximo de {cupo.totalLimit} tópicos entre todos los
           equipos. Te queda lugar propio, pero nadie puede crear uno nuevo hasta que se
           borre alguno de los existentes.
         </p>

@@ -112,7 +112,8 @@ class SchemaRegistryService(
     @Value("\${gateway.topic-partitions}") private val topicPartitions: Int,
     @Value("\${gateway.topic-replication-factor}") private val topicReplicationFactor: Int,
     @Value("\${gateway.max-event-types-per-namespace}") private val maxPorNamespace: Int,
-    @Value("\${gateway.max-event-types-total}") private val maxTotal: Int
+    @Value("\${gateway.max-event-types-total}") private val maxTotal: Int,
+    @Value("\${gateway.max-versions-per-event-type}") private val maxVersiones: Int
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val mapper = jacksonObjectMapper()
@@ -356,7 +357,7 @@ class SchemaRegistryService(
      */
     fun cupoDe(namespace: String): Map<String, Any> {
         val usados = usadosPor(namespace)
-        val totales = vigentes.size
+        val totales = schemas.size
         return mapOf(
             "namespace" to namespace,
             "used" to usados,
@@ -371,9 +372,16 @@ class SchemaRegistryService(
         )
     }
 
-    /** Event types de un namespace, contados por nombre lógico. */
+    /**
+     * Tópicos de un namespace.
+     *
+     * Se cuentan **tópicos y no nombres lógicos**: el cupo existe para acotar el disco, y
+     * lo que ocupa disco es el tópico, cada uno con su propia retención. Contando
+     * nombres, romper el contrato de un mismo event type creaba versiones nuevas —cada
+     * una un tópico— sin consumir cupo, y la cantidad de tópicos quedaba sin techo.
+     */
     private fun usadosPor(namespace: String): Int =
-        vigentes.values.count { schemas.getValue(it).namespace == namespace }
+        schemas.values.count { it.namespace == namespace }
 
     /**
      * Todos los tópicos de un namespace, incluidas las versiones viejas.
@@ -505,29 +513,7 @@ class SchemaRegistryService(
         // El cupo se comprueba acá y no en el controller porque acá está la cuenta, y
         // porque es el único camino por el que se crea un tópico: el authorizer le niega
         // la creación a todo cliente externo y la autocreación del broker está apagada.
-        // Sin un techo, la cantidad de tópicos —y con ella el disco— no tiene límite.
-        val usados = usadosPor(namespace)
-        if (usados >= maxPorNamespace)
-            return Result.failure(
-                CupoAgotadoException(
-                    "El namespace '$namespace' ya tiene $usados event types, que es el máximo " +
-                        "permitido. Borrá alguno que no uses antes de crear otro."
-                )
-            )
-
-        // El techo del bus entero se comprueba después del propio: si un equipo llenó su
-        // cupo, decirle eso es más accionable que hablarle del total, porque lo puede
-        // resolver solo. Este otro, en cambio, puede estar agotado por event types de
-        // otros equipos, y por eso el mensaje lo dice explícitamente — si no, se leería
-        // como un error propio imposible de arreglar.
-        if (vigentes.size >= maxTotal)
-            return Result.failure(
-                CupoAgotadoException(
-                    "El bus ya tiene ${vigentes.size} event types entre todos los equipos, que es " +
-                        "el máximo permitido. No se puede crear ninguno más —de ningún namespace— " +
-                        "hasta que se borre alguno de los existentes."
-                )
-            )
+        sinLugarParaOtroTopico(fqn = null, namespace = namespace)?.let { return Result.failure(it) }
 
         try {
             createTopic(fqn)
@@ -621,6 +607,12 @@ class SchemaRegistryService(
                     )
                 )
             } else {
+                // Estrenar una versión mayor crea un tópico, así que consume los mismos
+                // techos que crear un event type nuevo. Sin esto, un PUT en bucle con
+                // schemas incompatibles multiplicaba los tópicos sin tocar ningún cupo:
+                // era la forma más rápida de llenar el disco teniendo credenciales.
+                sinLugarParaOtroTopico(fqn, namespace)?.let { return Result.failure(it) }
+
                 val nuevoTopico = topicoDe(fqn, version + 1)
                 createTopic(nuevoTopico)
                 val id = publicarVersion(nuevoTopico, nuevo)
@@ -636,6 +628,46 @@ class SchemaRegistryService(
             logger.error("Failed to update schema for $fqn: ${e.message}")
             Result.failure(RuntimeException("Failed to register schema in Schema Registry: ${e.message}"))
         }
+    }
+
+    /**
+     * Comprueba los tres techos antes de crear un tópico. Devuelve el fallo, o null.
+     *
+     * Está compartida entre crear un event type y estrenar una versión mayor porque las
+     * dos cosas crean un tópico, y era justamente la asimetría entre ambas la que dejaba
+     * el disco sin acotar.
+     *
+     * @param fqn Event type al que pertenecería el tópico, o null si es uno nuevo.
+     */
+    private fun sinLugarParaOtroTopico(fqn: String?, namespace: String): CupoAgotadoException? {
+        if (fqn != null) {
+            val versiones = topicosDeEventType(fqn).size
+            if (versiones >= maxVersiones)
+                return CupoAgotadoException(
+                    "El event type '$fqn' ya tiene $versiones versiones, que es el máximo " +
+                        "permitido. Retirá alguna vieja con DELETE /api/v1/event-types/$fqn/" +
+                        "versions/{n} antes de volver a romper su contrato."
+                )
+        }
+
+        val usados = usadosPor(namespace)
+        if (usados >= maxPorNamespace)
+            return CupoAgotadoException(
+                "El namespace '$namespace' ya tiene $usados tópicos —contando las versiones de " +
+                    "cada event type—, que es el máximo permitido. Borrá alguno que no uses."
+            )
+
+        // El techo del bus se comprueba después del propio: si un equipo llenó su cupo,
+        // decirle eso es más accionable, porque lo puede resolver solo. Este otro puede
+        // estar agotado por tópicos de otros equipos, y el mensaje lo dice explícitamente.
+        if (schemas.size >= maxTotal)
+            return CupoAgotadoException(
+                "El bus ya tiene ${schemas.size} tópicos entre todos los equipos, que es el " +
+                    "máximo permitido. No se puede crear ninguno más —de ningún namespace— " +
+                    "hasta que se borre alguno de los existentes."
+            )
+
+        return null
     }
 
     /**
