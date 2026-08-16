@@ -2,6 +2,14 @@
 
 **Grupo 1 · Event Driven Architecture · DesApp UADE 2026 2c**
 
+[![Verificar y publicar](https://github.com/carlos-illobre/citypass-event-gateway/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/carlos-illobre/citypass-event-gateway/actions/workflows/deploy.yml)
+[![Cobertura 100%](https://img.shields.io/badge/cobertura-100%25-brightgreen)](https://carlos-illobre.github.io/citypass-event-gateway/)
+
+El badge de cobertura es fijo porque **el build no admite menos**: si baja del 100 % de
+instrucciones o de ramas, falla y no se mergea. El badge de al lado es el que demuestra
+que esa verificación corrió. El reporte navegable, línea por línea, está
+[acá](https://carlos-illobre.github.io/citypass-event-gateway/).
+
 Este repositorio contiene el **bus de eventos** de CityPass+: la infraestructura por la que
 los grupos 2 al 8 publican y consumen los eventos de sus dominios.
 

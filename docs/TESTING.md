@@ -24,10 +24,10 @@ explicados acá.
 
 | | Cantidad |
 |---|---|
-| Tests unitarios de `event-gateway` | 223 |
+| Tests unitarios de `event-gateway` | 229 |
 | Tests de integración de `event-gateway` | 20 |
 | Tests de `kafka-authorizer` | 18 |
-| **Total** | **261** |
+| **Total** | **267** |
 
 Cobertura de `event-gateway`, medida sobre los tests unitarios:
 
@@ -40,6 +40,18 @@ Cobertura de `event-gateway`, medida sobre los tests unitarios:
 | Clases | 100 % |
 
 `kafka-authorizer` tiene el mismo umbral y también está en 100 %.
+
+**Estos números se desfasan.** Los de acá están escritos a mano y ya quedaron viejos una
+vez. Los reales los imprime cada ejecución del pipeline, en el resumen del run, leídos del
+mismo XML que evalúa la compuerta — así que no pueden diferir de lo que hace fallar el
+build.
+
+Y el reporte completo, navegable línea por línea, se publica en cada merge a `main`:
+
+**https://carlos-illobre.github.io/citypass-event-gateway/**
+
+No hace falta descargar nada: se entra, se abre una clase y se ve qué línea ejecutó cada
+test y cuál no.
 
 ---
 
