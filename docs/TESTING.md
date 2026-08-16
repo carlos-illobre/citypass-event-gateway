@@ -10,7 +10,7 @@ explicados acá.
 
 ## Contenido
 
-1. [Números](#1-números)
+1. [Dónde ver los números](#1-dónde-ver-los-números)
 2. [Cómo correr las pruebas](#2-cómo-correr-las-pruebas)
 3. [Los tres niveles](#3-los-tres-niveles)
 4. [Por qué el 100%](#4-por-qué-el-100)
@@ -20,38 +20,28 @@ explicados acá.
 
 ---
 
-## 1. Números
+## 1. Dónde ver los números
 
-| | Cantidad |
-|---|---|
-| Tests unitarios de `event-gateway` | 229 |
-| Tests de integración de `event-gateway` | 20 |
-| Tests de `kafka-authorizer` | 18 |
-| **Total** | **267** |
+Acá no hay ninguno, a propósito: un recuento escrito a mano se desfasa —éste ya lo hizo—
+y un número viejo en la documentación es peor que ninguno, porque se lo cree.
 
-Cobertura de `event-gateway`, medida sobre los tests unitarios:
+**El reporte completo se publica en cada merge a `main`:**
 
-| Métrica | Cobertura |
-|---|---|
-| Instrucciones | 100 % |
-| Ramas | 100 % |
-| Líneas | 100 % |
-| Métodos | 100 % |
-| Clases | 100 % |
+### https://carlos-illobre.github.io/citypass-event-gateway/
 
-`kafka-authorizer` tiene el mismo umbral y también está en 100 %.
+Se entra, se abre una clase y se ve **qué línea ejecutó cada test y cuál no**, con el
+código fuente coloreado. No hay que descargar nada ni creerle a un porcentaje.
 
-**Estos números se desfasan.** Los de acá están escritos a mano y ya quedaron viejos una
-vez. Los reales los imprime cada ejecución del pipeline, en el resumen del run, leídos del
-mismo XML que evalúa la compuerta — así que no pueden diferir de lo que hace fallar el
-build.
+Y cada ejecución del pipeline imprime la cobertura y la cantidad de tests en el resumen
+del run, leídos del mismo XML que evalúa la compuerta.
 
-Y el reporte completo, navegable línea por línea, se publica en cada merge a `main`:
+Lo único que sí está fijo, porque es una **regla y no una medición**, es el umbral:
 
-**https://carlos-illobre.github.io/citypass-event-gateway/**
+> **100 % de instrucciones y de ramas**, en `event-gateway` y en `kafka-authorizer`.
+> Si baja, el build falla.
 
-No hace falta descargar nada: se entra, se abre una clase y se ve qué línea ejecutó cada
-test y cuál no.
+Eso vive en `build.gradle.kts` de cada proyecto y no puede cambiar sin que alguien lo
+edite a propósito.
 
 ---
 
@@ -151,24 +141,25 @@ test imposible. La cobertura funciona ahí como detector de código que sobra.
 
 ## 5. Qué está excluido y por qué
 
-Tres clases están fuera de la medición:
+Estas clases están fuera de la medición. La lista que manda es la de
+`jacocoExclusions`, en el `build.gradle.kts` de cada proyecto; esta tabla explica el
+motivo de cada una:
 
 | Clase | Motivo |
 |---|---|
 | `GatewayApplicationKt` | La función `main` de Spring Boot. No tiene lógica propia |
 | `DlqController` | Crea un `KafkaConsumer` directamente contra el broker |
 | `EventsController` | Ídem |
+| `SecurityConfig` | Configura el builder de Spring Security; necesita el contexto |
 
 Los dos controllers son adaptadores de infraestructura: casi todo su cuerpo es configuración
-de un consumer y un bucle de `poll`. Probarlos exigiría un broker real por test.
+de un consumer y un bucle de `poll`. Probarlos exigiría un broker real por test. El
+comportamiento de `SecurityConfig` se verifica indirectamente desde los tests de contexto.
 
 **Pero su lógica sí se mide.** La parte que decide qué ve cada usuario está extraída a
 `EventSelection`, que es una función pura con sus propios tests —incluidos los eventos sin
 `metadata` o sin `source`, que se descartan en vez de mostrarse sin poder atribuirlos—. La
 exclusión cubre el andamiaje, no las decisiones.
-
-`SecurityConfig` estuvo excluida por la misma razón, aunque su comportamiento se verifica
-indirectamente desde los tests de contexto.
 
 ---
 
