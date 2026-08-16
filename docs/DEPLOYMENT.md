@@ -68,6 +68,23 @@ El del log es el que más se olvida: el driver `json-file` de Docker no tiene l�
 defecto, así que sin esa variable un servicio que loguee mucho llena el disco sin pasar
 por ningún otro control.
 
+Y hay una alerta de disco provisionada en Grafana, en la carpeta **CityPass**: dispara
+cuando el uso pasa del 80 % y se mantiene diez minutos así.
+
+El dato sale de `disk_free_bytes`, que el actuator del gateway ya expone y Prometheus ya
+scrapea, así que no hizo falta agregar `node_exporter` ni montar el socket de Docker —que
+es justamente lo que se evita para que un contenedor comprometido no pueda salirse. La
+métrica mide el sistema de archivos donde corre el contenedor, o sea el disco del host.
+
+El umbral es un porcentaje y no una cantidad de bytes a propósito: 80 % significa lo mismo
+en un disco de 200 GB que en uno de 2 TB, así que no depende del ambiente y no necesita
+estar en el `.env`.
+
+> **La alerta detecta, pero por ahora no avisa a nadie.** Grafana trae un contact point de
+> correo sin servidor SMTP configurado, así que la alerta se ve en su interfaz y nada más.
+> Para que llegue un mail hay que definir las variables `GF_SMTP_*` del contenedor de
+> Grafana con un servidor real.
+
 Y en el de Kafka hay dos trampas que conviene conocer:
 
 **La retención es por partición, no por broker.** Kafka no tiene un techo global: hay una

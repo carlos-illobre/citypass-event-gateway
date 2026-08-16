@@ -1,0 +1,56 @@
+# Alerta de disco.
+#
+# El dato sale de `disk_free_bytes`, que ya expone el actuator del gateway y que
+# Prometheus ya scrapea: no hace falta node_exporter ni montar el socket de Docker —que
+# es justo lo que se evitó para que un contenedor comprometido no pueda salirse.
+#
+# La métrica mide el sistema de archivos donde corre el contenedor, que es el del host,
+# así que es el disco entero de la máquina y no sólo lo que ocupa Kafka.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: infraestructura
+    folder: CityPass
+    # Cada cuánto se evalúa. Un disco no se llena en segundos; con un minuto alcanza y
+    # no se gasta CPU de gusto.
+    interval: 1m
+    rules:
+      - uid: disco-ocupado
+        title: Disco por encima del umbral
+        condition: alerta
+        # Se espera antes de disparar: un pico momentáneo —una descarga de imágenes, un
+        # build— no es lo mismo que un disco que se está llenando de verdad.
+        for: 10m
+        annotations:
+          summary: 'Queda poco espacio en disco'
+          description: >-
+            El disco está al {{ printf "%.0f" $values.uso.Value }} % de uso.
+            Revisá los volúmenes de Kafka y los logs de los contenedores; el
+            procedimiento está en docs/DEPLOYMENT.md.
+        labels:
+          severidad: alta
+        isPaused: false
+        data:
+          - refId: uso
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: uso
+              editorMode: code
+              instant: true
+              # Porcentaje de uso, para que el umbral se lea igual en cualquier disco:
+              # 80 significa lo mismo con 200 GB que con 2 TB.
+              expr: '100 * (1 - disk_free_bytes / disk_total_bytes)'
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: uso
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [80]
