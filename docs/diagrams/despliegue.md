@@ -1,6 +1,6 @@
 # Diagrama de Despliegue
 
-Muestra cómo los contenedores Docker se distribuyen en la VM de Oracle Cloud.
+Muestra cómo los contenedores Docker se distribuyen en la VM que hospeda el sistema.
 
 ```mermaid
 graph TB
@@ -8,7 +8,7 @@ graph TB
         cliente["Cliente HTTP<br/>(Grupo 2-8)"]
     end
 
-    subgraph oracle["Oracle Cloud VM (Ubuntu)"]
+    subgraph vm["VM del proveedor (Ubuntu)"]
         subgraph docker["Docker Engine"]
             subgraph red["Red interna: citypass-network"]
                 kafka["kafka-authorizer<br/>:29092 interno<br/>:9092 externo"]
@@ -26,7 +26,7 @@ graph TB
             end
         end
 
-        firewall["iptables / Oracle Security List<br/>80, 443, 9092"]
+        firewall["iptables / firewall del proveedor<br/>80, 443, 9092"]
     end
 
     cliente -->|"HTTPS :8080"| firewall

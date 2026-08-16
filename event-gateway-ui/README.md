@@ -38,17 +38,28 @@ Las dos que le importan al frontend:
 
 | Variable | Para qué |
 |---|---|
-| `VITE_LOGIN_API_URL` | Base del servicio de identidad |
-| `VITE_EVENT_GATEWAY_API_URL` | Base de la API del gateway |
+| `LOGIN_API_URL` | Base del servicio de identidad |
+| `GATEWAY_API_URL` | Base de la API del gateway |
 
 Se resuelven en el navegador del usuario, no dentro de Docker, así que en desarrollo apuntan
-a `localhost`. Son argumentos de **build**: cambiarlas exige reconstruir la imagen, no
-alcanza con reiniciar el contenedor.
+a `localhost`.
+
+**Se leen en tiempo de ejecución, no de build.** El contenedor las escribe en `/config.js`
+al arrancar, `index.html` lo carga antes del bundle y `src/config/index.ts` las toma de
+`window.__CITYPASS__`. Por eso la misma imagen sirve para cualquier ambiente: cambiar de
+destino es reiniciar el contenedor con otro `.env`, no reconstruir.
+
+En `npm run dev` no hay contenedor que las escriba, así que el script `predev` genera el
+mismo `public/config.js` desde el mismo `.env` de la raíz, usando la misma
+`config.js.template`. Un solo mecanismo y una sola fuente en los dos caminos.
+
+Si falta alguna, ni el contenedor arranca ni `npm run dev` sigue adelante: con la
+configuración en runtime, el arranque es el único momento en que se puede detectar.
 
 ## Comandos
 
 ```bash
-npm run dev      # servidor de desarrollo en el 5174
+npm run dev      # genera public/config.js y levanta el servidor en el 5174
 npm run build    # typecheck + build de producción
 npm run lint     # ESLint
 ```

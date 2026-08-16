@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Lo genera scripts/generar-config.mjs desde el .env; no es fuente.
+public/config.js

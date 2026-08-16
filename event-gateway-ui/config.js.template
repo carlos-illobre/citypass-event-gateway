@@ -1,0 +1,6 @@
+// Generado en cada arranque del contenedor a partir de las variables de entorno.
+// No editar a mano: los valores viven en el .env del ambiente.
+window.__CITYPASS__ = {
+  loginApiUrl:   "${LOGIN_API_URL}",
+  gatewayApiUrl: "${GATEWAY_API_URL}"
+}
