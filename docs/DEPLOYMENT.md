@@ -51,6 +51,23 @@ contrato que tiene que cumplir el reemplazo está en [AUTH.md](AUTH.md).
 
 Con una VM de 2 vCPU y 4 GB alcanza. El broker y el gateway son los que más consumen.
 
+Los techos de recursos —memoria por contenedor, rotación de logs, retención de Kafka por
+tamaño y los límites de la API— se declaran en el `.env` de cada ambiente, no en el
+compose: dependen de la máquina que hospede el sistema, y el compose no sabe dónde va a
+correr. Están agrupados al final de `.env.dev` y `.env.prod`, con el porqué de cada valor.
+
+Tres de ellos deciden si un disco lleno es posible:
+
+| Variable | Qué acota |
+|---|---|
+| `LOG_MAX_SIZE` × `LOG_MAX_FILES` | Lo que puede escribir cada contenedor en su log |
+| `KAFKA_RETENTION_BYTES` | El tamaño máximo de cada tópico |
+| `RATE_LIMIT_PER_MINUTE` × `MAX_PAYLOAD_BYTES` | La velocidad a la que un equipo puede escribir |
+
+El del log es el que más se olvida: el driver `json-file` de Docker no tiene límite por
+defecto, así que sin esa variable un servicio que loguee mucho llena el disco sin pasar
+por ningún otro control.
+
 ---
 
 ## 2. Preparar la VM
