@@ -229,6 +229,9 @@ services:
       # Multiplicados dan la velocidad máxima a la que un equipo puede llenar el disco.
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:?falta RATE_LIMIT_PER_MINUTE en el .env}
       MAX_PAYLOAD_BYTES: ${MAX_PAYLOAD_BYTES:?falta MAX_PAYLOAD_BYTES en el .env}
+      # Único lugar donde se puede acotar cuántos tópicos llegan a existir: el gateway es
+      # el único que los crea.
+      MAX_EVENT_TYPES_PER_NAMESPACE: ${MAX_EVENT_TYPES_PER_NAMESPACE:?falta MAX_EVENT_TYPES_PER_NAMESPACE en el .env}
       TOPIC_PARTITIONS: 1
       TOPIC_REPLICATION_FACTOR: 1
       GATEWAY_CORS_ORIGIN: '${GATEWAY_CORS_ORIGIN}'

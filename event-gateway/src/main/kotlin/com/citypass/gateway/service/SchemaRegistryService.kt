@@ -19,6 +19,16 @@ import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.io.File
 
 /**
+ * El namespace llegó a su máximo de event types.
+ *
+ * Existe como tipo propio para que el controller pueda distinguirlo de un schema mal
+ * formado: uno es un error del pedido —se arregla corrigiéndolo— y el otro es un estado
+ * del sistema que se arregla borrando algo. Sin la distinción, los dos saldrían como 400
+ * y quien lo reciba no sabría cuál de las dos cosas hacer.
+ */
+class CupoAgotadoException(mensaje: String) : RuntimeException(mensaje)
+
+/**
  * Un event type resuelto y listo para publicar.
  *
  * Existe para que quien publica obtenga tópico, schema y schemaId en una sola consulta.
@@ -100,7 +110,8 @@ class SchemaRegistryService(
     @Value("\${gateway.schemas-dir}") private val schemasDir: String,
     @Value("\${gateway.schema-registry-url}") private val schemaRegistryUrl: String,
     @Value("\${gateway.topic-partitions}") private val topicPartitions: Int,
-    @Value("\${gateway.topic-replication-factor}") private val topicReplicationFactor: Int
+    @Value("\${gateway.topic-replication-factor}") private val topicReplicationFactor: Int,
+    @Value("\${gateway.max-event-types-per-namespace}") private val maxPorNamespace: Int
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val mapper = jacksonObjectMapper()
@@ -335,6 +346,24 @@ class SchemaRegistryService(
     fun getAvailableEventTypes(): Set<String> = vigentes.keys
 
     /**
+     * Cuántos event types tiene un namespace y cuántos puede tener.
+     *
+     * Se cuentan **nombres lógicos** y no tópicos: las versiones mayores de un mismo
+     * event type son el mismo contrato, así que romperlo no debería consumir cupo.
+     *
+     * @param namespace Namespace del equipo.
+     */
+    fun cupoDe(namespace: String): Map<String, Any> {
+        val usados = vigentes.values.count { schemas.getValue(it).namespace == namespace }
+        return mapOf(
+            "namespace" to namespace,
+            "used" to usados,
+            "limit" to maxPorNamespace,
+            "remaining" to (maxPorNamespace - usados).coerceAtLeast(0)
+        )
+    }
+
+    /**
      * Todos los tópicos de un namespace, incluidas las versiones viejas.
      *
      * Lo usa la lectura de eventos, que sí tiene que mirar el historial completo.
@@ -458,6 +487,19 @@ class SchemaRegistryService(
                 IllegalArgumentException(
                     "Ya existe un event type registrado para '$fqn'. Para cambiarle el schema " +
                         "usá PUT /api/v1/event-types/$fqn."
+                )
+            )
+
+        // El cupo se comprueba acá y no en el controller porque acá está la cuenta, y
+        // porque es el único camino por el que se crea un tópico: el authorizer le niega
+        // la creación a todo cliente externo y la autocreación del broker está apagada.
+        // Sin un techo, la cantidad de tópicos —y con ella el disco— no tiene límite.
+        val usados = vigentes.values.count { schemas.getValue(it).namespace == namespace }
+        if (usados >= maxPorNamespace)
+            return Result.failure(
+                CupoAgotadoException(
+                    "El namespace '$namespace' ya tiene $usados event types, que es el máximo " +
+                        "permitido. Borrá alguno que no uses antes de crear otro."
                 )
             )
 

@@ -1,6 +1,7 @@
 package com.citypass.gateway.controller
 
 import com.citypass.gateway.service.CambioDeEsquema
+import com.citypass.gateway.service.CupoAgotadoException
 import com.citypass.gateway.service.SchemaChangeNotifier
 import com.citypass.gateway.service.SchemaRegistryService
 import com.citypass.gateway.service.SubscriptionService
@@ -105,6 +106,35 @@ Con `?namespace=` acota el resultado a los de un equipo.""",
         ResponseEntity.ok(schemaRegistryService.listEventTypes(namespace))
 
     @Operation(
+        summary = "Cuántos event types puedo crear",
+        description = """Devuelve el cupo del namespace de quien pregunta.
+
+Se cuentan nombres lógicos, no tópicos: las versiones mayores de un mismo event type son
+el mismo contrato y no consumen cupo aparte.""",
+        responses = [ApiResponse(
+            responseCode = "200", description = "Cupo del namespace",
+            content = [Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE,
+                examples = [ExampleObject(name = "Cupo", value = """{
+  "namespace": "com.citypass.movilidad",
+  "used": 12,
+  "limit": 25,
+  "remaining": 13
+}""")]
+            )]
+        )],
+        security = [SecurityRequirement(name = "bearerAuth")]
+    )
+    // Va antes de /{fqn} en el archivo por claridad; Spring resuelve primero la ruta
+    // literal, así que un event type llamado «quota» no la taparía igual.
+    @GetMapping("/quota")
+    fun quota(@AuthenticationPrincipal jwt: Jwt?): ResponseEntity<Any> {
+        if (jwt == null) return sinToken()
+        val namespace = jwt.claims["namespace"] as? String ?: return sinNamespace()
+        return ResponseEntity.ok(schemaRegistryService.cupoDe(namespace))
+    }
+
+    @Operation(
         summary = "Ver el schema de un event type",
         description = """Devuelve el schema de la **versión vigente**.
 
@@ -196,6 +226,7 @@ Si el event type ya existe, esto devuelve 400: para cambiarle el schema está el
                 )]
             ),
             ApiResponse(responseCode = "400", description = "Schema inválido o el event type ya existe"),
+            ApiResponse(responseCode = "409", description = "El namespace llegó a su máximo de event types"),
             ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido"),
             ApiResponse(responseCode = "502", description = "El Schema Registry rechazó el registro")
         ],
@@ -511,6 +542,10 @@ event type completo.""",
 
     /** Un FQN inexistente es 404; un schema mal formado, 400; lo demás es del registry. */
     private fun errorDeRegistro(error: Throwable): ResponseEntity<Any> = when (error) {
+        // No es un error del pedido: el pedido está bien y el sistema no tiene lugar.
+        // Se arregla borrando algo, no corrigiendo el request.
+        is CupoAgotadoException ->
+            problem(HttpStatus.CONFLICT, "Cupo de event types agotado", error.descripcion())
         is NoSuchElementException ->
             problem(HttpStatus.NOT_FOUND, "Event type no encontrado", error.descripcion())
         is IllegalArgumentException ->

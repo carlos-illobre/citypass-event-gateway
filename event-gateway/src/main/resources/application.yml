@@ -33,6 +33,14 @@ gateway:
   # Los tópicos se crean al registrar el event type, no al publicar el primer evento,
   # así que estos valores reemplazan a los defaults del broker.
   topic-partitions: ${TOPIC_PARTITIONS:1}
+
+  # Máximo de event types por namespace.
+  #
+  # El gateway es el único que puede crear tópicos —el authorizer se lo niega a todo
+  # cliente externo y la autocreación del broker está apagada—, así que este es el único
+  # lugar donde se puede acotar cuántos llegan a existir. Sin techo, el disco tampoco lo
+  # tiene: cada event type es una partición con su propia retención.
+  max-event-types-per-namespace: ${MAX_EVENT_TYPES_PER_NAMESPACE:25}
   topic-replication-factor: ${TOPIC_REPLICATION_FACTOR:1}
   # Audiencia que debe declarar el JWT para ser aceptado.
   token-audience: ${TOKEN_AUDIENCE:citypass}

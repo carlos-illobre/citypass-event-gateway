@@ -113,6 +113,34 @@ efectivamente las tres propiedades que tiene que aflojar.
 mide que el offset se confirme **después** de entregar. Es la única garantía que impide
 perder eventos en un reinicio, y no se puede verificar mirando la configuración.
 
+### Sobre el sistema en marcha
+
+`tests/` tiene scripts que comprueban que lo declarado en el `.env` esté **realmente
+aplicado**. Es una categoría aparte porque no verifica código: verifica que la
+configuración haya surtido efecto.
+
+| Script | Qué comprueba |
+|---|---|
+| `techos-de-recursos.sh` | Los `mem_limit` y la rotación de logs de cada contenedor; que ninguno monte el socket de Docker ni sea privilegiado |
+| `limites-de-la-api.sh` | El cupo de event types, el 413 por tamaño y que el rate limit corte |
+| `retencion-kafka.sh` | Que el segmento sea menor que la retención, y que publicando de más se borren los eventos viejos |
+| `alerta-de-disco.sh` | Que la regla de Grafana esté cargada, apunte al datasource y **evalúe sin error** |
+
+Existen porque Docker y Grafana **aceptan configuraciones mal escritas sin quejarse**: un
+`mem_limit` mal ubicado se ignora y el contenedor arranca sin techo; una regla de alerta
+cuyo datasource no se encuentra aparece en la lista y no evalúa nunca. Lo único que lo
+distingue es preguntarle al sistema corriendo.
+
+Cada script se **omite solo** si lo que necesita no está levantado, para que correrlos sin
+el stack no reporte fallas inexistentes. Con `--rapido` se saltean las pruebas largas
+—llenar un tópico, agotar el rate limit— que tardan varios minutos.
+
+```bash
+./test-integration.sh            # todo
+./test-integration.sh --rapido   # sin las lentas
+bash tests/retencion-kafka.sh    # una sola
+```
+
 ### Verificación de configuración
 
 `test-integration.sh` comprueba que `.env.dev` y `.env.prod` declaren exactamente las mismas

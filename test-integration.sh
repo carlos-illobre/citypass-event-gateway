@@ -77,5 +77,27 @@ else
     exit 1
 fi
 
+# ── Comprobaciones sobre el sistema en marcha ────────────────────────────────
+#
+# Verifican que lo declarado en el .env esté realmente aplicado: los techos de memoria y
+# de logs, la retención de Kafka, los límites de la API y la alerta de disco.
+#
+# Docker y Grafana aceptan configuraciones mal escritas sin quejarse —las ignoran— así
+# que lo único que lo demuestra es preguntarle al sistema corriendo. Cada script se
+# omite solo si lo que necesita no está levantado, para que correr esto sin el stack no
+# reporte fallas que no existen.
+#
+# Con --rapido se saltean las pruebas largas (publicar hasta llenar un tópico, agotar el
+# rate limit), que tardan varios minutos.
+RAPIDO="${1:-}"
+
+for script in techos-de-recursos limites-de-la-api retencion-kafka alerta-de-disco; do
+    echo
+    if ! bash "$ROOT_DIR/tests/${script}.sh" $RAPIDO; then
+        echo -e "${RED}✗ ${script} — falló${NC}"
+        exit 1
+    fi
+done
+
 echo -e "\n${BOLD}═══════════════════════════════════════════════${NC}"
 exit 0

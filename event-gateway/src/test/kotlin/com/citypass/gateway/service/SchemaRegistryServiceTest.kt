@@ -69,7 +69,8 @@ class SchemaRegistryServiceTest {
             schemasDir = tempSchemasDir.absolutePath,
             schemaRegistryUrl = registryUrl,
             topicPartitions = 3,
-            topicReplicationFactor = 1
+            topicReplicationFactor = 1,
+            maxPorNamespace = 25
         )
     }
 
@@ -129,7 +130,8 @@ class SchemaRegistryServiceTest {
             schemasDir = dir.absolutePath,
             schemaRegistryUrl = registryUrl,
             topicPartitions = 1,
-            topicReplicationFactor = 1
+            topicReplicationFactor = 1,
+            maxPorNamespace = 25
         )
         service.loadSchemas()
 
@@ -145,7 +147,8 @@ class SchemaRegistryServiceTest {
             schemasDir = "/path/to/non/existing/dir",
             schemaRegistryUrl = registryUrl,
             topicPartitions = 1,
-            topicReplicationFactor = 1
+            topicReplicationFactor = 1,
+            maxPorNamespace = 25
         )
         nonExistingService.loadSchemas()
         assertTrue(nonExistingService.getAvailableEventTypes().isEmpty())
@@ -160,7 +163,8 @@ class SchemaRegistryServiceTest {
             schemasDir = File(tempSchemasDir, "$testFqn.avsc").absolutePath,
             schemaRegistryUrl = registryUrl,
             topicPartitions = 1,
-            topicReplicationFactor = 1
+            topicReplicationFactor = 1,
+            maxPorNamespace = 25
         )
         filePathService.loadSchemas()
         assertTrue(filePathService.getAvailableEventTypes().isEmpty())
@@ -799,7 +803,8 @@ class SchemaRegistryServiceTest {
             schemasDir = tempSchemasDir.absolutePath,
             schemaRegistryUrl = registryUrl,
             topicPartitions = 1,
-            topicReplicationFactor = 1
+            topicReplicationFactor = 1,
+            maxPorNamespace = 25
         )
         reiniciado.loadSchemas()
 
@@ -1127,5 +1132,132 @@ class SchemaRegistryServiceTest {
 
         assertTrue(result.isFailure)
         assertNotNull(schemaRegistryService.getSchema(fqn), "se puede reintentar")
+    }
+
+    // ── cupo de event types por namespace ────────────────────────────────────
+
+    /** Un servicio con el cupo que se quiera, sobre el mismo directorio temporal. */
+    private fun conCupo(maximo: Int) = SchemaRegistryService(
+        restClient = builder.build(),
+        kafkaAdmin = kafkaAdmin,
+        kafkaTopicAdmin = kafkaTopicAdmin,
+        schemasDir = tempSchemasDir.absolutePath,
+        schemaRegistryUrl = registryUrl,
+        topicPartitions = 1,
+        topicReplicationFactor = 1,
+        maxPorNamespace = maximo
+    )
+
+    @Test
+    fun `el cupo empieza vacío y refleja el máximo configurado`() {
+        val cupo = conCupo(25).cupoDe("com.citypass.test")
+
+        assertEquals("com.citypass.test", cupo["namespace"])
+        assertEquals(0, cupo["used"])
+        assertEquals(25, cupo["limit"])
+        assertEquals(25, cupo["remaining"])
+    }
+
+    @Test
+    fun `crear un event type consume cupo`() {
+        val servicio = conCupo(25)
+        esperaRegistro("com.citypass.test.Uno", 200)
+        servicio.registerNewSchema("com.citypass.test", "Uno", testFields)
+
+        val cupo = servicio.cupoDe("com.citypass.test")
+        assertEquals(1, cupo["used"])
+        assertEquals(24, cupo["remaining"])
+    }
+
+    @Test
+    fun `el cupo es por namespace y no se mezcla entre equipos`() {
+        val servicio = conCupo(25)
+        esperaRegistro("com.citypass.test.Propio", 201)
+        esperaRegistro("com.citypass.otros.Ajeno", 202)
+        servicio.registerNewSchema("com.citypass.test", "Propio", testFields)
+        servicio.registerNewSchema("com.citypass.otros", "Ajeno", testFields)
+
+        assertEquals(1, servicio.cupoDe("com.citypass.test")["used"])
+        assertEquals(1, servicio.cupoDe("com.citypass.otros")["used"])
+    }
+
+    @Test
+    fun `al llegar al máximo se rechaza con CupoAgotado`() {
+        val servicio = conCupo(2)
+        esperaRegistro("com.citypass.test.A", 210)
+        esperaRegistro("com.citypass.test.B", 211)
+        servicio.registerNewSchema("com.citypass.test", "A", testFields)
+        servicio.registerNewSchema("com.citypass.test", "B", testFields)
+
+        val result = servicio.registerNewSchema("com.citypass.test", "C", testFields)
+
+        assertTrue(result.isFailure)
+        // Tipo propio y no IllegalArgument: el pedido está bien, lo que falta es lugar.
+        // El controller necesita distinguirlo para responder 409 y no 400.
+        assertInstanceOf(CupoAgotadoException::class.java, result.exceptionOrNull())
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("máximo"))
+    }
+
+    @Test
+    fun `el rechazo por cupo no crea el tópico ni toca el registry`() {
+        val servicio = conCupo(1)
+        esperaRegistro("com.citypass.test.Unico", 212)
+        servicio.registerNewSchema("com.citypass.test", "Unico", testFields)
+
+        servicio.registerNewSchema("com.citypass.test", "Rechazado", testFields)
+
+        assertNull(servicio.resolver("com.citypass.test.Rechazado"))
+        // Una sola llamada al registry: la del que sí entró. Si el cupo se comprobara
+        // después de crear el tópico, quedaría un tópico huérfano por cada rechazo.
+        server.verify()
+        verify(kafkaAdmin, times(1)).createOrModifyTopics(any())
+    }
+
+    @Test
+    fun `las versiones mayores no consumen cupo`() {
+        val servicio = conCupo(1)
+        val fqn = "com.citypass.test.ConVersiones"
+        esperaRegistro(fqn, 213)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", 214)
+        servicio.registerNewSchema("com.citypass.test", "ConVersiones", testFields)
+        servicio.updateSchema("com.citypass.test", "ConVersiones", otrosCampos("otro"))
+
+        // Dos tópicos, un solo contrato: romper el schema propio no debería gastar el
+        // cupo que sirve para tener event types distintos.
+        assertEquals(2, servicio.topicosDeEventType(fqn).size)
+        assertEquals(1, servicio.cupoDe("com.citypass.test")["used"])
+    }
+
+    @Test
+    fun `borrar un event type devuelve el cupo`() {
+        val servicio = conCupo(1)
+        val fqn = "com.citypass.test.ParaLiberar"
+        esperaRegistro(fqn, 215)
+        esperaBorradoDeSubject(fqn)
+        esperaRegistro("com.citypass.test.Otro", 216)
+        servicio.registerNewSchema("com.citypass.test", "ParaLiberar", testFields)
+
+        assertEquals(0, servicio.cupoDe("com.citypass.test")["remaining"])
+        servicio.deleteEventType(fqn)
+        assertEquals(1, servicio.cupoDe("com.citypass.test")["remaining"])
+
+        assertTrue(servicio.registerNewSchema("com.citypass.test", "Otro", testFields).isSuccess)
+    }
+
+    @Test
+    fun `remaining nunca es negativo`() {
+        val servicio = conCupo(1)
+        esperaRegistro("com.citypass.test.Primero", 217)
+        servicio.registerNewSchema("com.citypass.test", "Primero", testFields)
+
+        // El cupo puede bajarse por configuración con event types ya creados: un
+        // remaining negativo se leería como si sobrara lugar.
+        //
+        // La instancia nueva tiene que cargar del disco: es lo que pasa de verdad al
+        // reiniciar el gateway con otro valor en el .env.
+        val reducido = conCupo(0).apply { loadSchemas() }.cupoDe("com.citypass.test")
+        assertEquals(1, reducido["used"])
+        assertEquals(0, reducido["remaining"])
     }
 }
