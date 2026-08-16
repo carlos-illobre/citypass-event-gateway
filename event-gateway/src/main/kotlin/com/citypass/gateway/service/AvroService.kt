@@ -122,11 +122,38 @@ class AvroService(private val schemaRegistryService: SchemaRegistryService) {
         else -> valor
     }
 
+    /** Si el tipo de un campo acepta que su valor sea null. */
+    private fun aceptaNulo(field: Schema.Field): Boolean =
+        field.schema().type == Schema.Type.UNION &&
+            field.schema().types.any { it.type == Schema.Type.NULL }
+
+    /**
+     * Completa un campo que no vino en el payload.
+     *
+     * `GenericData.Record` no aplica los defaults del schema por su cuenta: hay que
+     * ponerlos a mano, o la serialización falla igual que si el campo no existiera.
+     *
+     * Un campo sin default y no nulable que falta es un error del productor. Es el caso
+     * típico justo después de un cambio de contrato —se sigue enviando la forma vieja— y
+     * sin esta comprobación salía como un 502 con un mensaje de Avro, mandando a revisar
+     * el broker por un problema del request.
+     */
+    private fun completarAusente(record: GenericData.Record, field: Schema.Field) {
+        if (field.hasDefaultValue()) {
+            record.put(field.name(), GenericData.get().getDefaultValue(field))
+            return
+        }
+        if (!aceptaNulo(field))
+            throw PayloadInvalidoException(field.name(), "es obligatorio y no vino en el evento.")
+    }
+
     private fun mapToGenericRecord(json: Map<*, *>, schema: Schema): GenericRecord {
         val record = GenericData.Record(schema)
         schema.fields.forEach { field ->
             val value = json[field.name()]
-            if (value != null) {
+            if (value == null) {
+                completarAusente(record, field)
+            } else {
                 try {
                     record.put(field.name(), convertValue(value, field.schema()))
                 } catch (e: PayloadInvalidoException) {

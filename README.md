@@ -357,6 +357,22 @@ El evento que se publica con ese tipo:
 Las reglas de nombres, versionado y compatibilidad están en
 [CONTRACTS.md](docs/CONTRACTS.md).
 
+### Corregir un tipo de evento que quedó mal
+
+Si más adelante te das cuenta de que los campos no eran los adecuados, se cambian con un
+`PUT` sobre el event type. El gateway le pregunta al Schema Registry si el cambio rompe el
+contrato: si no lo rompe, lo aplica en el mismo tópico y nadie se entera. Si lo rompe, crea
+una versión nueva con su propio tópico y deja la versión anterior funcionando para que los equipos
+que la consumen tengan tiempo de migrar y así se puede seguir publicando con el nombre de siempre.
+
+También se puede borrar un tipo de evento de forma permanente, lo que libera su nombre para
+volver a usarlo, salvo que haya otros equipos suscriptos, en cuyo caso hay que coordinar
+con ellos primero.
+
+**Todo esto está explicado en [EVENT-TYPES.md](docs/EVENT-TYPES.md)**: cómo se hace, qué
+cambios rompen el contrato, cómo migrar de cada lado y cómo enterarte cuando otro equipo
+cambia un contrato que consumís.
+
 ---
 
 ## 6. Consumir eventos desde Kafka
@@ -780,6 +796,7 @@ lee la cola de tus tópicos y filtra. Un evento más viejo que esa ventana no ap
 | [AUTH.md](docs/AUTH.md) | El contrato del servicio de identidad, para el Grupo 2 que lo va a implementar |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Despliegue en la nube: dominio, TLS, reverse proxy, puertos |
 | [CONTRACTS.md](docs/CONTRACTS.md) | Contratos de eventos: nombres, versionado, compatibilidad |
+| [EVENT-TYPES.md](docs/EVENT-TYPES.md) | Cómo corregir el schema de un event type y cómo borrarlo |
 | [TESTING.md](docs/TESTING.md) | Estrategia de pruebas y cobertura |
 | [docs/adr/](docs/adr/) | Architecture Decision Records: cada decisión con las opciones que se consideraron |
 | [docs/diagrams/](docs/diagrams/) | C4, vista 4+1, secuencias, estados y despliegue |

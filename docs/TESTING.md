@@ -24,10 +24,10 @@ explicados acá.
 
 | | Cantidad |
 |---|---|
-| Tests unitarios de `event-gateway` | 223 |
+| Tests unitarios de `event-gateway` | 294 |
 | Tests de integración de `event-gateway` | 20 |
 | Tests de `kafka-authorizer` | 18 |
-| **Total** | **261** |
+| **Total** | **332** |
 
 Cobertura de `event-gateway`, medida sobre los tests unitarios:
 
@@ -139,16 +139,20 @@ test imposible. La cobertura funciona ahí como detector de código que sobra.
 
 ## 5. Qué está excluido y por qué
 
-Tres clases están fuera de la medición:
+Cuatro clases están fuera de la medición:
 
 | Clase | Motivo |
 |---|---|
 | `GatewayApplicationKt` | La función `main` de Spring Boot. No tiene lógica propia |
 | `DlqController` | Crea un `KafkaConsumer` directamente contra el broker |
 | `EventsController` | Ídem |
+| `KafkaTopicAdmin` | Una llamada al `AdminClient` de Kafka, que es un cliente real |
 
 Los dos controllers son adaptadores de infraestructura: casi todo su cuerpo es configuración
-de un consumer y un bucle de `poll`. Probarlos exigiría un broker real por test.
+de un consumer y un bucle de `poll`. Probarlos exigiría un broker real por test. `KafkaTopicAdmin`
+existe justamente para aislar ese problema: se lo separó de `SchemaRegistryService` para que
+la lógica que decide **qué** tópicos borrar, y en qué orden respecto del Schema Registry,
+quede del lado medido, y afuera sólo la llamada al broker.
 
 **Pero su lógica sí se mide.** La parte que decide qué ve cada usuario está extraída a
 `EventSelection`, que es una función pura con sus propios tests —incluidos los eventos sin
@@ -182,6 +186,15 @@ otra. Se rehizo con dos eventos, bloqueando el segundo.
 **El del customizer de OpenAPI probaba un caso que no ocurre.** Construía la respuesta con
 el contenido en `null`, pero springdoc no las deja vacías: les pone un comodín con un schema
 sin campos. El test verde no significaba nada hasta que se miró el JSON generado.
+
+El versionado de schemas se verificó además **contra la infraestructura real**, no sólo con
+mocks del Schema Registry, y ahí apareció un defecto que ningún test unitario había
+mostrado: publicar la forma vieja después de un cambio incompatible devolvía un `502`
+«Error al publicar en Kafka» con un mensaje de Avro, en vez de un `400` nombrando el campo
+que faltaba. Es exactamente el error que un equipo va a cometer justo después de cambiar su
+contrato, y mandaba a investigar el broker por un problema del request. Al arreglarlo
+apareció un segundo defecto latente: `GenericData.Record` no aplica los `default` del
+schema por su cuenta, así que un campo opcional omitido también fallaba al serializar.
 
 También hubo un caso donde el test detectaba la regresión pero **colgaba** en vez de fallar
 —el del timeout, que sin timeout no vuelve nunca—. Se le agregó `@Timeout(20)` para que

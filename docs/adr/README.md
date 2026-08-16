@@ -20,3 +20,4 @@ lo supersede.
 | [012](ADR-012-envelope-metadata-data.md) | Envelope de dos records: `data` y `metadata` | Un record con campos reservados, headers de Kafka |
 | [013](ADR-013-entrega-at-least-once.md) | Entrega de webhooks at-least-once | Asincrónica (at-most-once), cola persistida |
 | [014](ADR-014-un-compose-configuracion-en-env.md) | Un solo compose, la configuración en el `.env` | Dos archivos de compose, plantillas |
+| [015](ADR-015-versionado-por-compatibilidad.md) | El Schema Registry decide si un cambio estrena versión | Reemplazar el schema, versionar siempre, un tópico para todo |

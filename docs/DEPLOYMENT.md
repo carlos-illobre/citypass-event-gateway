@@ -234,7 +234,7 @@ docker compose build
 docker compose up -d
 ```
 
-Las suscripciones y los event types archivados viven en volúmenes, así que sobreviven. Los
+Las suscripciones y los schemas de los event types viven en volúmenes, así que sobreviven. Los
 tópicos y los schemas también.
 
 ### Backup

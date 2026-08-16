@@ -230,4 +230,66 @@ class SubscriptionServiceTest {
         assertEquals("event-gateway-webhook-topic.durable",
             subscriptionService.consumerProps("topic.durable")["group.id"])
     }
+
+    // ── borrado de un event type ─────────────────────────────────────────────
+
+    @Test
+    fun `suscriptoresA lists every subscriber, including other teams`() {
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+        subscriptionService.register("topic.uno", "http://b", "com.citypass.otros", "u2")
+        subscriptionService.register("topic.dos", "http://c", OWNER, "u3")
+
+        val suscriptores = subscriptionService.suscriptoresA(listOf("topic.uno"))
+
+        // No se filtra por dueño: antes de borrar hay que saber a quién se estaría
+        // dejando sin eventos, y eso incluye a los otros equipos.
+        assertEquals(2, suscriptores.size)
+        assertEquals(setOf(OWNER, "com.citypass.otros"), suscriptores.map { it.owner }.toSet())
+    }
+
+    @Test
+    fun `suscriptoresA returns nothing for a topic without subscribers`() {
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+
+        assertTrue(subscriptionService.suscriptoresA(listOf("topic.sin.nadie")).isEmpty())
+    }
+
+    @Test
+    fun `unregisterTopics drops the subscriptions and stops their consumers`() {
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+        subscriptionService.register("topic.uno", "http://b", "com.citypass.otros", "u2")
+        subscriptionService.register("topic.queda", "http://c", OWNER, "u3")
+
+        val bajas = subscriptionService.unregisterTopics(listOf("topic.uno"))
+
+        assertEquals(2, bajas)
+        // Una suscripción a un tópico que ya no existe no vuelve a entregar nada: dejarla
+        // sería dejar basura que aparenta funcionar.
+        assertTrue(subscriptionService.suscriptoresA(listOf("topic.uno")).isEmpty())
+        assertFalse(subscriptionService.containers.containsKey("topic.uno"))
+        // Lo de los demás tópicos queda intacto.
+        assertEquals(1, subscriptionService.suscriptoresA(listOf("topic.queda")).size)
+        assertTrue(subscriptionService.containers.containsKey("topic.queda"))
+    }
+
+    @Test
+    fun `unregisterTopics on a topic nobody subscribed to changes nothing`() {
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+
+        assertEquals(0, subscriptionService.unregisterTopics(listOf("topic.sin.nadie")))
+        assertEquals(1, subscriptionService.getAll(OWNER).size)
+    }
+
+    @Test
+    fun `unregisterTopics survives a restart`() {
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+        subscriptionService.unregisterTopics(listOf("topic.uno"))
+
+        val reiniciado = SubscriptionService(
+            consumerFactory, avroService, webhookDeliveryService, dlqService, tempDir.absolutePath
+        )
+        reiniciado.loadFromDisk()
+
+        assertTrue(reiniciado.getAll(OWNER).isEmpty())
+    }
 }

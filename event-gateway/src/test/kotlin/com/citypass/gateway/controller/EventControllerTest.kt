@@ -3,6 +3,7 @@ package com.citypass.gateway.controller
 import com.citypass.gateway.service.AvroService
 import com.citypass.gateway.service.PayloadInvalidoException
 import com.citypass.gateway.service.SchemaRegistryService
+import com.citypass.gateway.service.TipoResuelto
 import com.citypass.gateway.service.TopicAuthorizationService
 import org.apache.avro.Schema
 import org.junit.jupiter.api.Assertions.*
@@ -89,8 +90,7 @@ class EventControllerTest {
     /** Prepara el camino feliz y devuelve el JWT autorizado. */
     private fun readyToPublish(subject: String? = "testuser", jti: String? = "tok-1"): Jwt {
         val jwt = authorizedJwt(fqn, subject, jti)
-        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId(fqn)).thenReturn(7)
+        whenever(schemaRegistryService.resolver(fqn)).thenReturn(TipoResuelto(fqn, schema, 7))
         whenever(avroService.payloadHash(any(), any())).thenReturn("a".repeat(64))
         whenever(avroService.jsonToAvroBytes(any(), eq(schema), eq(7))).thenReturn(byteArrayOf(1, 2, 3))
         whenever(kafkaTemplate.send(eq(fqn), any<String>(), any()))
@@ -137,7 +137,7 @@ class EventControllerTest {
     fun `returns 404 when the event type is unknown`() {
         val unknown = "com.citypass.test.Unknown"
         val jwt = authorizedJwt(unknown)
-        whenever(schemaRegistryService.getSchema(unknown)).thenReturn(null)
+        whenever(schemaRegistryService.resolver(unknown)).thenReturn(null)
         whenever(schemaRegistryService.getAvailableEventTypes()).thenReturn(setOf(fqn))
 
         val response = controller.publishEvent(unknown, mapOf("a" to "b"), jwt)
@@ -147,22 +147,21 @@ class EventControllerTest {
     }
 
     @Test
-    fun `returns 409 when the event type is archived`() {
+    fun `publishes on the current major version, not on the logical name`() {
         val jwt = authorizedJwt(fqn)
-        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(schema)
-        whenever(schemaRegistryService.isArchived(fqn)).thenReturn(true)
+        // El productor manda el nombre lógico; el gateway rutea al tópico vigente.
+        whenever(schemaRegistryService.resolver(fqn)).thenReturn(TipoResuelto("$fqn.v2", schema, 7))
 
         val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), jwt)
 
-        assertEquals(HttpStatus.CONFLICT, response.statusCode)
-        assertEquals("Event type archivado", problemOf(response).title)
+        assertEquals(HttpStatus.ACCEPTED, response.statusCode)
+        verify(kafkaTemplate).send(eq("$fqn.v2"), any(), anyOrNull())
     }
 
     @Test
     fun `returns 503 when the schema is not registered yet`() {
         val jwt = authorizedJwt(fqn)
-        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(schema)
-        whenever(schemaRegistryService.getSchemaId(fqn)).thenReturn(null)
+        whenever(schemaRegistryService.resolver(fqn)).thenReturn(TipoResuelto(fqn, schema, null))
 
         val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), jwt)
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.statusCode)
@@ -171,8 +170,7 @@ class EventControllerTest {
     @Test
     fun `returns 400 for a legacy flat schema`() {
         val jwt = authorizedJwt(fqn)
-        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(legacySchema)
-        whenever(schemaRegistryService.getSchemaId(fqn)).thenReturn(3)
+        whenever(schemaRegistryService.resolver(fqn)).thenReturn(TipoResuelto(fqn, legacySchema, 3))
 
         val response = controller.publishEvent(fqn, mapOf("userId" to "u1"), jwt)
 

@@ -1,6 +1,26 @@
 type LogoutFn = () => void
 let onUnauthorized: LogoutFn | null = null
 
+/**
+ * Un error del gateway con el problem detail entero.
+ *
+ * `message` sigue siendo el texto legible de siempre, así que quien sólo lo muestra no
+ * cambia. Lo que agrega es el resto del cuerpo: algunas respuestas traen datos que no
+ * caben en una frase —el 409 de un borrado lista los equipos suscriptos— y sin esto
+ * habría que volver a pedirlos o mostrarlos como texto.
+ */
+export class ApiError extends Error {
+  readonly status: number
+  readonly problem: Record<string, unknown>
+
+  constructor(message: string, status: number, problem: Record<string, unknown> = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.problem = problem
+  }
+}
+
 export function setUnauthorizedHandler(fn: LogoutFn) {
   onUnauthorized = fn
 }
@@ -24,13 +44,15 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+    let problem: Record<string, unknown> = {}
     try {
       // El gateway responde RFC 9457 (application/problem+json): `detail` explica
       // esta ocurrencia y `title` el tipo de problema. Los otros campos quedan como
       // fallback para servicios que todavía no migraron.
-      const error = await response.json() as {
+      const error = await response.json() as Record<string, unknown> & {
         detail?: string; title?: string; error?: string; message?: string
       }
+      problem = error
       errorMessage = error.detail ?? error.title ?? error.error ?? error.message ?? errorMessage
     } catch {
       try {
@@ -38,7 +60,7 @@ export async function apiFetch<T>(
         if (text) errorMessage = text
       } catch { /* keep default */ }
     }
-    throw new Error(errorMessage)
+    throw new ApiError(errorMessage, response.status, problem)
   }
 
   if (response.status === 204) return undefined as T

@@ -110,7 +110,6 @@ con lo que envió el productor. No hay forma de escribir metadata desde el reque
             ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido"),
             ApiResponse(responseCode = "403", description = "El usuario no tiene permiso para publicar en este tópico"),
             ApiResponse(responseCode = "404", description = "Event type desconocido"),
-            ApiResponse(responseCode = "409", description = "El event type está archivado"),
             ApiResponse(responseCode = "503", description = "Schema aún no registrado, reintentar en unos segundos"),
             ApiResponse(responseCode = "502", description = "Error al publicar en Kafka"),
             ApiResponse(responseCode = "504", description = "El broker no confirmó a tiempo")
@@ -137,21 +136,19 @@ con lo que envió el productor. No hay forma de escribir metadata desde el reque
             )
         }
 
-        val schema = schemaRegistryService.getSchema(fqn)
+        // Se publica en la versión vigente. El productor manda el nombre lógico y no se
+        // entera de las versiones, así que una ruptura de contrato no le toca el código
+        // a quien no le incumbe. Pasar un tópico con sufijo publica en esa versión
+        // concreta, que sirve para alimentar la vieja durante una migración.
+        val tipo = schemaRegistryService.resolver(fqn)
             ?: return problem(
                 HttpStatus.NOT_FOUND, "Event type no encontrado",
                 "No hay ningún event type registrado con el FQN '$fqn'.",
                 mapOf("availableEventTypes" to schemaRegistryService.getAvailableEventTypes())
             )
 
-        if (schemaRegistryService.isArchived(fqn))
-            return problem(
-                HttpStatus.CONFLICT, "Event type archivado",
-                "El event type '$fqn' fue archivado y no admite nuevos eventos. " +
-                    "Su schema y su historial siguen disponibles para los consumidores."
-            )
-
-        val schemaId = schemaRegistryService.getSchemaId(fqn)
+        val schema = tipo.schema
+        val schemaId = tipo.schemaId
             ?: return problem(
                 HttpStatus.SERVICE_UNAVAILABLE, "Schema todavía no registrado",
                 "El schema de '$fqn' aún no fue registrado en el Schema Registry. Reintentá en unos segundos."
@@ -194,9 +191,9 @@ con lo que envió el productor. No hay forma de escribir metadata desde el reque
             // Con `get()` sin tope, un broker lento deja el hilo de request esperando
             // para siempre: se agota el pool y el gateway deja de responder también a lo
             // que no toca Kafka, health check incluido.
-            kafkaTemplate.send(fqn, key, bytes).get(publishTimeoutMs, TimeUnit.MILLISECONDS)
+            kafkaTemplate.send(tipo.topic, key, bytes).get(publishTimeoutMs, TimeUnit.MILLISECONDS)
 
-            logger.info("Published event $eventId to topic $fqn")
+            logger.info("Published event $eventId to topic ${tipo.topic}")
 
             // Se devuelve el envelope completo, no un resumen. Quien publica no puede
             // calcular por su cuenta lo que el gateway le estampó —`payloadHash`,

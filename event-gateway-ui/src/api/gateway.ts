@@ -15,17 +15,29 @@ export type EventTypeSchema = {
   fields:    AvroField[]
 }
 
-/** Un event type archivado conserva schema e historial, pero no admite nuevos eventos. */
-export type EventTypeStatus = 'active' | 'archived'
+/**
+ * Una versión mayor de un event type, con su tópico propio.
+ *
+ * Sólo aparece una versión distinta de la 1 cuando alguien hizo un cambio incompatible:
+ * los cambios compatibles evolucionan dentro de la misma. La v1 no lleva sufijo, así que
+ * su `topic` es el FQN pelado.
+ */
+export type EventTypeVersion = {
+  version:  number
+  topic:    string
+  schemaId: number | null
+}
 
 /** Resumen de un event type tal como lo devuelve el listado. */
 export type EventTypeSummary = {
-  fqn:        string
-  namespace:  string
-  name:       string
-  schemaId:   number | null
-  status:     EventTypeStatus
-  archivedAt: string | null
+  fqn:       string
+  namespace: string
+  name:      string
+  /** Dónde caen los eventos nuevos: el tópico de la versión vigente. */
+  topic:     string
+  version:   number
+  schemaId:  number | null
+  versions:  EventTypeVersion[]
 }
 
 export type CreateEventTypePayload = {
@@ -37,7 +49,37 @@ export type CreateEventTypeResponse = {
   fqn:       string
   namespace: string
   name:      string
+  topic:     string
+  version:   number
   schemaId:  number
+}
+
+/**
+ * Qué pasó al cambiar el schema de un event type.
+ *
+ * Lo decide el Schema Registry, no quien llama: si el cambio es compatible se registra en
+ * el mismo tópico y ningún consumidor se entera; si no lo es, estrena una versión mayor
+ * con tópico propio y la anterior queda sirviendo su historial.
+ */
+export type SchemaChangeResult = {
+  fqn:      string
+  topic:    string
+  version:  number
+  schemaId: number
+  /** El cambio rompió el contrato y por eso estrenó versión. */
+  breaking: boolean
+  /** El schema enviado era idéntico al vigente: no se hizo nada. */
+  unchanged: boolean
+  previousTopic: string | null
+  /** Cuántos webhooks quedaron en la versión anterior, o null si no hubo ruptura. */
+  subscriptionsOnPreviousVersion: number | null
+}
+
+/** Resultado de borrar un event type o una de sus versiones. */
+export type DeleteResult = {
+  fqn:                  string
+  deletedTopics:        string[]
+  subscriptionsRemoved: number
 }
 
 /**
@@ -106,17 +148,30 @@ export const gateway = {
     apiFetch<EventTypeSchema>(METADATA, { token }),
 
   /**
-   * Archiva un event type: baja lógica, no borrado.
+   * Cambia los campos de negocio de un event type existente.
    *
-   * Es un PATCH y no un DELETE porque el recurso no desaparece — cambia un atributo
-   * de su estado. La operación inversa sería el mismo llamado con otro `status`.
+   * Se manda la lista **completa** de campos, no un parche. El FQN no puede cambiar:
+   * viaja en la ruta y es lo que identifica al event type.
    */
-  archiveEventType: (token: string, fqn: string): Promise<{ fqn: string; status: EventTypeStatus }> =>
-    apiFetch(path(fqn), {
-      method: 'PATCH',
+  updateEventType: (token: string, fqn: string, fields: AvroField[]): Promise<SchemaChangeResult> =>
+    apiFetch<SchemaChangeResult>(path(fqn), {
+      method: 'PUT',
       token,
-      body: JSON.stringify({ status: 'archived' }),
+      body: JSON.stringify({ fields }),
     }),
+
+  /**
+   * Borra un event type entero: todas sus versiones, sus tópicos y sus schemas.
+   *
+   * Es permanente y libera el nombre. Se rechaza con 409 si hay equipos ajenos
+   * suscriptos, y el problem detail trae quiénes son.
+   */
+  deleteEventType: (token: string, fqn: string): Promise<DeleteResult> =>
+    apiFetch<DeleteResult>(path(fqn), { method: 'DELETE', token }),
+
+  /** Retira una versión mayor vieja. La vigente no se puede borrar sola. */
+  deleteEventTypeVersion: (token: string, fqn: string, version: number): Promise<DeleteResult> =>
+    apiFetch<DeleteResult>(`${path(fqn)}/versions/${version}`, { method: 'DELETE', token }),
 
   createEventType: (token: string, payload: CreateEventTypePayload): Promise<CreateEventTypeResponse> =>
     apiFetch<CreateEventTypeResponse>(BASE, {

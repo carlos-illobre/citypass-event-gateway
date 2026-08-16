@@ -52,8 +52,14 @@ function SuccessBanner({ result, onClose }: { result: PublishEventResponse; onCl
 type Props = {
   /** El event type elegido en la lista de la izquierda. */
   fqn: string
-  /** Un event type archivado conserva su schema, pero no admite nuevos eventos. */
-  archived?: boolean
+  /**
+   * El tópico de la versión vigente.
+   *
+   * Se publica siempre por el nombre lógico —el gateway rutea— pero mostrarlo importa
+   * cuando difiere del FQN: significa que el contrato se rompió alguna vez y que lo que
+   * se envíe acá no va a llegarle a quien siga escuchando la versión anterior.
+   */
+  topic?: string
   /**
    * Eventos ya publicados en esta sesión.
    *
@@ -66,7 +72,7 @@ type Props = {
   onPublished: (event: SentEvent) => void
 }
 
-export function PublishEventForm({ fqn, archived = false, sent, onPublished }: Props) {
+export function PublishEventForm({ fqn, topic = '', sent, onPublished }: Props) {
   const { token } = useContext(AuthContext)
 
   const [loaded, setLoaded]               = useState<Loaded | null>(null)
@@ -149,7 +155,7 @@ export function PublishEventForm({ fqn, archived = false, sent, onPublished }: P
       .finally(() => setSubmitting(false))
   }
 
-  const editable = loaded !== null && !loaded.legacy && !archived
+  const editable = loaded !== null && !loaded.legacy
 
   return (
     <>
@@ -180,14 +186,16 @@ export function PublishEventForm({ fqn, archived = false, sent, onPublished }: P
 
           {loadingSchema && <p className="pef-loading">Cargando schema…</p>}
 
-          {archived && (
-            <p className="pef-no-fields">
-              Este event type está archivado: no admite nuevos eventos.
-              Su schema y su historial siguen disponibles para los consumidores.
+          {/* El sufijo sólo aparece si hubo una ruptura de contrato, y entonces es un
+              dato que quien publica necesita ver. */}
+          {topic !== '' && topic !== fqn && (
+            <p className="pef-topic-note">
+              Los eventos van a <code>{topic}</code>, la versión vigente. Quien siga
+              suscripto a una versión anterior no va a recibirlos.
             </p>
           )}
 
-          {loaded?.legacy && !archived && (
+          {loaded?.legacy && (
             <p className="pef-no-fields">
               Este event type usa el formato anterior (campos planos).
               Volvé a registrarlo para poder publicar eventos.
@@ -249,7 +257,7 @@ export function PublishEventForm({ fqn, archived = false, sent, onPublished }: P
         * `top` calculado a mano y se desincronizarían al cambiar de tamaño.
         *
         * Sigue estando cuando no hay nada editable, para no borrar el historial de la
-        * vista al elegir un event type archivado.
+        * vista al elegir un event type con el formato anterior.
         */}
       {(editable || sent.length > 0) && (
         <aside className="pef-side">

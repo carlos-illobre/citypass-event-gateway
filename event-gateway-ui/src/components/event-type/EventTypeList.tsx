@@ -1,5 +1,6 @@
 import { useContext, useEffect, useState } from 'react'
 import { AuthContext } from '@/contexts/auth-context'
+import { ApiError } from '@/api/client'
 import { gateway, type EventTypeSchema, type EventTypeSummary } from '@/api/gateway'
 import { dataRecordOf, metadataRecordOf, type RawField } from '@/domain/avro'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
@@ -47,7 +48,59 @@ function FieldsTable({ caption, fields, muted }: {
   )
 }
 
-function SchemaDetail({ schema }: { schema: EventTypeSchema }) {
+/**
+ * Las versiones mayores de un event type.
+ *
+ * Sólo se muestra si hay más de una: un event type que nunca rompió su contrato tiene
+ * una sola, y enumerarla no diría nada.
+ */
+function VersionsTable({ eventType, onRetire }: {
+  eventType: EventTypeSummary
+  onRetire?: (version: number) => void
+}) {
+  return (
+    <table className="et-fields-table">
+      <caption className="et-fields-caption">
+        versiones — cada una con su tópico; las viejas siguen sirviendo su historial
+      </caption>
+      <thead>
+        <tr>
+          <th>Versión</th>
+          <th>Tópico</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {eventType.versions.map(v => {
+          const vigente = v.version === eventType.version
+          return (
+            <tr key={v.version} className={vigente ? '' : 'et-field-base'}>
+              <td>
+                <code>v{v.version}</code>
+                {vigente && <span className="et-version-tag">vigente</span>}
+              </td>
+              <td><code>{v.topic}</code></td>
+              <td>
+                {/* La vigente no se puede retirar: dejaría al event type sin dónde publicar. */}
+                {!vigente && onRetire && (
+                  <button className="et-retire-btn" onClick={() => onRetire(v.version)}>
+                    Retirar
+                  </button>
+                )}
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+function SchemaDetail({ schema, eventType, onRetire }: {
+  schema:    EventTypeSchema
+  eventType: EventTypeSummary
+  onRetire?: (version: number) => void
+}) {
   const data     = dataRecordOf(schema.fields)
   const metadata = metadataRecordOf(schema.fields)
 
@@ -61,6 +114,10 @@ function SchemaDetail({ schema }: { schema: EventTypeSchema }) {
         <span className="et-detail-meta-item">
           <span className="et-detail-label">name</span>
           <code>{schema.name}</code>
+        </span>
+        <span className="et-detail-meta-item">
+          <span className="et-detail-label">tópico</span>
+          <code>{eventType.topic}</code>
         </span>
       </div>
 
@@ -76,6 +133,48 @@ function SchemaDetail({ schema }: { schema: EventTypeSchema }) {
       {metadata && (
         <FieldsTable caption="metadata — la calcula el gateway" fields={metadata.fields} muted />
       )}
+
+      {eventType.versions.length > 1 && (
+        <VersionsTable eventType={eventType} onRetire={onRetire} />
+      )}
+    </div>
+  )
+}
+
+/** Los equipos que un borrado dejaría sin eventos, tal como los nombra el 409. */
+type Subscriber = { owner: string; topic: string }
+
+function subscribersOf(err: unknown): Subscriber[] {
+  if (!(err instanceof ApiError)) return []
+  const subs = err.problem.subscribers
+  return Array.isArray(subs) ? subs as Subscriber[] : []
+}
+
+/**
+ * El aviso de que hay otros equipos consumiendo.
+ *
+ * Se los nombra en vez de decir sólo «no se puede»: sin saber quiénes son, quien
+ * recibe el rechazo no tiene con quién coordinar la baja.
+ */
+function BlockedBySubscribers({ subscribers, onDismiss }: {
+  subscribers: Subscriber[]
+  onDismiss:   () => void
+}) {
+  return (
+    <div className="et-blocked">
+      <div className="et-blocked-head">
+        <strong>No se puede borrar todavía</strong>
+        <button className="et-blocked-close" onClick={onDismiss} aria-label="Cerrar">✕</button>
+      </div>
+      <p className="et-blocked-text">
+        Estos equipos siguen recibiendo estos eventos. Coordiná la baja con ellos antes
+        de borrar:
+      </p>
+      <ul className="et-blocked-list">
+        {subscribers.map((s, i) => (
+          <li key={i}><code>{s.owner}</code> <span className="et-muted">en</span> <code>{s.topic}</code></li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -87,18 +186,25 @@ type Props = {
    * que se puede espiar el schema sin cambiar la selección.
    */
   selectedFqn?: string | null
-  /** Recibe el resumen completo, no sólo el FQN: quien elige suele necesitar el estado. */
+  /** Recibe el resumen completo, no sólo el FQN: quien elige suele necesitar el tópico. */
   onSelect?:    (eventType: EventTypeSummary) => void
-  /** El archivado se oculta donde la lista se usa para elegir, no para administrar. */
-  archivable?:  boolean
+  /** Editar y borrar se ocultan donde la lista se usa para elegir, no para administrar. */
+  manageable?:  boolean
+  /** Carga el event type en el formulario para cambiarle el schema. */
+  onEdit?:      (eventType: EventTypeSummary) => void
+  /** Avisa de un borrado, para que quien esté editando ese event type se entere. */
+  onDeleted?:   (fqn: string) => void
 }
 
-export function EventTypeList({ selectedFqn = null, onSelect, archivable = true }: Props = {}) {
+export function EventTypeList({
+  selectedFqn = null, onSelect, manageable = true, onEdit, onDeleted,
+}: Props = {}) {
   const { token } = useContext(AuthContext)
   const [eventTypes, setEventTypes]       = useState<EventTypeSummary[]>([])
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState('')
-  const [confirmArchive, setConfirmArchive] = useState<string | null>(null)
+  const [blockedBy, setBlockedBy]         = useState<Subscriber[]>([])
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [expandedFqn, setExpandedFqn]     = useState<string | null>(null)
   const [schemas, setSchemas]             = useState<Record<string, EventTypeSchema>>({})
   const [schemaLoading, setSchemaLoading] = useState<string | null>(null)
@@ -131,13 +237,34 @@ export function EventTypeList({ selectedFqn = null, onSelect, archivable = true 
       .finally(() => setSchemaLoading(prev => (prev === fqn ? null : prev)))
   }
 
-  const handleArchive = (fqn: string) => {
-    gateway.archiveEventType(token, fqn)
+  /** Limpia lo que quedó de un intento anterior antes de mostrar el resultado nuevo. */
+  const clearFeedback = () => { setError(''); setBlockedBy([]) }
+
+  const reportFailure = (err: Error) => {
+    const subs = subscribersOf(err)
+    // El 409 por suscriptores ajenos no es un error a secas: es una lista de gente con
+    // la que hay que hablar, así que se muestra aparte del banner de error.
+    if (subs.length > 0) setBlockedBy(subs)
+    else setError(err.message)
+  }
+
+  const handleDelete = (fqn: string) => {
+    clearFeedback()
+    gateway.deleteEventType(token, fqn)
       .then(() => {
-        setConfirmArchive(null)
+        setConfirmDelete(null)
+        onDeleted?.(fqn)
         reload()
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err: Error) => { setConfirmDelete(null); reportFailure(err) })
+  }
+
+  const handleRetire = (fqn: string, version: number) => {
+    clearFeedback()
+    gateway.deleteEventTypeVersion(token, fqn, version)
+      // El schema cacheado no cambia, pero sí la lista de versiones del resumen.
+      .then(reload)
+      .catch((err: Error) => reportFailure(err))
   }
 
   return (
@@ -150,6 +277,11 @@ export function EventTypeList({ selectedFqn = null, onSelect, archivable = true 
       </div>
 
       {error && <div className="et-error-wrap"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
+      {blockedBy.length > 0 && (
+        <div className="et-error-wrap">
+          <BlockedBySubscribers subscribers={blockedBy} onDismiss={() => setBlockedBy([])} />
+        </div>
+      )}
 
       {loading ? (
         <p className="et-empty">Cargando…</p>
@@ -158,11 +290,10 @@ export function EventTypeList({ selectedFqn = null, onSelect, archivable = true 
       ) : (
         <ul className="et-items">
           {eventTypes.map(eventType => {
-            const { fqn, schemaId, status } = eventType
+            const { fqn, schemaId, version } = eventType
             const isExpanded = expandedFqn === fqn
             const isLoadingSchema = schemaLoading === fqn
             const isSelected = selectedFqn === fqn
-            const isArchived = status === 'archived'
 
             return (
               <li
@@ -170,8 +301,7 @@ export function EventTypeList({ selectedFqn = null, onSelect, archivable = true 
                 className={
                   'et-item' +
                   (isExpanded ? ' et-item--expanded' : '') +
-                  (isSelected ? ' et-item--selected' : '') +
-                  (isArchived ? ' et-item--archived' : '')
+                  (isSelected ? ' et-item--selected' : '')
                 }
               >
                 <div className="et-item-row">
@@ -192,28 +322,43 @@ export function EventTypeList({ selectedFqn = null, onSelect, archivable = true 
                     {fqn}
                   </code>
 
-                  {isArchived && (
-                    <span className="et-badge" title="No admite nuevos eventos; su schema e historial siguen disponibles">
-                      archivado
+                  {/* La v1 no se anuncia: un sufijo significa que hubo una ruptura. */}
+                  {version > 1 && (
+                    <span
+                      className="et-badge"
+                      title={`Su contrato se rompió ${version - 1} vez(ces). Los eventos nuevos van a ${eventType.topic}`}
+                    >
+                      v{version}
                     </span>
                   )}
 
                   {schemaId !== null && <span className="et-schema-id">#{schemaId}</span>}
 
-                  {archivable && !isArchived && (confirmArchive === fqn ? (
+                  {manageable && (confirmDelete === fqn ? (
                     <span className="et-confirm">
-                      ¿Archivar?
-                      <button className="et-confirm-yes" onClick={() => handleArchive(fqn)}>Sí</button>
-                      <button className="et-confirm-no" onClick={() => setConfirmArchive(null)}>No</button>
+                      ¿Borrar todo?
+                      <button className="et-confirm-yes" onClick={() => handleDelete(fqn)}>Sí</button>
+                      <button className="et-confirm-no" onClick={() => setConfirmDelete(null)}>No</button>
                     </span>
                   ) : (
-                    <button
-                      className="et-archive-btn"
-                      onClick={() => setConfirmArchive(fqn)}
-                      title="Cierra el event type a nuevos eventos, sin borrar el schema ni el historial"
-                    >
-                      Archivar
-                    </button>
+                    <>
+                      {onEdit && (
+                        <button
+                          className="et-edit-btn"
+                          onClick={() => onEdit(eventType)}
+                          title="Cargar su schema en el formulario para cambiarle los campos"
+                        >
+                          Editar
+                        </button>
+                      )}
+                      <button
+                        className="et-delete-btn"
+                        onClick={() => { clearFeedback(); setConfirmDelete(fqn) }}
+                        title="Borra todas sus versiones, sus tópicos y sus eventos. Es permanente"
+                      >
+                        Borrar
+                      </button>
+                    </>
                   ))}
                 </div>
 
@@ -222,7 +367,11 @@ export function EventTypeList({ selectedFqn = null, onSelect, archivable = true 
                     {isLoadingSchema ? (
                       <p className="et-detail-loading">Cargando schema…</p>
                     ) : schemas[fqn] ? (
-                      <SchemaDetail schema={schemas[fqn]} />
+                      <SchemaDetail
+                        schema={schemas[fqn]}
+                        eventType={eventType}
+                        onRetire={manageable ? v => handleRetire(fqn, v) : undefined}
+                      />
                     ) : null}
                   </div>
                 )}

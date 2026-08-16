@@ -5,6 +5,7 @@ import org.apache.kafka.clients.admin.NewTopic
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.kafka.core.KafkaAdmin
@@ -17,6 +18,7 @@ import org.springframework.http.MediaType
 import org.springframework.test.web.client.MockRestServiceServer
 import org.springframework.test.web.client.match.MockRestRequestMatchers.method
 import org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo
+import org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound
 import org.springframework.test.web.client.response.MockRestResponseCreators.withServerError
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
 import org.springframework.web.client.RestClient
@@ -34,6 +36,7 @@ class SchemaRegistryServiceTest {
     private val testFields = listOf(mapOf("name" to "biciId", "type" to "string"))
 
     private val kafkaAdmin: KafkaAdmin = mock()
+    private val kafkaTopicAdmin: KafkaTopicAdmin = mock()
 
     private lateinit var builder: RestClient.Builder
     private lateinit var server: MockRestServiceServer
@@ -62,6 +65,7 @@ class SchemaRegistryServiceTest {
         schemaRegistryService = SchemaRegistryService(
             restClient = builder.build(),
             kafkaAdmin = kafkaAdmin,
+            kafkaTopicAdmin = kafkaTopicAdmin,
             schemasDir = tempSchemasDir.absolutePath,
             schemaRegistryUrl = registryUrl,
             topicPartitions = 3,
@@ -121,6 +125,7 @@ class SchemaRegistryServiceTest {
         val service = SchemaRegistryService(
             restClient = builder.build(),
             kafkaAdmin = kafkaAdmin,
+            kafkaTopicAdmin = kafkaTopicAdmin,
             schemasDir = dir.absolutePath,
             schemaRegistryUrl = registryUrl,
             topicPartitions = 1,
@@ -136,6 +141,7 @@ class SchemaRegistryServiceTest {
         val nonExistingService = SchemaRegistryService(
             restClient = builder.build(),
             kafkaAdmin = kafkaAdmin,
+            kafkaTopicAdmin = kafkaTopicAdmin,
             schemasDir = "/path/to/non/existing/dir",
             schemaRegistryUrl = registryUrl,
             topicPartitions = 1,
@@ -150,6 +156,7 @@ class SchemaRegistryServiceTest {
         val filePathService = SchemaRegistryService(
             restClient = builder.build(),
             kafkaAdmin = kafkaAdmin,
+            kafkaTopicAdmin = kafkaTopicAdmin,
             schemasDir = File(tempSchemasDir, "$testFqn.avsc").absolutePath,
             schemaRegistryUrl = registryUrl,
             topicPartitions = 1,
@@ -473,9 +480,7 @@ class SchemaRegistryServiceTest {
         assertNull(schemaRegistryService.getSchema(newFqn))
     }
 
-    // ── archiveEventType ─────────────────────────────────────────────────────
-
-    /** Registra un event type nuevo con el envelope, y devuelve su FQN. */
+    /** Registra un event type nuevo esperando la llamada al registry. Devuelve su FQN. */
     private fun registrar(name: String, id: Int): String {
         val fqn = "com.citypass.test.$name"
         server.expect(requestTo("$registryUrl/subjects/$fqn-value/versions"))
@@ -483,76 +488,6 @@ class SchemaRegistryServiceTest {
             .andRespond(withSuccess("""{"id": $id}""", MediaType.APPLICATION_JSON))
         assertTrue(schemaRegistryService.registerNewSchema("com.citypass.test", name, testFields).isSuccess)
         return fqn
-    }
-
-    @Test
-    fun `archiveEventType keeps the schema and the registry untouched`() {
-        val fqn = registrar("ParaArchivar", 40)
-
-        assertTrue(schemaRegistryService.archiveEventType(fqn).isSuccess)
-
-        assertTrue(schemaRegistryService.isArchived(fqn))
-        // El contrato y el historial siguen: sólo se cierra a nuevos eventos.
-        assertNotNull(schemaRegistryService.getSchema(fqn))
-        assertEquals(40, schemaRegistryService.getSchemaId(fqn))
-        assertTrue(File(tempSchemasDir, "$fqn.avsc").exists())
-        // Ninguna llamada extra al Schema Registry: sólo la del registro.
-        server.verify()
-    }
-
-    @Test
-    fun `archiveEventType fails with NoSuchElement when the FQN does not exist`() {
-        val result = schemaRegistryService.archiveEventType("com.citypass.otros.Inexistente")
-
-        assertTrue(result.isFailure)
-        assertInstanceOf(NoSuchElementException::class.java, result.exceptionOrNull())
-    }
-
-    @Test
-    fun `archiveEventType is idempotent`() {
-        val fqn = registrar("DosVeces", 41)
-
-        assertTrue(schemaRegistryService.archiveEventType(fqn).isSuccess)
-        assertTrue(schemaRegistryService.archiveEventType(fqn).isSuccess)
-        assertTrue(schemaRegistryService.isArchived(fqn))
-    }
-
-    @Test
-    fun `the archived state survives a restart`() {
-        val fqn = registrar("Persistente", 42)
-        schemaRegistryService.archiveEventType(fqn)
-
-        // Un servicio nuevo sobre el mismo directorio simula el reinicio del gateway.
-        val reiniciado = SchemaRegistryService(
-            restClient = builder.build(),
-            kafkaAdmin = kafkaAdmin,
-            schemasDir = tempSchemasDir.absolutePath,
-            schemaRegistryUrl = registryUrl,
-            topicPartitions = 1,
-            topicReplicationFactor = 1
-        )
-        reiniciado.loadSchemas()
-
-        assertTrue(reiniciado.isArchived(fqn))
-        assertNotNull(reiniciado.getSchema(fqn))
-    }
-
-    @Test
-    fun `a corrupt archived file does not stop the startup`() {
-        File(tempSchemasDir, "_archived.json").writeText("{ esto no es json")
-
-        val servicio = SchemaRegistryService(
-            restClient = builder.build(),
-            kafkaAdmin = kafkaAdmin,
-            schemasDir = tempSchemasDir.absolutePath,
-            schemaRegistryUrl = registryUrl,
-            topicPartitions = 1,
-            topicReplicationFactor = 1
-        )
-        servicio.loadSchemas()
-
-        assertTrue(servicio.getAvailableEventTypes().contains(testFqn))
-        assertFalse(servicio.isArchived(testFqn))
     }
 
     // ── creación del tópico ──────────────────────────────────────────────────
@@ -618,20 +553,6 @@ class SchemaRegistryServiceTest {
 
         val fqns = schemaRegistryService.listEventTypes(null).map { it["fqn"] }
         assertEquals(listOf("$testNamespace.Aaa", testFqn), fqns)
-    }
-
-    @Test
-    fun `listEventTypes reports the archived status`() {
-        val fqn = registrar("ConEstado", 44)
-
-        assertEquals("active", schemaRegistryService.listEventTypes(null).single { it["fqn"] == fqn }["status"])
-        assertNull(schemaRegistryService.listEventTypes(null).single { it["fqn"] == fqn }["archivedAt"])
-
-        schemaRegistryService.archiveEventType(fqn)
-
-        val resumen = schemaRegistryService.listEventTypes(null).single { it["fqn"] == fqn }
-        assertEquals("archived", resumen["status"])
-        assertNotNull(resumen["archivedAt"])
     }
 
     @Test
@@ -702,5 +623,509 @@ class SchemaRegistryServiceTest {
 
         assertNull(schemaRegistryService.getSchemaById(55))
         server.verify()
+    }
+
+    // ── versionado ───────────────────────────────────────────────────────────
+    //
+    // MockRestServiceServer no admite declarar expectativas después de la primera
+    // llamada, así que cada test las declara todas al principio y recién después actúa.
+
+    private fun esperaRegistro(topico: String, id: Int) {
+        server.expect(requestTo("$registryUrl/subjects/$topico-value/versions"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess("""{"id": $id}""", MediaType.APPLICATION_JSON))
+    }
+
+    private fun esperaRegistroFallido(topico: String) {
+        server.expect(requestTo("$registryUrl/subjects/$topico-value/versions"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withServerError())
+    }
+
+    private fun esperaCompatibilidad(topico: String, cuerpo: String) {
+        server.expect(requestTo("$registryUrl/compatibility/subjects/$topico-value/versions/latest"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess(cuerpo, MediaType.APPLICATION_JSON))
+    }
+
+    private fun esperaCompatibilidadCaida(topico: String) {
+        server.expect(requestTo("$registryUrl/compatibility/subjects/$topico-value/versions/latest"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withServerError())
+    }
+
+    private fun esperaBorradoDeSubject(topico: String) {
+        server.expect(requestTo("$registryUrl/subjects/$topico-value"))
+            .andExpect(method(HttpMethod.DELETE))
+            .andRespond(withSuccess("[1]", MediaType.APPLICATION_JSON))
+        server.expect(requestTo("$registryUrl/subjects/$topico-value?permanent=true"))
+            .andExpect(method(HttpMethod.DELETE))
+            .andRespond(withSuccess("[1]", MediaType.APPLICATION_JSON))
+    }
+
+    /** Registra un event type con el envelope. Las expectativas ya deben estar puestas. */
+    private fun crear(name: String, campos: List<Any> = testFields): String {
+        assertTrue(schemaRegistryService.registerNewSchema("com.citypass.test", name, campos).isSuccess)
+        return "com.citypass.test.$name"
+    }
+
+    private fun otrosCampos(nombre: String) = listOf(mapOf("name" to nombre, "type" to "int"))
+
+    @Test
+    fun `the first version has no suffix, so nothing that existed changes name`() {
+        assertEquals("com.citypass.test.X", schemaRegistryService.topicoDe("com.citypass.test.X", 1))
+        assertEquals("com.citypass.test.X.v2", schemaRegistryService.topicoDe("com.citypass.test.X", 2))
+    }
+
+    @Test
+    fun `a topic without a suffix reads as version 1`() {
+        assertEquals("com.citypass.test.X" to 1, schemaRegistryService.versionDe("com.citypass.test.X"))
+        assertEquals("com.citypass.test.X" to 3, schemaRegistryService.versionDe("com.citypass.test.X.v3"))
+    }
+
+    @Test
+    fun `a name shaped like a version suffix is rejected`() {
+        val result = schemaRegistryService.registerNewSchema("com.citypass.test", "v2", testFields)
+
+        assertTrue(result.isFailure)
+        // Sin esto, el FQN com.citypass.test.v2 se leería como la versión 2 de otro
+        // event type y las publicaciones se rutearían al tópico equivocado.
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("reservado"))
+    }
+
+    @Test
+    fun `registering an existing event type points at the PUT`() {
+        esperaRegistro("com.citypass.test.YaExiste", 60)
+        val fqn = crear("YaExiste")
+
+        val result = schemaRegistryService.registerNewSchema("com.citypass.test", "YaExiste", testFields)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("PUT /api/v1/event-types/$fqn"))
+    }
+
+    // ── updateSchema ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `an identical schema changes nothing and does not touch the registry`() {
+        esperaRegistro("com.citypass.test.Igual", 61)
+        val fqn = crear("Igual")
+
+        val cambio = schemaRegistryService.updateSchema("com.citypass.test", "Igual", testFields).getOrThrow()
+
+        assertTrue(cambio.unchanged)
+        assertEquals(61, cambio.schemaId)
+        assertEquals(fqn, cambio.topic)
+        // Ni consulta de compatibilidad ni registro: un PUT repetido no debe acumular
+        // versiones idénticas en el registry.
+        server.verify()
+    }
+
+    @Test
+    fun `a compatible change stays on the same topic`() {
+        val fqn = "com.citypass.test.Compatible"
+        esperaRegistro(fqn, 62)
+        esperaCompatibilidad(fqn, """{"is_compatible": true}""")
+        esperaRegistro(fqn, 63)
+        crear("Compatible")
+
+        val nuevos = testFields + mapOf("name" to "extra", "type" to "string", "default" to "")
+        val cambio = schemaRegistryService.updateSchema("com.citypass.test", "Compatible", nuevos).getOrThrow()
+
+        assertFalse(cambio.breaking)
+        assertEquals(fqn, cambio.topic, "el tópico no cambia: ningún consumidor se entera")
+        assertEquals(1, cambio.version)
+        assertEquals(63, cambio.schemaId)
+        assertNull(cambio.previousTopic)
+        server.verify()
+    }
+
+    @Test
+    fun `an incompatible change opens a new major version, leaving the old one alive`() {
+        val fqn = "com.citypass.test.Rompe"
+        esperaRegistro(fqn, 64)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", 65)
+        crear("Rompe")
+
+        val cambio = schemaRegistryService
+            .updateSchema("com.citypass.test", "Rompe", otrosCampos("otro")).getOrThrow()
+
+        assertTrue(cambio.breaking)
+        assertEquals("$fqn.v2", cambio.topic)
+        assertEquals(2, cambio.version)
+        assertEquals(fqn, cambio.previousTopic)
+
+        // La versión vieja sigue entera, sirviendo su historial.
+        assertNotNull(schemaRegistryService.getSchema(fqn))
+        assertEquals(64, schemaRegistryService.getSchemaId(fqn))
+        // Y lo que se publique de ahora en más va a la nueva.
+        assertEquals("$fqn.v2", schemaRegistryService.resolver(fqn)!!.topic)
+        server.verify()
+    }
+
+    @Test
+    fun `a new major version gets its own Kafka topic`() {
+        val fqn = "com.citypass.test.ConTopicoNuevo"
+        esperaRegistro(fqn, 66)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", 67)
+        crear("ConTopicoNuevo")
+
+        schemaRegistryService.updateSchema("com.citypass.test", "ConTopicoNuevo", otrosCampos("y"))
+
+        val captor = argumentCaptor<NewTopic>()
+        verify(kafkaAdmin, times(2)).createOrModifyTopics(captor.capture())
+        assertEquals("$fqn.v2", captor.secondValue.name())
+    }
+
+    @Test
+    fun `a major version survives a restart and is still the current one`() {
+        val fqn = "com.citypass.test.Persistente"
+        esperaRegistro(fqn, 68)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", 69)
+        crear("Persistente")
+        schemaRegistryService.updateSchema("com.citypass.test", "Persistente", otrosCampos("z"))
+
+        // El estado durable son los .avsc: el nombre del archivo lleva la versión, así
+        // que no hay ningún índice aparte que pueda quedar desincronizado.
+        assertTrue(File(tempSchemasDir, "$fqn.v2.avsc").exists())
+
+        val reiniciado = SchemaRegistryService(
+            restClient = builder.build(),
+            kafkaAdmin = kafkaAdmin,
+            kafkaTopicAdmin = kafkaTopicAdmin,
+            schemasDir = tempSchemasDir.absolutePath,
+            schemaRegistryUrl = registryUrl,
+            topicPartitions = 1,
+            topicReplicationFactor = 1
+        )
+        reiniciado.loadSchemas()
+
+        assertEquals("$fqn.v2", reiniciado.resolver(fqn)!!.topic)
+        assertNotNull(reiniciado.getSchema(fqn), "la v1 se sigue cargando para leer su historial")
+    }
+
+    @Test
+    fun `updateSchema fails when the event type does not exist`() {
+        val result = schemaRegistryService.updateSchema("com.citypass.test", "Inexistente", testFields)
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(NoSuchElementException::class.java, result.exceptionOrNull())
+    }
+
+    @Test
+    fun `updateSchema rejects an invalid name before touching anything`() {
+        val result = schemaRegistryService.updateSchema("com.citypass.test", "no valido", testFields)
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(IllegalArgumentException::class.java, result.exceptionOrNull())
+    }
+
+    @Test
+    fun `updateSchema rejects fields that do not form a valid Avro schema`() {
+        esperaRegistro("com.citypass.test.CamposMalos", 70)
+        crear("CamposMalos")
+
+        val result = schemaRegistryService
+            .updateSchema("com.citypass.test", "CamposMalos", listOf(mapOf("name" to "x", "type" to "inexistente")))
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(IllegalArgumentException::class.java, result.exceptionOrNull())
+    }
+
+    @Test
+    fun `an unreachable registry aborts the change instead of guessing`() {
+        val fqn = "com.citypass.test.SinRespuesta"
+        esperaRegistro(fqn, 71)
+        esperaCompatibilidadCaida(fqn)
+        crear("SinRespuesta")
+
+        val result = schemaRegistryService.updateSchema("com.citypass.test", "SinRespuesta", otrosCampos("q"))
+
+        assertTrue(result.isFailure)
+        // Suponer «compatible» rompería consumidores en silencio; suponer «incompatible»
+        // dispararía una migración para todos por un problema de red.
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("No se cambió nada"))
+        assertEquals(fqn, schemaRegistryService.resolver(fqn)!!.topic)
+    }
+
+    @Test
+    fun `a registry answer without is_compatible is treated as incompatible`() {
+        val fqn = "com.citypass.test.SinCampo"
+        esperaRegistro(fqn, 72)
+        esperaCompatibilidad(fqn, "{}")
+        esperaRegistro("$fqn.v2", 73)
+        crear("SinCampo")
+
+        val cambio = schemaRegistryService
+            .updateSchema("com.citypass.test", "SinCampo", otrosCampos("w")).getOrThrow()
+
+        assertTrue(cambio.breaking)
+    }
+
+    @Test
+    fun `updateSchema reports a registry that rejects the new version`() {
+        val fqn = "com.citypass.test.RegistryFalla"
+        esperaRegistro(fqn, 74)
+        esperaCompatibilidad(fqn, """{"is_compatible": true}""")
+        esperaRegistroFallido(fqn)
+        crear("RegistryFalla")
+
+        val result = schemaRegistryService.updateSchema(
+            "com.citypass.test", "RegistryFalla",
+            testFields + mapOf("name" to "extra", "type" to "string", "default" to "")
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("Failed to register schema"))
+    }
+
+    // ── borrado ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `deleting an event type frees the name for any schema`() {
+        val fqn = "com.citypass.test.ParaBorrar"
+        esperaRegistro(fqn, 80)
+        esperaBorradoDeSubject(fqn)
+        esperaRegistro(fqn, 81)
+        crear("ParaBorrar")
+
+        val borrados = schemaRegistryService.deleteEventType(fqn).getOrThrow()
+
+        assertEquals(listOf(fqn), borrados)
+        verify(kafkaTopicAdmin).borrar(listOf(fqn))
+        assertNull(schemaRegistryService.resolver(fqn))
+        assertFalse(File(tempSchemasDir, "$fqn.avsc").exists())
+        assertFalse(schemaRegistryService.getAvailableEventTypes().contains(fqn))
+
+        // Y el nombre queda libre: se puede volver a registrar con otros campos, que es
+        // lo que el borrado permanente del subject hace posible.
+        assertTrue(
+            schemaRegistryService
+                .registerNewSchema("com.citypass.test", "ParaBorrar", otrosCampos("otro")).isSuccess
+        )
+    }
+
+    @Test
+    fun `deleting an event type takes every major version with it`() {
+        val fqn = "com.citypass.test.VariasVersiones"
+        esperaRegistro(fqn, 82)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", 83)
+        esperaBorradoDeSubject(fqn)
+        esperaBorradoDeSubject("$fqn.v2")
+        crear("VariasVersiones")
+        schemaRegistryService.updateSchema("com.citypass.test", "VariasVersiones", otrosCampos("n"))
+
+        val borrados = schemaRegistryService.deleteEventType(fqn).getOrThrow()
+
+        assertEquals(listOf(fqn, "$fqn.v2"), borrados)
+        verify(kafkaTopicAdmin).borrar(listOf(fqn, "$fqn.v2"))
+        assertNull(schemaRegistryService.resolver(fqn))
+    }
+
+    @Test
+    fun `deleting an unknown event type fails with NoSuchElement`() {
+        val result = schemaRegistryService.deleteEventType("com.citypass.test.Fantasma")
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(NoSuchElementException::class.java, result.exceptionOrNull())
+    }
+
+    @Test
+    fun `a subject that is already gone does not block the deletion`() {
+        val fqn = "com.citypass.test.SubjectAusente"
+        esperaRegistro(fqn, 84)
+        server.expect(requestTo("$registryUrl/subjects/$fqn-value"))
+            .andExpect(method(HttpMethod.DELETE)).andRespond(withResourceNotFound())
+        server.expect(requestTo("$registryUrl/subjects/$fqn-value?permanent=true"))
+            .andExpect(method(HttpMethod.DELETE)).andRespond(withResourceNotFound())
+        crear("SubjectAusente")
+
+        // Reintentar un borrado que quedó a mitad de camino tiene que poder terminar.
+        assertTrue(schemaRegistryService.deleteEventType(fqn).isSuccess)
+        assertNull(schemaRegistryService.resolver(fqn))
+    }
+
+    @Test
+    fun `a failing registry leaves the event type untouched`() {
+        val fqn = "com.citypass.test.BorradoFalla"
+        esperaRegistro(fqn, 85)
+        server.expect(requestTo("$registryUrl/subjects/$fqn-value"))
+            .andExpect(method(HttpMethod.DELETE)).andRespond(withServerError())
+        crear("BorradoFalla")
+
+        val result = schemaRegistryService.deleteEventType(fqn)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("No se cambió nada"))
+        // Nada local se tocó, así que el borrado se puede reintentar. Al revés quedaría
+        // un tópico huérfano que ya nadie sabe que existe.
+        assertNotNull(schemaRegistryService.resolver(fqn))
+        assertTrue(File(tempSchemasDir, "$fqn.avsc").exists())
+    }
+
+    @Test
+    fun `deleteVersion retires an old version and leaves the current one publishing`() {
+        val fqn = "com.citypass.test.ConVieja"
+        esperaRegistro(fqn, 86)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", 87)
+        esperaBorradoDeSubject(fqn)
+        crear("ConVieja")
+        schemaRegistryService.updateSchema("com.citypass.test", "ConVieja", otrosCampos("m"))
+
+        val borrado = schemaRegistryService.deleteVersion(fqn, 1).getOrThrow()
+
+        assertEquals(fqn, borrado)
+        assertNull(schemaRegistryService.getSchema(fqn))
+        assertEquals("$fqn.v2", schemaRegistryService.resolver(fqn)!!.topic)
+    }
+
+    @Test
+    fun `deleteVersion refuses to remove the current version`() {
+        esperaRegistro("com.citypass.test.SoloUna", 88)
+        val fqn = crear("SoloUna")
+
+        val result = schemaRegistryService.deleteVersion(fqn, 1)
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(IllegalStateException::class.java, result.exceptionOrNull())
+        // Dejaría el event type existiendo sin dónde publicar.
+        assertNotNull(schemaRegistryService.resolver(fqn))
+    }
+
+    @Test
+    fun `deleteVersion fails for an unknown event type`() {
+        val result = schemaRegistryService.deleteVersion("com.citypass.test.Fantasma", 1)
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(NoSuchElementException::class.java, result.exceptionOrNull())
+    }
+
+    @Test
+    fun `deleteVersion fails for a version that never existed`() {
+        esperaRegistro("com.citypass.test.SinEsaVersion", 89)
+        val fqn = crear("SinEsaVersion")
+
+        val result = schemaRegistryService.deleteVersion(fqn, 7)
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(NoSuchElementException::class.java, result.exceptionOrNull())
+    }
+
+    // ── resolver, versionesDe, topicosDe y listEventTypes ────────────────────
+
+    /** Crea un event type con dos versiones mayores y devuelve su FQN. */
+    private fun crearConDosVersiones(name: String, idV1: Int, idV2: Int): String {
+        val fqn = "com.citypass.test.$name"
+        esperaRegistro(fqn, idV1)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", idV2)
+        crear(name)
+        schemaRegistryService.updateSchema("com.citypass.test", name, otrosCampos("nuevo"))
+        return fqn
+    }
+
+    @Test
+    fun `resolver accepts an explicit version topic, for feeding the old one`() {
+        val fqn = crearConDosVersiones("Explicita", 90, 91)
+
+        // El nombre lógico rutea a la vigente...
+        assertEquals("$fqn.v2", schemaRegistryService.resolver(fqn)!!.topic)
+        assertEquals(91, schemaRegistryService.resolver(fqn)!!.schemaId)
+        // ...y un tópico con sufijo, a esa versión concreta, que es lo que permite seguir
+        // alimentando la vieja durante una migración.
+        assertEquals(90, schemaRegistryService.resolver(fqn)!!.let { schemaRegistryService.getSchemaId(fqn) })
+    }
+
+    @Test
+    fun `resolver returns null for something that does not exist`() {
+        assertNull(schemaRegistryService.resolver("com.citypass.test.Nada"))
+    }
+
+    @Test
+    fun `versionesDe lists the versions oldest first`() {
+        val fqn = crearConDosVersiones("Listada", 92, 93)
+
+        val versiones = schemaRegistryService.versionesDe(fqn)
+
+        assertEquals(listOf(1, 2), versiones.map { it["version"] })
+        assertEquals(listOf(fqn, "$fqn.v2"), versiones.map { it["topic"] })
+        assertEquals(listOf(92, 93), versiones.map { it["schemaId"] })
+    }
+
+    @Test
+    fun `topicosDe includes every version of the namespace`() {
+        val fqn = crearConDosVersiones("ParaLeer", 94, 95)
+
+        // El historial de un event type que cambió de contrato está repartido entre los
+        // tópicos de cada versión: leer sólo la vigente escondería los eventos viejos.
+        assertEquals(listOf(fqn, "$fqn.v2"), schemaRegistryService.topicosDeNamespace("com.citypass.test"))
+        assertTrue(schemaRegistryService.topicosDeNamespace("com.citypass.otros").isEmpty())
+    }
+
+    @Test
+    fun `listEventTypes shows one row per event type, with its versions inside`() {
+        val fqn = crearConDosVersiones("Resumida", 96, 97)
+
+        val fila = schemaRegistryService.listEventTypes("com.citypass.test").single { it["fqn"] == fqn }
+
+        // Una fila por tópico haría parecer que un event type que se rompió son dos.
+        assertEquals("$fqn.v2", fila["topic"])
+        assertEquals(2, fila["version"])
+        assertEquals(97, fila["schemaId"])
+        assertEquals(2, (fila["versions"] as List<*>).size)
+    }
+
+    @Test
+    fun `a renamed avsc file is ignored instead of publishing to the wrong topic`() {
+        File(tempSchemasDir, "com.citypass.test.NombreQueNoCorresponde.avsc").writeText("""
+        {
+          "type": "record", "name": "OtroNombre", "namespace": "com.citypass.test",
+          "fields": [{"name": "x", "type": "int"}]
+        }
+        """.trimIndent())
+
+        schemaRegistryService.loadSchemas()
+
+        assertNull(schemaRegistryService.resolver("com.citypass.test.NombreQueNoCorresponde"))
+        assertNull(schemaRegistryService.resolver("com.citypass.test.OtroNombre"))
+    }
+
+    @Test
+    fun `an empty compatibility response is treated as incompatible`() {
+        val fqn = "com.citypass.test.SinCuerpo"
+        esperaRegistro(fqn, 98)
+        server.expect(requestTo("$registryUrl/compatibility/subjects/$fqn-value/versions/latest"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess("", MediaType.APPLICATION_JSON))
+        esperaRegistro("$fqn.v2", 99)
+        crear("SinCuerpo")
+
+        val cambio = schemaRegistryService
+            .updateSchema("com.citypass.test", "SinCuerpo", otrosCampos("p")).getOrThrow()
+
+        // Ante la duda, versión nueva: es la opción que no rompe consumidores sin avisar.
+        assertTrue(cambio.breaking)
+    }
+
+    @Test
+    fun `a failed deleteVersion leaves the version in place`() {
+        val fqn = "com.citypass.test.VersionQueNoSeBorra"
+        esperaRegistro(fqn, 100)
+        esperaCompatibilidad(fqn, """{"is_compatible": false}""")
+        esperaRegistro("$fqn.v2", 101)
+        server.expect(requestTo("$registryUrl/subjects/$fqn-value"))
+            .andExpect(method(HttpMethod.DELETE)).andRespond(withServerError())
+        crear("VersionQueNoSeBorra")
+        schemaRegistryService.updateSchema("com.citypass.test", "VersionQueNoSeBorra", otrosCampos("r"))
+
+        val result = schemaRegistryService.deleteVersion(fqn, 1)
+
+        assertTrue(result.isFailure)
+        assertNotNull(schemaRegistryService.getSchema(fqn), "se puede reintentar")
     }
 }
