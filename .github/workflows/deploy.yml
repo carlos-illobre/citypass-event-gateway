@@ -9,6 +9,19 @@ name: Verificar y publicar
 on:
   push:
     branches: [main]
+    # La documentación no entra en ningún contexto de build de Docker, así que un cambio
+    # sólo de docs produce imágenes idénticas byte a byte. Reconstruirlas y republicar el
+    # sitio por una tilde en un .md es trabajo que no cambia nada.
+    #
+    # `site/` queda deliberadamente fuera de esta lista: no es documentación sino la raíz
+    # del sitio publicado, y editarla sí tiene que republicar.
+    #
+    # El filtro va sólo en `push`. En los PR se verifica siempre: es barato, y evita que
+    # el día que estos checks sean obligatorios un PR de sólo documentación quede
+    # esperando para siempre un check que nunca va a correr.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   pull_request:
     branches: [main]
   # Un run nuevo a pedido. Reintentar uno viejo con «Re-run» arrastra los artifacts del
@@ -206,10 +219,10 @@ jobs:
         run: |
           mkdir -p sitio/coverage
 
-          # La raíz sale de docs/pages/, versionada en el repositorio. El día que haya
-          # una landing del proyecto se edita ese archivo y aparece acá, sin tocar el
+          # La raíz sale de site/, versionada en el repositorio. El día que haya una
+          # landing del proyecto se edita ese archivo y aparece acá, sin tocar el
           # pipeline.
-          cp -r docs/pages/. sitio/
+          cp -r site/. sitio/
           rm -f sitio/README.md
 
           # La cobertura vive en su propia subruta para dejar la raíz libre.
