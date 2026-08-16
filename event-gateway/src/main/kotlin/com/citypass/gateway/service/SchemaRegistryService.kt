@@ -7,14 +7,50 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.apache.kafka.clients.admin.NewTopic
+import org.springframework.core.annotation.Order
 import org.springframework.core.io.ClassPathResource
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.kafka.core.KafkaAdmin
 import org.springframework.stereotype.Service
 import org.springframework.web.client.RestClient
+import org.springframework.web.client.RestClientResponseException
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.io.File
-import java.time.Instant
+
+/**
+ * Un event type resuelto y listo para publicar.
+ *
+ * Existe para que quien publica obtenga tópico, schema y schemaId en una sola consulta.
+ * Devolverlos por separado obligaría a resolver la versión vigente tres veces, o a
+ * afirmar con `!!` que lo hallado la primera vez sigue estando.
+ *
+ * @param topic Tópico Kafka de la versión vigente.
+ * @param schema Schema Avro de esa versión.
+ * @param schemaId Id en el Schema Registry, o null si todavía no se pudo registrar.
+ */
+data class TipoResuelto(val topic: String, val schema: Schema, val schemaId: Int?)
+
+/**
+ * Resultado de actualizar el schema de un event type.
+ *
+ * @param fqn Nombre lógico del event type, que no cambia nunca.
+ * @param topic Tópico donde quedaron los eventos nuevos.
+ * @param version Versión mayor vigente después del cambio.
+ * @param schemaId Id que el Schema Registry le asignó al schema nuevo.
+ * @param breaking Si el cambio fue incompatible y por lo tanto estrenó versión.
+ * @param previousTopic Tópico de la versión anterior; null si el cambio fue compatible.
+ * @param unchanged Si el schema enviado era idéntico al vigente y no se hizo nada.
+ */
+data class CambioDeEsquema(
+    val fqn: String,
+    val topic: String,
+    val version: Int,
+    val schemaId: Int,
+    val breaking: Boolean,
+    val previousTopic: String?,
+    val unchanged: Boolean
+)
 
 /**
  * Servicio central de gestión de schemas Avro.
@@ -22,19 +58,37 @@ import java.time.Instant
  * Responsabilidades:
  * - Cargar schemas desde archivos .avsc al arrancar y asegurar sus tópicos Kafka.
  * - Registrar schemas en Confluent Schema Registry (con reintentos).
- * - Validar nuevos schemas y construir el schema Avro completo a partir de name + namespace + fields.
- * - Resolver schemas por FQN (namespace.Name) o por ID numérico del registry.
- * - Persistir schemas nuevos como archivos .avsc en disco.
+ * - Decidir, consultando al registry, si un cambio de schema es compatible.
+ * - Resolver el tópico vigente de un event type y los schemas por id.
+ * - Borrar versiones o event types completos.
  *
- * Mantiene tres índices en memoria para acceso O(1):
- * - [schemas]: FQN → Schema (para serialización).
- * - [schemaIds]: FQN → registryId (para el header Confluent).
- * - [schemasByRegistryId]: registryId → Schema (para deserialización, evita búsqueda lineal).
+ * ## Nombre lógico y versiones
  *
- * El FQN (fully-qualified name) de un schema es `namespace.Name`, que coincide con el
- * nombre del tópico Kafka y el subject del Schema Registry (sin el sufijo `-value`).
+ * Un event type tiene un **nombre lógico** estable —el FQN `namespace.Name`— y una o más
+ * **versiones mayores**, cada una con su tópico Kafka y su subject en el registry. La
+ * versión mayor sólo avanza cuando un cambio es incompatible; los cambios compatibles
+ * evolucionan dentro del mismo subject y no mueven nada.
+ *
+ * La versión 1 **no lleva sufijo**: su tópico es el FQN pelado. Así, un event type que
+ * nunca se rompió se ve exactamente igual que antes de que existiera el versionado, y un
+ * sufijo en un nombre significa siempre lo mismo: ahí hubo una ruptura de contrato.
+ *
+ * No hay ambigüedad posible entre un sufijo y un FQN real: `namespace` debe ser todo
+ * minúsculas y `name` no puede tener la forma `v<número>` (ver [validateNewSchema]).
+ *
+ * ## Índices en memoria
+ *
+ * - [schemas]: **tópico** → Schema.
+ * - [schemaIds]: **tópico** → registryId, para el header Confluent.
+ * - [schemasByRegistryId]: registryId → Schema, para deserializar sin búsqueda lineal.
+ * - [vigentes]: FQN → tópico de la versión mayor más alta.
+ *
+ * Los cuatro se derivan de los archivos .avsc del disco, que son la única fuente
+ * durable: el nombre del archivo es el tópico y la versión sale de ese nombre, así que
+ * no hay ningún índice persistido que pueda quedar desincronizado.
  *
  * @param restClient Cliente HTTP para comunicarse con el Schema Registry.
+ * @param kafkaTopicAdmin Borrado de tópicos, aislado porque habla con el broker real.
  * @param schemasDir Directorio donde se almacenan los archivos .avsc (variable de entorno SCHEMAS_DIR).
  * @param schemaRegistryUrl URL del Confluent Schema Registry (variable de entorno SCHEMA_REGISTRY_URL).
  */
@@ -42,6 +96,7 @@ import java.time.Instant
 class SchemaRegistryService(
     private val restClient: RestClient,
     private val kafkaAdmin: KafkaAdmin,
+    private val kafkaTopicAdmin: KafkaTopicAdmin,
     @Value("\${gateway.schemas-dir}") private val schemasDir: String,
     @Value("\${gateway.schema-registry-url}") private val schemaRegistryUrl: String,
     @Value("\${gateway.topic-partitions}") private val topicPartitions: Int,
@@ -49,29 +104,25 @@ class SchemaRegistryService(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val mapper = jacksonObjectMapper()
+
     private val schemas = mutableMapOf<String, Schema>()
     private val schemaIds = mutableMapOf<String, Int>()
     private val schemasByRegistryId = mutableMapOf<Int, Schema>()
+    private val vigentes = mutableMapOf<String, String>()
 
     private val namePattern = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
-    private val namespacePattern = Regex("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$")
 
-    /** FQN → instante en que se archivó. Su ausencia significa activo. */
-    private val archived = mutableMapOf<String, String>()
+    /** Sufijo de versión mayor de un tópico. La v1 no lo lleva. */
+    private val sufijoDeVersion = Regex("^(.+)\\.v(\\d+)$")
+
+    /** Un `name` con esta forma chocaría con el sufijo de versión. */
+    private val nameReservado = Regex("^v\\d+$")
+    private val namespacePattern = Regex("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$")
 
     private companion object {
         /** Los dos campos del envelope que envuelve todo schema de evento. */
         const val METADATA_FIELD = "metadata"
         const val DATA_FIELD = "data"
-
-        /**
-         * Archivo donde persiste qué event types están archivados.
-         *
-         * Va en el directorio de schemas y sin extensión .avsc para que `loadSchemas`
-         * lo ignore. El prefijo `_` evita chocar con cualquier FQN, que siempre
-         * empieza con letra minúscula.
-         */
-        const val ARCHIVED_FILE = "_archived.json"
     }
 
     /**
@@ -87,10 +138,58 @@ class SchemaRegistryService(
     /** Schema de la metadata que el gateway inyecta en todo evento. */
     fun getMetadataSchema(): Schema = metadataSchema
 
+    // ─────────────────────────── Nombres y versiones ───────────────────────────
+
+    /**
+     * Tópico de una versión mayor.
+     *
+     * La v1 no lleva sufijo, así que su tópico es el FQN. Ver la nota de la clase.
+     */
+    internal fun topicoDe(fqn: String, version: Int): String =
+        if (version == 1) fqn else "$fqn.v$version"
+
+    /**
+     * Descompone un tópico en su nombre lógico y su versión mayor.
+     *
+     * Un tópico sin sufijo es la versión 1.
+     */
+    internal fun versionDe(topico: String): Pair<String, Int> {
+        val sufijo = sufijoDeVersion.find(topico) ?: return topico to 1
+        return sufijo.groupValues[1] to sufijo.groupValues[2].toInt()
+    }
+
+    /**
+     * Registra un schema en los cuatro índices.
+     *
+     * Punto único de escritura: [vigentes] es un índice derivado, y calcularlo acá evita
+     * que quede desactualizado si alguien agrega otro camino que inserte en [schemas].
+     */
+    private fun indexar(topico: String, schema: Schema) {
+        schemas[topico] = schema
+        val (fqn, version) = versionDe(topico)
+        val vigente = vigentes[fqn]
+        if (vigente == null || versionDe(vigente).second < version) vigentes[fqn] = topico
+    }
+
+    /** Quita un tópico de los índices y recalcula la versión vigente de su event type. */
+    private fun desindexar(topico: String) {
+        schemas.remove(topico)
+        schemaIds.remove(topico)
+        val (fqn, _) = versionDe(topico)
+        vigentes.remove(fqn)
+        schemas.keys
+            .filter { versionDe(it).first == fqn }
+            .forEach { indexar(it, schemas.getValue(it)) }
+    }
+
+    // ─────────────────────────── Carga y arranque ───────────────────────────
+
     /**
      * Carga todos los archivos .avsc del directorio de schemas al arrancar.
      *
-     * Cada archivo se parsea como schema Avro y se indexa por su FQN (schema.fullName).
+     * El tópico **es el nombre del archivo**, no el `fullName` del schema: dos versiones
+     * mayores del mismo event type comparten el `fullName` —el record se sigue llamando
+     * igual— y sólo se distinguen por el sufijo del archivo.
      */
     @PostConstruct
     fun loadSchemas() {
@@ -99,14 +198,24 @@ class SchemaRegistryService(
             logger.warn("Schemas directory not found: $schemasDir")
             return
         }
-        dir.listFiles { f -> f.extension == "avsc" }.orEmpty().forEach { file ->
+        dir.listFiles { f -> f.extension == "avsc" }.orEmpty().sortedBy { it.name }.forEach { file ->
+            val topico = file.nameWithoutExtension
             val schema = Schema.Parser().parse(file)
-            val fqn = schema.fullName
-            schemas[fqn] = schema
-            logger.info("Loaded schema: $fqn")
-        }
+            val (fqn, version) = versionDe(topico)
 
-        loadArchived()
+            // Un archivo renombrado a mano dejaría un event type publicando en un tópico
+            // que no le corresponde. Se descarta en vez de cargarlo mal.
+            if (schema.fullName != fqn) {
+                logger.error(
+                    "El archivo ${file.name} declara el record '${schema.fullName}' pero su " +
+                        "nombre indica el event type '$fqn'. Se ignora."
+                )
+                return@forEach
+            }
+
+            indexar(topico, schema)
+            logger.info("Loaded schema: $topico (v$version)")
+        }
 
         // Los schemas anteriores al envelope siguen resolviendo por FQN, pero publicar
         // en ellos falla. Se avisa acá y no recién al primer POST para que el problema
@@ -120,69 +229,18 @@ class SchemaRegistryService(
             )
     }
 
-    private fun loadArchived() {
-        val file = File(schemasDir, ARCHIVED_FILE)
-        if (!file.exists()) return
-        try {
-            archived.putAll(mapper.readValue(file, Map::class.java).entries.associate {
-                it.key.toString() to it.value.toString()
-            })
-            logger.info("Loaded ${archived.size} archived event types")
-        } catch (e: Exception) {
-            logger.error("Failed to load archived event types: ${e.message}")
-        }
-    }
-
-    private fun saveArchived() {
-        File(schemasDir).mkdirs()
-        File(schemasDir, ARCHIVED_FILE).writeText(mapper.writeValueAsString(archived))
-    }
-
     /**
-     * Indica si un event type está archivado, es decir cerrado a nuevos eventos.
-     *
-     * Un event type archivado conserva su schema y su tópico: los consumidores pueden
-     * seguir leyendo el historial e inspeccionando el contrato. Lo único que cambia es
-     * que deja de admitir publicaciones.
-     */
-    fun isArchived(fqn: String): Boolean = archived.containsKey(fqn)
-
-    /**
-     * Archiva un event type: baja lógica, sin borrar nada.
-     *
-     * No se toca el Schema Registry ni el tópico de Kafka, porque el schema es el
-     * contrato y el tópico es el historial: dar de baja el contrato no debería borrar
-     * la historia de lo que ya pasó.
-     *
-     * El estado se guarda como un mapa FQN → instante, de modo que revertirlo sea
-     * quitar una entrada. La operación inversa todavía no está expuesta en la API.
-     *
-     * @return Éxito, o falla con [NoSuchElementException] si el FQN no existe.
-     */
-    fun archiveEventType(fqn: String): Result<Unit> {
-        if (!schemas.containsKey(fqn))
-            return Result.failure(NoSuchElementException("No existe un event type registrado para '$fqn'"))
-
-        if (archived.containsKey(fqn)) return Result.success(Unit)
-
-        archived[fqn] = Instant.now().toString()
-        saveArchived()
-        logger.info("Archived event type $fqn")
-        return Result.success(Unit)
-    }
-
-    /**
-     * Crea el tópico Kafka de un event type.
+     * Crea el tópico Kafka de una versión de un event type.
      *
      * Se crea al registrar y no al publicar el primer evento: es el momento en que se
      * declara el contrato, y permite fijar particiones y réplicas en vez de heredar
      * los defaults del broker.
      */
-    private fun createTopic(fqn: String) {
+    private fun createTopic(topico: String) {
         kafkaAdmin.createOrModifyTopics(
-            NewTopic(fqn, topicPartitions, topicReplicationFactor.toShort())
+            NewTopic(topico, topicPartitions, topicReplicationFactor.toShort())
         )
-        logger.info("Ensured Kafka topic $fqn ($topicPartitions particiones)")
+        logger.info("Ensured Kafka topic $topico ($topicPartitions particiones)")
     }
 
     /**
@@ -198,117 +256,154 @@ class SchemaRegistryService(
      * schema: se deja anotado y el resto sigue.
      */
     @EventListener(ApplicationReadyEvent::class)
+    @Order(1)
     fun registerSchemas() {
-        schemas.forEach { (fqn, schema) ->
+        schemas.forEach { (topico, schema) ->
             try {
-                createTopic(fqn)
+                createTopic(topico)
             } catch (e: Exception) {
-                logger.error("No se pudo asegurar el tópico $fqn al arrancar: ${e.message}")
+                logger.error("No se pudo asegurar el tópico $topico al arrancar: ${e.message}")
             }
-            registerWithRetry(fqn, schema)
+            registerWithRetry(topico, schema)
         }
     }
 
     /**
      * Registra un schema en el Schema Registry con reintentos.
      *
-     * @param fqn FQN del schema (namespace.Name).
+     * @param topico Tópico de la versión, que también da el nombre del subject.
      * @param schema Schema Avro a registrar.
      * @param maxRetries Cantidad máxima de intentos (default 10).
      */
     internal fun registerWithRetry(
-        fqn: String,
+        topico: String,
         schema: Schema,
         maxRetries: Int = 10,
         retryDelayMs: Long = 3000
     ) {
         repeat(maxRetries) { attempt ->
             try {
-                val id = postSchemaToRegistry(fqn, schema)
-                schemaIds[fqn] = id
+                val id = postSchemaToRegistry(topico, schema)
+                schemaIds[topico] = id
                 schemasByRegistryId[id] = schema
-                logger.info("Registered schema $fqn with ID: $id")
+                logger.info("Registered schema $topico with ID: $id")
                 return
             } catch (e: Exception) {
-                logger.warn("Schema registration attempt ${attempt + 1}/$maxRetries for $fqn failed: ${e.message}")
+                logger.warn("Schema registration attempt ${attempt + 1}/$maxRetries for $topico failed: ${e.message}")
                 if (attempt < maxRetries - 1) Thread.sleep(retryDelayMs)
             }
         }
-        logger.error("Failed to register schema for $fqn after $maxRetries attempts")
+        logger.error("Failed to register schema for $topico after $maxRetries attempts")
+    }
+
+    // ─────────────────────────── Consulta ───────────────────────────
+
+    /**
+     * Resuelve dónde publicar un event type.
+     *
+     * Acepta el **nombre lógico** —que es lo que debería usar todo productor, y que rutea
+     * a la versión vigente— y también un tópico de versión explícito, que sirve para
+     * seguir alimentando una versión vieja durante una migración.
+     *
+     * @param nombre FQN del event type, o tópico de una versión concreta.
+     * @return El tópico, su schema y su schemaId, o null si no existe ninguno de los dos.
+     */
+    fun resolver(nombre: String): TipoResuelto? {
+        val topico = vigentes[nombre] ?: nombre
+        val schema = schemas[topico] ?: return null
+        return TipoResuelto(topico, schema, schemaIds[topico])
     }
 
     /**
-     * Obtiene el schema Avro por su FQN (namespace.Name).
+     * Obtiene el schema Avro de un tópico.
      *
-     * @param fqn FQN del tipo de evento.
-     * @return Schema Avro o null si no existe.
+     * @param topico Tópico de la versión. Para un event type sin rupturas es su FQN.
      */
-    fun getSchema(fqn: String): Schema? = schemas[fqn]
+    fun getSchema(topico: String): Schema? = schemas[topico]
 
     /**
-     * Obtiene el ID numérico del schema en el Schema Registry.
-     *
-     * @param fqn FQN del tipo de evento.
-     * @return ID del schema o null si no fue registrado aún.
+     * Obtiene el ID numérico del schema de un tópico en el Schema Registry.
      */
-    fun getSchemaId(fqn: String): Int? = schemaIds[fqn]
+    fun getSchemaId(topico: String): Int? = schemaIds[topico]
 
     /**
-     * Lista todos los FQN que tienen un schema cargado.
+     * Nombres lógicos de todos los event types registrados.
      *
-     * @return Set con los FQN disponibles.
+     * Se devuelven los nombres y no los tópicos porque es la lista que le sirve a quien
+     * publica: las versiones son un detalle del que un productor no tiene que enterarse.
      */
-    fun getAvailableEventTypes(): Set<String> = schemas.keys
+    fun getAvailableEventTypes(): Set<String> = vigentes.keys
+
+    /**
+     * Todos los tópicos de un namespace, incluidas las versiones viejas.
+     *
+     * Lo usa la lectura de eventos, que sí tiene que mirar el historial completo.
+     */
+    fun topicosDeNamespace(namespace: String): List<String> =
+        schemas.filterValues { it.namespace == namespace }.keys.sorted()
+
+    /**
+     * Tópicos de todas las versiones de un event type, de la más vieja a la más nueva.
+     *
+     * Es lo que hay que borrar para que el nombre quede libre, y lo que hay que mirar
+     * para saber a quién afectaría ese borrado.
+     */
+    fun topicosDeEventType(fqn: String): List<String> =
+        schemas.keys.filter { versionDe(it).first == fqn }.sortedBy { versionDe(it).second }
+
+    /**
+     * Versiones de un event type, de la más vieja a la más nueva.
+     */
+    fun versionesDe(fqn: String): List<Map<String, Any?>> =
+        topicosDeEventType(fqn).map {
+            mapOf(
+                "version" to versionDe(it).second,
+                "topic" to it,
+                "schemaId" to schemaIds[it]
+            )
+        }
 
     /**
      * Resumen de cada event type registrado, opcionalmente acotado a un namespace.
      *
-     * Devuelve objetos y no FQN sueltos para que un cliente pueda listar y mostrar
-     * sin tener que pedir el schema completo de cada uno.
+     * Se lista un elemento por **nombre lógico**, con sus versiones adentro. Listar una
+     * fila por tópico haría parecer que un event type que se rompió una vez son dos
+     * event types distintos.
      *
      * @param namespace Si no es null, filtra por namespace exacto.
      */
     fun listEventTypes(namespace: String?): List<Map<String, Any?>> =
-        schemas.values
-            .filter { namespace == null || it.namespace == namespace }
-            .sortedBy { it.fullName }
-            .map {
+        vigentes.entries
+            .map { it.key to schemas.getValue(it.value) }
+            .filter { (_, schema) -> namespace == null || schema.namespace == namespace }
+            .sortedBy { (fqn, _) -> fqn }
+            .map { (fqn, schema) ->
+                val topico = vigentes.getValue(fqn)
                 mapOf(
-                    "fqn" to it.fullName,
-                    "namespace" to it.namespace,
-                    "name" to it.name,
-                    "schemaId" to schemaIds[it.fullName],
-                    "status" to if (isArchived(it.fullName)) "archived" else "active",
-                    "archivedAt" to archived[it.fullName]
+                    "fqn" to fqn,
+                    "namespace" to schema.namespace,
+                    "name" to schema.name,
+                    "topic" to topico,
+                    "version" to versionDe(topico).second,
+                    "schemaId" to schemaIds[topico],
+                    "versions" to versionesDe(fqn)
                 )
             }
 
+    // ─────────────────────────── Alta ───────────────────────────
+
     /**
-     * Registra un nuevo schema Avro a partir de su namespace, name y fields.
+     * Construye el envelope de un event type a partir de los campos de negocio.
      *
-     * El schema resultante es un envelope de dos campos:
-     * - `metadata`: el record [EventMetadata], que calcula íntegramente el gateway.
+     * El schema resultante es un record de dos campos:
      * - `data`: un record con los campos del productor, en el namespace `<namespace>.data`.
+     * - `metadata`: el record [getMetadataSchema], que calcula íntegramente el gateway.
      *
      * Al vivir en records separados, los datos de negocio no pueden pisar la metadata
      * de auditoría, así que no hacen falta nombres reservados: un productor puede
      * declarar un campo llamado `source` o `eventId` sin conflicto.
-     *
-     * Validaciones:
-     * - [name] debe ser un identificador Avro válido (letras, dígitos, _).
-     * - [namespace] debe seguir el formato de paquete inverso (ej: com.citypass.movilidad).
-     * - El schema resultante debe ser un record Avro válido.
-     * - No puede existir otro schema con el mismo FQN.
-     *
-     * @param namespace Namespace Avro del equipo emisor (ej: "com.citypass.movilidad").
-     * @param name Nombre del record Avro (ej: "BiciDevuelta").
-     * @param userFields Lista de definiciones de campos de negocio del productor.
-     * @return Result con el ID del schema si fue exitoso, o la excepción si falló.
      */
-    fun registerNewSchema(namespace: String, name: String, userFields: List<Any>): Result<Int> {
-        val validationError = validateNewSchema(namespace, name)
-        if (validationError != null) return Result.failure(IllegalArgumentException(validationError))
-
+    private fun construirSchema(namespace: String, name: String, userFields: List<Any>): Result<Schema> {
         val schemaMap = mapOf(
             "type" to "record",
             "name" to name,
@@ -328,22 +423,43 @@ class SchemaRegistryService(
                 mapOf("name" to METADATA_FIELD, "type" to metadataSchema.fullName)
             )
         )
-        val schemaJson = mapper.writeValueAsString(schemaMap)
 
         // El parser se siembra con EventMetadata para resolver la referencia por nombre.
         // Debe ser una instancia nueva en cada registro: Schema.Parser acumula los tipos
         // que ya vio y rechaza redefinirlos, así que uno compartido fallaría al re-registrar.
-        val schema = try {
-            Schema.Parser()
-                .apply { addTypes(listOf(metadataSchema)) }
-                .parse(schemaJson)
+        return try {
+            Result.success(
+                Schema.Parser()
+                    .apply { addTypes(listOf(metadataSchema)) }
+                    .parse(mapper.writeValueAsString(schemaMap))
+            )
         } catch (e: Exception) {
-            return Result.failure(IllegalArgumentException("Schema Avro inválido: ${e.message}"))
+            Result.failure(IllegalArgumentException("Schema Avro inválido: ${e.message}"))
         }
+    }
 
+    /**
+     * Registra un event type nuevo, en su versión 1.
+     *
+     * @param namespace Namespace Avro del equipo emisor (ej: "com.citypass.movilidad").
+     * @param name Nombre del record Avro (ej: "BiciDevuelta").
+     * @param userFields Lista de definiciones de campos de negocio del productor.
+     * @return Result con el ID del schema si fue exitoso, o la excepción si falló.
+     */
+    fun registerNewSchema(namespace: String, name: String, userFields: List<Any>): Result<Int> {
+        val validationError = validateNewSchema(namespace, name)
+        if (validationError != null) return Result.failure(IllegalArgumentException(validationError))
+
+        val schema = construirSchema(namespace, name, userFields).getOrElse { return Result.failure(it) }
         val fqn = schema.fullName
-        if (schemas.containsKey(fqn))
-            return Result.failure(IllegalArgumentException("Ya existe un schema registrado para '$fqn'"))
+
+        if (vigentes.containsKey(fqn))
+            return Result.failure(
+                IllegalArgumentException(
+                    "Ya existe un event type registrado para '$fqn'. Para cambiarle el schema " +
+                        "usá PUT /api/v1/event-types/$fqn."
+                )
+            )
 
         try {
             createTopic(fqn)
@@ -352,21 +468,224 @@ class SchemaRegistryService(
             return Result.failure(RuntimeException("No se pudo crear el tópico Kafka: ${e.message}"))
         }
 
-        schemas[fqn] = schema
-
         return try {
-            val id = postSchemaToRegistry(fqn, schema)
-            schemaIds[fqn] = id
-            schemasByRegistryId[id] = schema
-            File(schemasDir, "$fqn.avsc").writeText(schema.toString(true))
-            logger.info("Registered new schema $fqn with ID: $id")
+            val id = publicarVersion(fqn, schema)
+            logger.info("Registered new event type $fqn with ID: $id")
             Result.success(id)
         } catch (e: Exception) {
-            schemas.remove(fqn)
             logger.error("Failed to register schema for $fqn: ${e.message}")
             Result.failure(RuntimeException("Failed to register schema in Schema Registry: ${e.message}"))
         }
     }
+
+    /**
+     * Registra un schema en el registry, lo indexa y lo persiste en disco.
+     *
+     * Los tres pasos van juntos porque un schema que quedara en memoria sin archivo
+     * desaparecería en el próximo arranque, y uno en disco sin id no se puede publicar.
+     */
+    private fun publicarVersion(topico: String, schema: Schema): Int {
+        val id = postSchemaToRegistry(topico, schema)
+        indexar(topico, schema)
+        schemaIds[topico] = id
+        schemasByRegistryId[id] = schema
+        File(schemasDir, "$topico.avsc").writeText(schema.toString(true))
+        return id
+    }
+
+    // ─────────────────────────── Cambio de schema ───────────────────────────
+
+    /**
+     * Cambia el schema de un event type existente.
+     *
+     * Quién decide qué pasa no es el llamador sino el Schema Registry:
+     *
+     * - **Schema idéntico** al vigente: no se hace nada. Un PUT repetido no debe ir
+     *   acumulando versiones iguales en el registry.
+     * - **Cambio compatible** (agregar un campo con default, ensanchar un `int` a `long`):
+     *   se registra como una versión más del mismo subject. Mismo tópico, mismas
+     *   suscripciones, ningún consumidor se entera.
+     * - **Cambio incompatible**: estrena versión mayor, con tópico y subject nuevos. La
+     *   versión anterior queda intacta, sirviendo su historial, para que los consumidores
+     *   migren cuando puedan.
+     *
+     * Que la compatibilidad la determine el registry y no un parámetro del request es
+     * deliberado: un equipo que tuviera que declarar si su cambio rompe podría declararlo
+     * mal, y el error se descubriría del lado de los consumidores.
+     *
+     * @param namespace Namespace del equipo, tomado del JWT.
+     * @param name Nombre del record. No puede cambiar: junto al namespace forma el FQN.
+     * @param userFields Campos de negocio nuevos, completos — reemplazan a los anteriores.
+     */
+    fun updateSchema(namespace: String, name: String, userFields: List<Any>): Result<CambioDeEsquema> {
+        val validationError = validateNewSchema(namespace, name)
+        if (validationError != null) return Result.failure(IllegalArgumentException(validationError))
+
+        val nuevo = construirSchema(namespace, name, userFields).getOrElse { return Result.failure(it) }
+        val fqn = nuevo.fullName
+
+        val topicoActual = vigentes[fqn]
+            ?: return Result.failure(NoSuchElementException("No hay ningún event type registrado con el FQN '$fqn'."))
+
+        val version = versionDe(topicoActual).second
+
+        if (schemas.getValue(topicoActual) == nuevo)
+            return Result.success(
+                CambioDeEsquema(
+                    fqn = fqn, topic = topicoActual, version = version,
+                    // Un schema idéntico sólo puede estar registrado: si no lo estuviera,
+                    // no habría con qué compararlo.
+                    schemaId = schemaIds.getValue(topicoActual),
+                    breaking = false, previousTopic = null, unchanged = true
+                )
+            )
+
+        val compatible = esCompatible(topicoActual, nuevo).getOrElse { return Result.failure(it) }
+
+        return try {
+            if (compatible) {
+                val id = publicarVersion(topicoActual, nuevo)
+                logger.info("Evolved schema $topicoActual compatibly, new ID: $id")
+                Result.success(
+                    CambioDeEsquema(
+                        fqn = fqn, topic = topicoActual, version = version, schemaId = id,
+                        breaking = false, previousTopic = null, unchanged = false
+                    )
+                )
+            } else {
+                val nuevoTopico = topicoDe(fqn, version + 1)
+                createTopic(nuevoTopico)
+                val id = publicarVersion(nuevoTopico, nuevo)
+                logger.warn("Breaking schema change on $fqn: new major version $nuevoTopico (ID $id)")
+                Result.success(
+                    CambioDeEsquema(
+                        fqn = fqn, topic = nuevoTopico, version = version + 1, schemaId = id,
+                        breaking = true, previousTopic = topicoActual, unchanged = false
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to update schema for $fqn: ${e.message}")
+            Result.failure(RuntimeException("Failed to register schema in Schema Registry: ${e.message}"))
+        }
+    }
+
+    /**
+     * Le pregunta al Schema Registry si un schema es compatible con el vigente del subject.
+     *
+     * Un fallo de la consulta se propaga en vez de asumir un valor. Asumir "compatible"
+     * rompería consumidores sin aviso; asumir "incompatible" estrenaría una versión mayor
+     * —y con ella una migración para todo el mundo— por un problema de red.
+     */
+    private fun esCompatible(topico: String, schema: Schema): Result<Boolean> = try {
+        val response = restClient.post()
+            .uri("$schemaRegistryUrl/compatibility/subjects/$topico-value/versions/latest")
+            .contentType(MediaType.parseMediaType("application/vnd.schemaregistry.v1+json"))
+            .body(mapOf("schema" to schema.toString()))
+            .retrieve()
+            .body(Map::class.java)
+        // Una respuesta sin cuerpo, o sin el campo, se toma como incompatible: es la
+        // opción que no rompe consumidores sin avisar.
+        Result.success(response != null && response["is_compatible"] == true)
+    } catch (e: Exception) {
+        logger.error("No se pudo consultar compatibilidad de $topico: ${e.message}")
+        Result.failure(
+            RuntimeException(
+                "El Schema Registry no pudo determinar si el cambio es compatible: ${e.message}. " +
+                    "No se cambió nada."
+            )
+        )
+    }
+
+    // ─────────────────────────── Borrado ───────────────────────────
+
+    /**
+     * Borra un event type entero: todas sus versiones, sus tópicos y sus subjects.
+     *
+     * Es permanente y libera el nombre, que puede volver a registrarse después con
+     * cualquier schema.
+     *
+     * @return Los tópicos borrados, o falla si el FQN no existe o si el borrado remoto no
+     *         se pudo completar.
+     */
+    fun deleteEventType(fqn: String): Result<List<String>> {
+        if (!vigentes.containsKey(fqn))
+            return Result.failure(NoSuchElementException("No hay ningún event type registrado con el FQN '$fqn'."))
+
+        val topicos = topicosDeEventType(fqn)
+        return borrar(topicos).map { topicos }
+    }
+
+    /**
+     * Borra una versión mayor concreta de un event type.
+     *
+     * No se puede borrar la vigente: dejaría al event type existiendo sin dónde publicar.
+     * Para eso está [deleteEventType], que lo borra entero.
+     */
+    fun deleteVersion(fqn: String, version: Int): Result<String> {
+        val vigente = vigentes[fqn]
+            ?: return Result.failure(NoSuchElementException("No hay ningún event type registrado con el FQN '$fqn'."))
+
+        val topico = topicoDe(fqn, version)
+        if (!schemas.containsKey(topico))
+            return Result.failure(NoSuchElementException("El event type '$fqn' no tiene una versión $version."))
+
+        if (topico == vigente)
+            return Result.failure(
+                IllegalStateException(
+                    "La versión $version es la vigente de '$fqn' y no se puede borrar sola. " +
+                        "Para dar de baja el event type completo usá DELETE /api/v1/event-types/$fqn."
+                )
+            )
+
+        return borrar(listOf(topico)).map { topico }
+    }
+
+    /**
+     * Borra tópicos y subjects, y recién después el estado local.
+     *
+     * El orden importa: si el borrado remoto falla, el event type sigue existiendo entero
+     * y se puede reintentar. Al revés quedaría un tópico huérfano que nadie sabe que está.
+     */
+    private fun borrar(topicos: List<String>): Result<Unit> = try {
+        topicos.forEach { borrarSubject(it) }
+        kafkaTopicAdmin.borrar(topicos)
+        topicos.forEach {
+            desindexar(it)
+            File(schemasDir, "$it.avsc").delete()
+            logger.warn("Deleted event type version $it")
+        }
+        Result.success(Unit)
+    } catch (e: Exception) {
+        logger.error("Failed to delete ${topicos.joinToString(", ")}: ${e.message}")
+        Result.failure(RuntimeException("No se pudo completar el borrado: ${e.message}. No se cambió nada."))
+    }
+
+    /**
+     * Borra el subject del registry de forma permanente.
+     *
+     * Confluent exige dos pasos: el borrado suave lo saca de circulación y el permanente
+     * libera de verdad el nombre y la numeración de versiones. Sin el segundo, volver a
+     * registrar el mismo nombre heredaría la numeración vieja.
+     *
+     * Un subject que no existe se toma como ya borrado, para que reintentar un borrado que
+     * falló a mitad de camino funcione.
+     */
+    private fun borrarSubject(topico: String) {
+        borrarTolerandoAusencia("$schemaRegistryUrl/subjects/$topico-value")
+        borrarTolerandoAusencia("$schemaRegistryUrl/subjects/$topico-value?permanent=true")
+    }
+
+    private fun borrarTolerandoAusencia(uri: String) {
+        try {
+            restClient.delete().uri(uri).retrieve().toBodilessEntity()
+        } catch (e: RestClientResponseException) {
+            if (e.statusCode != HttpStatus.NOT_FOUND) throw e
+            logger.info("El subject ya no estaba en el registry: $uri")
+        }
+    }
+
+    // ─────────────────────────── Schema Registry ───────────────────────────
 
     /**
      * Resuelve un schema Avro por su ID numérico del Schema Registry.
@@ -399,15 +718,14 @@ class SchemaRegistryService(
     /**
      * Registra un schema en el Schema Registry de Confluent via HTTP POST.
      *
-     * @param fqn FQN del evento — se usa como subject con sufijo "-value".
+     * @param topico Tópico de la versión — se usa como subject con sufijo "-value".
      * @param schema Schema Avro a registrar.
      * @return ID numérico asignado por el Schema Registry.
      * @throws Exception Si la llamada HTTP falla.
      */
-    private fun postSchemaToRegistry(fqn: String, schema: Schema): Int {
-        val subject = "$fqn-value"
+    private fun postSchemaToRegistry(topico: String, schema: Schema): Int {
         val response = restClient.post()
-            .uri("$schemaRegistryUrl/subjects/$subject/versions")
+            .uri("$schemaRegistryUrl/subjects/$topico-value/versions")
             .contentType(MediaType.parseMediaType("application/vnd.schemaregistry.v1+json"))
             .body(mapOf("schema" to schema.toString()))
             .retrieve()
@@ -426,6 +744,10 @@ class SchemaRegistryService(
     private fun validateNewSchema(namespace: String, name: String): String? {
         if (!namePattern.matches(name))
             return "El name debe ser un identificador Avro válido (letras, dígitos y _). Ejemplo: BiciDevuelta"
+
+        // Un event type llamado `v2` haría que su FQN se leyera como la versión 2 de otro.
+        if (nameReservado.matches(name))
+            return "El name '$name' está reservado: la forma v<número> identifica versiones de un event type."
 
         if (!namespacePattern.matches(namespace))
             return "El namespace debe seguir el formato de paquete inverso en minúsculas. Ejemplo: com.citypass.movilidad"

@@ -61,11 +61,13 @@ springBoot {
 // DlqController        : crea un KafkaConsumer directamente, requiere broker real.
 // EventsController     : ídem. Su lógica de selección vive en EventSelection, que sí se mide.
 // SecurityConfig       : configura el builder de Spring Security, requiere contexto.
+// KafkaTopicAdmin      : una llamada al AdminClient de Kafka, que es un cliente real.
 val jacocoExclusions = listOf(
     "**/GatewayApplicationKt*",
     "**/DlqController*",
     "**/EventsController*",
-    "**/SecurityConfig*"
+    "**/SecurityConfig*",
+    "**/KafkaTopicAdmin*"
 )
 
 // ── Tests unitarios (tarea 'test') ───────────────────────────────────────────

@@ -121,7 +121,9 @@ en memoria: un evento anterior a esa ventana no aparece. Kafka no permite filtra
             )
 
         val tope = limit.coerceIn(1, MAX_LIMIT)
-        val topicos = schemaRegistryService.listEventTypes(namespace).mapNotNull { it["fqn"] as? String }
+        // Todas las versiones, no sólo la vigente: el historial de un event type que
+        // cambió de contrato está repartido entre los tópicos de cada una.
+        val topicos = schemaRegistryService.topicosDeNamespace(namespace)
         val leidos = leerCola(topicos, tope)
 
         val eventos = EventSelection.propios(leidos, jwt.subject ?: "", tope)

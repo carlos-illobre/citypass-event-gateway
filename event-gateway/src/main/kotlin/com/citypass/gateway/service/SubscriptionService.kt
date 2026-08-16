@@ -116,6 +116,39 @@ class SubscriptionService(
     }
 
     /**
+     * Suscripciones a cualquiera de los tópicos dados, de cualquier dueño.
+     *
+     * Se usa antes de borrar un event type: hay que saber a quién se estaría dejando sin
+     * eventos, y esa pregunta no se puede acotar a las suscripciones propias.
+     *
+     * @param topics Tópicos a consultar.
+     */
+    fun suscriptoresA(topics: Collection<String>): List<Subscription> =
+        subscriptions.values.filter { it.topic in topics }
+
+    /**
+     * Da de baja todas las suscripciones a los tópicos dados y detiene sus consumers.
+     *
+     * Acompaña al borrado de un event type: una suscripción a un tópico que ya no existe
+     * no vuelve a entregar nada, así que dejarla sería dejar basura que aparenta funcionar.
+     *
+     * @param topics Tópicos cuyas suscripciones se eliminan.
+     * @return Cuántas suscripciones se dieron de baja.
+     */
+    fun unregisterTopics(topics: Collection<String>): Int {
+        val bajas = subscriptions.values.filter { it.topic in topics }
+        bajas.forEach { subscriptions.remove(it.id) }
+        topics.forEach { topic ->
+            containers.remove(topic)?.let {
+                it.stop()
+                logger.info("Stopped consumer for topic '$topic' (event type borrado)")
+            }
+        }
+        if (bajas.isNotEmpty()) saveToDisk()
+        return bajas.size
+    }
+
+    /**
      * Suscripciones de un grupo.
      *
      * No se listan las ajenas: expondrían las URLs internas de los otros equipos y los

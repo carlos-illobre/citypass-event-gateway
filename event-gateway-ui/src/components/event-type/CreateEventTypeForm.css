@@ -120,3 +120,67 @@
   color: #fff;
 }
 .cf-mode-btn--active:hover { color: #fff; }
+
+/* ── Edición de un event type existente ── */
+
+.cf-editing-note {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* El resultado de un cambio de schema. El borde se vuelve de advertencia cuando el
+   cambio rompió el contrato, que es el único caso donde hay algo que hacer. */
+.cf-result {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.75rem;
+  background: var(--surface-raised);
+  font-size: 0.8125rem;
+}
+
+.cf-result--breaking { border-left-color: var(--danger); }
+
+.cf-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.cf-result-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.cf-result-text {
+  margin: 0.5rem 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.cf-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+}
+
+.cf-result-warn {
+  margin: 0.5rem 0 0;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.cf-muted { color: var(--text-muted); }

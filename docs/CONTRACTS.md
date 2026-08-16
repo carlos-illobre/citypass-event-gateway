@@ -164,47 +164,52 @@ tener que parsear ni adivinar.
 El Schema Registry está configurado en compatibilidad **`backward`**: una versión nueva
 tiene que poder leer los eventos escritos con la versión anterior.
 
-En la práctica:
+Esta tabla está verificada contra el registry en ejecución, no deducida de la
+documentación:
 
-| Cambio | ¿Se puede? | Por qué |
+| Cambio | ¿Compatible? | Por qué |
 |---|---|---|
-| Agregar un campo **con default** | Sí | Un consumidor viejo lo ignora; uno nuevo leyendo un evento viejo usa el default |
-| Agregar un campo **sin default** | No | Un consumidor nuevo no sabría qué poner al leer un evento viejo |
-| Eliminar un campo con default | Sí | |
-| Eliminar un campo sin default | No | |
-| Renombrar un campo | No | Equivale a eliminar uno y agregar otro |
-| Cambiar el tipo de un campo | No | Salvo ensanchamientos que Avro considera compatibles, como `int` → `long` |
+| Agregar un campo **con** `default` | Sí | Al leer un evento viejo, se usa el default |
+| Agregar un campo **sin** `default` | No | Un consumidor nuevo no sabría qué poner al leer un evento viejo |
+| Eliminar un campo | Sí | Un consumidor nuevo simplemente deja de mirarlo |
+| `int` → `long`, `float`, `double` | Sí | Avro ensancha el tipo sin perder datos |
+| `string` → `bytes` y viceversa | Sí | Misma representación binaria |
+| `int` → `string` o `boolean` | No | No hay conversión posible |
+| Renombrar un campo | No | Equivale a eliminar uno y agregar otro sin default |
+| Mover campos dentro de un record | No | Ídem: la forma cambia |
 | Agregar un símbolo a un enum | No | Un consumidor viejo no sabría interpretarlo |
 
-**Si necesitás un cambio incompatible, registrá un event type nuevo.** Por ejemplo
-`BiciDevueltaV2`, y archivá el anterior cuando todos los consumidores hayan migrado. Es
-preferible a romperle la deserialización a siete equipos.
+**Un cambio incompatible no es un problema: es un caso previsto.** Al hacer un `PUT` sobre
+un event type, el gateway consulta esta compatibilidad y decide solo. Si el cambio no
+rompe, lo aplica en el mismo tópico; si rompe, estrena una versión mayor con tópico propio
+y deja la anterior sirviendo su historial mientras los consumidores migran.
+
+Cómo se hace, y qué hacer de cada lado del cambio, está en
+[EVENT-TYPES.md](EVENT-TYPES.md).
 
 ---
 
 ## 5. Ciclo de vida de un event type
 
 ```
-registrado ──────────► activo ──────────► archivado
-                                              │
-                                              └─► el schema y los eventos siguen disponibles
+registrado ──► v1 ──cambio compatible──► v1 (schema nuevo, mismo tópico)
+                │
+                └──cambio incompatible──► v2 (tópico nuevo)
+                                           │
+                            v1 sigue viva sirviendo su historial
+                                           │
+                                           └──► se retira cuando ya nadie la lee
 ```
 
-Un event type archivado:
+Nada se borra por su cuenta. Las versiones viejas se retiran a mano, cuando su dueño
+comprueba que no quedan suscriptores, y el event type entero se puede borrar de forma
+permanente para liberar su nombre.
 
-- **No admite eventos nuevos**: publicar responde `409`.
-- **Conserva su schema** en el registry, así que los consumidores pueden seguir
-  deserializando lo ya publicado.
-- **Conserva su tópico** y todos sus eventos.
+El borrado de un event type con equipos **ajenos** suscriptos se rechaza con `409`:
+cortarle la entrega a otro sin que se entere no es una decisión que le corresponda tomar a
+un tercero.
 
-Es una baja **lógica** a propósito. Borrar un schema rompería a cualquier consumidor que
-esté releyendo el histórico, incluso años después.
-
-```bash
-curl -X PATCH .../api/v1/event-types/com.citypass.movilidad.BiciDevuelta \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{ "status": "archived" }'
-```
+Los dos borrados están explicados en [EVENT-TYPES.md §6](EVENT-TYPES.md#6-borrar).
 
 ---
 
@@ -233,7 +238,7 @@ Qué rechaza el gateway y con qué código:
 | El token no es válido o no trae `namespace` | `401` / `400` | Firma, audiencia y expiración |
 | El fqn no pertenece a tu namespace | `403` | No podés publicar en tópicos ajenos |
 | El event type no existe | `404` | |
-| El event type fué archivado | `409` | |
+| Querés borrar un event type que otros equipos consumen | `409` | Se listan los dueños para coordinar la baja |
 | El payload no cumple el schema | `400` | El `detail` dice qué campo falta o tiene mal el tipo |
 | El body supera 256 KB | `413` | |
 | Superaste 600 peticiones por minuto | `429` | Con `Retry-After` |

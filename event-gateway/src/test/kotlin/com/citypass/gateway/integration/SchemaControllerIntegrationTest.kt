@@ -3,6 +3,7 @@ package com.citypass.gateway.integration
 import com.citypass.gateway.controller.EventMetadataController
 import com.citypass.gateway.controller.SchemaController
 import com.citypass.gateway.service.SchemaRegistryService
+import com.citypass.gateway.service.TipoResuelto
 import org.apache.avro.Schema
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -37,7 +38,7 @@ class SchemaControllerIntegrationTest {
     fun setUp() {
         mockMvc = MockMvcBuilders
             .standaloneSetup(
-                SchemaController(schemaRegistryService),
+                SchemaController(schemaRegistryService, mock(), mock(), mock()),
                 EventMetadataController(schemaRegistryService)
             )
             .build()
@@ -72,7 +73,7 @@ class SchemaControllerIntegrationTest {
 
     @Test
     fun `GET a schema serves application-json with UTF-8, not text-plain`() {
-        whenever(schemaRegistryService.getSchema(fqn)).thenReturn(schema)
+        whenever(schemaRegistryService.resolver(fqn)).thenReturn(TipoResuelto(fqn, schema, 1))
 
         mockMvc.perform(get("/api/v1/event-types/$fqn"))
             .andExpect(status().isOk)
@@ -84,7 +85,7 @@ class SchemaControllerIntegrationTest {
 
     @Test
     fun `GET an unknown schema returns problem+json`() {
-        whenever(schemaRegistryService.getSchema("com.citypass.otros.Nada")).thenReturn(null)
+        whenever(schemaRegistryService.resolver("com.citypass.otros.Nada")).thenReturn(null)
 
         mockMvc.perform(get("/api/v1/event-types/com.citypass.otros.Nada"))
             .andExpect(status().isNotFound)

@@ -486,4 +486,79 @@ class AvroServiceTest {
 
         assertNotNull(avroService.jsonToAvroBytes(mapOf("f" to fixed), schema, 1))
     }
+
+    @Test
+    fun `a required field that is missing names the field instead of failing at serialization`() {
+        val schema = Schema.Parser().parse("""
+        {
+          "type": "record", "name": "Persona", "namespace": "com.citypass.test",
+          "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "usuario", "type": {
+              "type": "record", "name": "Usuario",
+              "fields": [{"name": "nombre", "type": "string"}]
+            }}
+          ]
+        }
+        """.trimIndent())
+
+        // Es lo que manda un productor que todavía usa la forma anterior al cambio
+        // de contrato.
+        val error = assertThrows(PayloadInvalidoException::class.java) {
+            avroService.payloadHash(mapOf("id" to "1", "nombre" to "Ana"), schema)
+        }
+
+        assertEquals("usuario", error.campo)
+        assertTrue(error.descripcion.contains("obligatorio"))
+    }
+
+    @Test
+    fun `a missing field with a default is allowed`() {
+        val schema = Schema.Parser().parse("""
+        {
+          "type": "record", "name": "ConDefault", "namespace": "com.citypass.test",
+          "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "email", "type": "string", "default": ""}
+          ]
+        }
+        """.trimIndent())
+
+        assertDoesNotThrow { avroService.payloadHash(mapOf("id" to "1"), schema) }
+    }
+
+    @Test
+    fun `a missing nullable field is allowed`() {
+        val schema = Schema.Parser().parse("""
+        {
+          "type": "record", "name": "ConNulo", "namespace": "com.citypass.test",
+          "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "apodo", "type": ["null", "string"]}
+          ]
+        }
+        """.trimIndent())
+
+        assertDoesNotThrow { avroService.payloadHash(mapOf("id" to "1"), schema) }
+    }
+
+    @Test
+    fun `a missing union field that does not admit null is still required`() {
+        val schema = Schema.Parser().parse("""
+        {
+          "type": "record", "name": "UnionSinNulo", "namespace": "com.citypass.test",
+          "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "cantidad", "type": ["int", "string"]}
+          ]
+        }
+        """.trimIndent())
+
+        // Una unión sin la rama null no vuelve opcional al campo.
+        val error = assertThrows(PayloadInvalidoException::class.java) {
+            avroService.payloadHash(mapOf("id" to "1"), schema)
+        }
+
+        assertEquals("cantidad", error.campo)
+    }
 }

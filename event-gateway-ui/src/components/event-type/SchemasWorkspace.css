@@ -60,3 +60,9 @@
       "list";
   }
 }
+
+.ws-loading {
+  padding: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}

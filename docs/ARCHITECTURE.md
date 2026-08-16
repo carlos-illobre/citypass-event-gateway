@@ -374,7 +374,7 @@ en el medio, el evento se vuelve a leer.
 
 | Limitación | Consecuencia | Qué haría falta |
 |---|---|---|
-| **Una sola instancia** | Las suscripciones y los archivados viven en archivos de un volumen local. Dos gateways divergen | Mover ese estado a un tópico compactado o a una base |
+| **Una sola instancia** | Las suscripciones y los schemas viven en archivos de un volumen local. Dos gateways divergen | Mover ese estado a un tópico compactado o a una base |
 | **Rate limiting en memoria** | El límite es por instancia | Un contador compartido |
 | **`GET /events` no es historial** | Lee la cola de los tópicos y filtra en memoria: no ve más atrás de esa ventana | Una proyección persistida, que es otro servicio |
 | **Un broker** | Sin réplicas: si el disco se pierde, se pierden los eventos | Más brokers y factor de replicación > 1 |

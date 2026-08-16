@@ -255,3 +255,17 @@
 }
 
 /* .btn-primary from index.css */
+
+/* El tópico de la versión vigente, cuando difiere del FQN: sólo pasa si el contrato
+   se rompió alguna vez, y entonces es un dato que quien publica necesita ver. */
+.pef-topic-note {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}

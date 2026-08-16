@@ -2,8 +2,9 @@
 
 Frontend del bus de eventos. React + TypeScript + Vite.
 
-Permite registrar event types con un editor de schemas Avro, publicar eventos con un
-formulario generado a partir del schema elegido, y ver los últimos eventos publicados.
+Permite registrar event types con un editor de schemas Avro, **corregirlos y borrarlos**,
+publicar eventos con un formulario generado a partir del schema elegido, y ver los últimos
+eventos publicados.
 
 > Para levantar **todo el sistema** —que es lo habitual— usá el
 > [README de la raíz](../README.md#1-levantarlo-en-tu-máquina). Este documento es sólo para
@@ -71,7 +72,7 @@ src/
 ├── api/          cliente HTTP del gateway y del servicio de identidad
 ├── components/
 │   ├── event/        publicar eventos y ver los últimos enviados
-│   ├── event-type/   registrar y listar event types
+│   ├── event-type/   registrar, editar, listar y borrar event types
 │   └── ui/           componentes compartidos (JsonView, ErrorBanner)
 ├── contexts/     sesión y token
 ├── domain/       lógica de Avro: formularios desde el schema, ejemplos, conversión
@@ -81,3 +82,17 @@ src/
 La carpeta `domain/` es la que tiene la lógica interesante: genera el formulario a partir
 del schema Avro —incluidos records anidados, arrays, mapas, enums y uniones— y convierte lo
 que el usuario carga al payload que espera el gateway.
+
+## Cambiar y borrar event types
+
+«Editar» carga los campos actuales del event type en el mismo formulario que se usa para
+crearlos, con el nombre fijo, y guarda con un `PUT`. Quien decide qué pasa es el Schema
+Registry: si el cambio es compatible se aplica en el mismo tópico, y si no lo es se estrena
+una versión mayor con tópico propio. La pantalla lo informa después de guardar, incluido
+**cuántas suscripciones quedaron en la versión anterior**, que es el dato que convierte una
+ruptura de contrato en una decisión consciente.
+
+El borrado es permanente. Se rechaza si hay equipos ajenos suscriptos, y en ese caso la UI
+los nombra —salen del propio `409`— para que se pueda coordinar la baja.
+
+Las reglas y el porqué del diseño están en [EVENT-TYPES.md](../docs/EVENT-TYPES.md).

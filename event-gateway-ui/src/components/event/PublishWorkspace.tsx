@@ -20,8 +20,8 @@ type Props = {
  *
  * Reutiliza la misma lista que la pantalla de schemas, en modo selector: se puede
  * elegir un event type y, sin perder la selección, desplegar su schema para
- * consultar los tipos mientras se completan los campos. El archivado se oculta porque
- * acá la lista sirve para elegir, no para administrar.
+ * consultar los tipos mientras se completan los campos. Editar y borrar se ocultan
+ * porque acá la lista sirve para elegir, no para administrar.
  */
 export function PublishWorkspace({ sent, onPublished }: Props) {
   const [selected, setSelected] = useState<EventTypeSummary | null>(null)
@@ -30,13 +30,13 @@ export function PublishWorkspace({ sent, onPublished }: Props) {
   return (
     <div className="pw">
       <div className="pw-list">
-        <EventTypeList selectedFqn={fqn} onSelect={setSelected} archivable={false} />
+        <EventTypeList selectedFqn={fqn} onSelect={setSelected} manageable={false} />
       </div>
 
       <PublishEventForm
         key={fqn}
         fqn={fqn}
-        archived={selected?.status === 'archived'}
+        topic={selected?.topic ?? ''}
         sent={sent}
         onPublished={onPublished}
       />

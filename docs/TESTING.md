@@ -186,6 +186,15 @@ otra. Se rehizo con dos eventos, bloqueando el segundo.
 el contenido en `null`, pero springdoc no las deja vacías: les pone un comodín con un schema
 sin campos. El test verde no significaba nada hasta que se miró el JSON generado.
 
+El versionado de schemas se verificó además **contra la infraestructura real**, no sólo con
+mocks del Schema Registry, y ahí apareció un defecto que ningún test unitario había
+mostrado: publicar la forma vieja después de un cambio incompatible devolvía un `502`
+«Error al publicar en Kafka» con un mensaje de Avro, en vez de un `400` nombrando el campo
+que faltaba. Es exactamente el error que un equipo va a cometer justo después de cambiar su
+contrato, y mandaba a investigar el broker por un problema del request. Al arreglarlo
+apareció un segundo defecto latente: `GenericData.Record` no aplica los `default` del
+schema por su cuenta, así que un campo opcional omitido también fallaba al serializar.
+
 También hubo un caso donde el test detectaba la regresión pero **colgaba** en vez de fallar
 —el del timeout, que sin timeout no vuelve nunca—. Se le agregó `@Timeout(20)` para que
 reporte un fallo y no trabe el build.

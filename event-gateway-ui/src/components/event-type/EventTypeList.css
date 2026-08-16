@@ -84,7 +84,10 @@
 }
 .et-fqn:hover { color: var(--accent); }
 
-.et-archive-btn {
+/* Las dos acciones de administración comparten forma; sólo cambia el color al apuntar,
+   porque una es reversible y la otra no. */
+.et-edit-btn,
+.et-delete-btn {
   font-size: 0.8125rem;
   padding: 0.3rem 0.625rem;
   background: none;
@@ -96,11 +99,73 @@
   transition: color 0.15s, border-color 0.15s, background 0.15s;
   flex-shrink: 0;
 }
-.et-archive-btn:hover {
+.et-edit-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--surface-raised);
 }
+.et-delete-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--surface-raised);
+}
+
+.et-retire-btn {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.et-retire-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ── Borrado bloqueado por consumidores ajenos ── */
+
+.et-blocked {
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 0.8125rem;
+  background: var(--surface-raised);
+}
+
+.et-blocked-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--danger);
+}
+
+.et-blocked-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.et-blocked-text {
+  margin: 0.5rem 0;
+  color: var(--text-muted);
+}
+
+.et-blocked-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.et-muted { color: var(--text-muted); }
 
 .et-confirm {
   display: flex;
@@ -246,8 +311,13 @@
 
 .et-item--selected .et-fqn { color: var(--accent); }
 
-/* Archivado: sigue existiendo, pero no admite nuevos eventos. */
-.et-item--archived .et-fqn { color: var(--text-muted); }
+.et-version-tag {
+  margin-left: 0.4rem;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
 
 .et-badge {
   flex-shrink: 0;
