@@ -41,6 +41,13 @@ gateway:
   # lugar donde se puede acotar cuántos llegan a existir. Sin techo, el disco tampoco lo
   # tiene: cada event type es una partición con su propia retención.
   max-event-types-per-namespace: ${MAX_EVENT_TYPES_PER_NAMESPACE:25}
+
+  # Techo del bus entero, sumando todos los equipos.
+  #
+  # El de arriba impide que un equipo solo acapare; este acota el total, que es lo que
+  # multiplica a la retención de Kafka y por lo tanto lo que ocupa el disco. Si se agota,
+  # no puede crear nadie —tenga o no lugar en su propio cupo— hasta que se borre alguno.
+  max-event-types-total: ${MAX_EVENT_TYPES_TOTAL:200}
   topic-replication-factor: ${TOPIC_REPLICATION_FACTOR:1}
   # Audiencia que debe declarar el JWT para ser aceptado.
   token-audience: ${TOKEN_AUDIENCE:citypass}

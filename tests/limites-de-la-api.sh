@@ -27,6 +27,15 @@ usados=$(echo "$CUPO" | python3 -c 'import sys,json;print(json.load(sys.stdin)["
 restantes=$(echo "$CUPO" | python3 -c 'import sys,json;print(json.load(sys.stdin)["remaining"])' 2>/dev/null)
 afirmar_que "usados + restantes no supera el límite" "[ $((usados + restantes)) -le $limite_api ]"
 
+# ── techo del bus entero ──
+#
+# Es un cupo distinto del propio: un equipo puede tener lugar y no poder crear igual.
+total_api=$(echo "$CUPO" | python3 -c 'import sys,json;print(json.load(sys.stdin)["totalLimit"])' 2>/dev/null)
+total_usado=$(echo "$CUPO" | python3 -c 'import sys,json;print(json.load(sys.stdin)["totalUsed"])' 2>/dev/null)
+afirmar "el techo total que informa la API es el del .env" "$(leer_env MAX_EVENT_TYPES_TOTAL)" "$total_api"
+afirmar_que "el total contado incluye los de todos los namespaces" "[ ${total_usado:-0} -ge ${usados:-0} ]"
+afirmar_que "el techo total no es menor que el de un namespace" "[ $total_api -ge $limite_api ]"
+
 # La ruta literal /quota tiene que ganarle al patrón /{fqn}; si no, devolvería un 404 de
 # «event type no encontrado» y el contador de la UI quedaría vacío sin explicación.
 afirmar_que "la ruta /quota no la captura /{fqn}" "[ -n '$limite_api' ]"

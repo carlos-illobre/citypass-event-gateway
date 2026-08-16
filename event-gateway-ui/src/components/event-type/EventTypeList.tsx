@@ -285,8 +285,8 @@ export function EventTypeList({
               // Contra el cupo y no a secas: el número solo no dice si queda lugar, que
               // es lo que hace falta saber antes de intentar crear uno más.
               ? <span
-                  className={`et-count${cupo.remaining === 0 ? ' et-count--lleno' : ''}`}
-                  title={`${cupo.used} de ${cupo.limit} permitidos en ${cupo.namespace}`}
+                  className={`et-count${cupo.remaining === 0 || cupo.totalRemaining === 0 ? ' et-count--lleno' : ''}`}
+                  title={`${cupo.used} de ${cupo.limit} en ${cupo.namespace} · ${cupo.totalUsed} de ${cupo.totalLimit} en todo el bus`}
                 >
                   {cupo.used} / {cupo.limit}
                 </span>
@@ -302,10 +302,19 @@ export function EventTypeList({
         </div>
       )}
 
-      {cupo?.remaining === 0 && (
+      {/* Dos techos distintos y dos mensajes distintos: uno se resuelve borrando algo
+          propio y el otro puede estar agotado por event types de otros equipos. */}
+      {cupo && cupo.remaining === 0 && (
         <p className="et-cupo-lleno">
           Llegaste al máximo de {cupo.limit} event types. Para crear otro hay que borrar
           alguno que ya no se use.
+        </p>
+      )}
+      {cupo && cupo.remaining > 0 && cupo.totalRemaining === 0 && (
+        <p className="et-cupo-lleno">
+          El bus llegó a su máximo de {cupo.totalLimit} event types entre todos los
+          equipos. Te queda lugar propio, pero nadie puede crear uno nuevo hasta que se
+          borre alguno de los existentes.
         </p>
       )}
 

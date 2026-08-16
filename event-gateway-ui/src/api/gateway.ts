@@ -51,6 +51,16 @@ export type EventTypeQuota = {
   used:      number
   limit:     number
   remaining: number
+  /**
+   * El cupo del bus entero, sumando todos los equipos.
+   *
+   * Se expone porque un equipo puede tener lugar propio y aun así no poder crear: si el
+   * techo compartido está agotado, no crea nadie. Sin este dato, ese rechazo se leería
+   * como un problema del equipo y no habría forma de entenderlo.
+   */
+  totalUsed:      number
+  totalLimit:     number
+  totalRemaining: number
 }
 
 export type CreateEventTypePayload = {
