@@ -11,6 +11,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Un run nuevo a pedido. Reintentar uno viejo con «Re-run» arrastra los artifacts del
+  # intento anterior; esto arranca limpio.
+  workflow_dispatch:
 
 concurrency:
   # Una publicación por vez, para que dos merges seguidos no dejen `latest` apuntando al
@@ -67,6 +70,10 @@ jobs:
           name: cobertura-event-gateway
           path: event-gateway/build/reports/jacoco/test/html
           retention-days: 7
+          # Un re-run completo volvería a subir este mismo nombre y fallaría por
+          # conflicto. Con el número de intento en el nombre, en cambio, un «re-run
+          # failed jobs» dejaría de encontrarlo: los jobs que pasaron no se reejecutan.
+          overwrite: true
 
   authorizer:
     name: Tests · kafka-authorizer
@@ -95,6 +102,7 @@ jobs:
           name: cobertura-kafka-authorizer
           path: kafka-authorizer/build/reports/jacoco/test/html
           retention-days: 7
+          overwrite: true
 
   ui:
     name: Build · event-gateway-ui
@@ -166,13 +174,14 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.servicio }},mode=max
 
   cobertura:
-    name: Publicar cobertura
+    name: Publicar el sitio
     needs: [gateway, authorizer]
-    # Sólo desde main: en un PR sobreescribiría el reporte publicado con código que
+    # Sólo desde main: en un PR sobreescribiría el sitio publicado con código que
     # todavía no se mergeó.
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
@@ -184,6 +193,8 @@ jobs:
       group: pages
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4
+
       # Se bajan los reportes que ya generaron los jobs de tests, en vez de volver a
       # correr los builds sólo para producirlos.
       - uses: actions/download-artifact@v4
@@ -193,13 +204,21 @@ jobs:
 
       - name: Armar el sitio
         run: |
-          mkdir -p sitio
-          mv descargas/cobertura-event-gateway    sitio/event-gateway
-          mv descargas/cobertura-kafka-authorizer sitio/kafka-authorizer
+          mkdir -p sitio/coverage
 
-          # Portada mínima: los reportes de JaCoCo son autosuficientes y usan enlaces
-          # relativos, así que alcanza con una página que lleve a cada uno.
-          cat > sitio/index.html <<HTML
+          # La raíz sale de docs/pages/, versionada en el repositorio. El día que haya
+          # una landing del proyecto se edita ese archivo y aparece acá, sin tocar el
+          # pipeline.
+          cp -r docs/pages/. sitio/
+          rm -f sitio/README.md
+
+          # La cobertura vive en su propia subruta para dejar la raíz libre.
+          mv descargas/cobertura-event-gateway    sitio/coverage/event-gateway
+          mv descargas/cobertura-kafka-authorizer sitio/coverage/kafka-authorizer
+
+          # Índice de la sección. Los reportes de JaCoCo son autosuficientes y usan
+          # enlaces relativos, así que alcanza con una página que lleve a cada uno.
+          cat > sitio/coverage/index.html <<HTML
           <!doctype html>
           <html lang="es">
           <head>
@@ -213,9 +232,9 @@ jobs:
               h1 { font-size: 1.5rem; margin-bottom: .25rem; }
               p  { color: GrayText; }
               ul { list-style: none; padding: 0; }
-              li { margin: .75rem 0; }
-              a.rep { display: block; padding: 1rem; border: 1px solid GrayText;
-                      border-radius: .5rem; text-decoration: none; }
+              a.rep { display: block; padding: 1rem; margin: .75rem 0;
+                      border: 1px solid GrayText; border-radius: .5rem;
+                      text-decoration: none; }
               a.rep:hover { border-color: LinkText; }
               code { font-size: .85em; }
             </style>
@@ -228,17 +247,24 @@ jobs:
               <li><a class="rep" href="event-gateway/index.html">event-gateway</a></li>
               <li><a class="rep" href="kafka-authorizer/index.html">kafka-authorizer</a></li>
             </ul>
-            <p>Generado desde <code>${{ github.sha }}</code>.</p>
+            <p><a href="../">Volver</a> · generado desde <code>${{ github.sha }}</code>.</p>
           </body>
           </html>
           HTML
 
       - uses: actions/upload-pages-artifact@v3
         with:
+          # El número de intento en el nombre evita el choque al reintentar: los
+          # artifacts quedan asociados al run y no al intento, así que un «re-run» deja
+          # dos con el mismo nombre y el despliegue se niega a elegir — con razón,
+          # porque equivocarse ahí publica el sitio que no es.
+          name: github-pages-${{ github.run_attempt }}
           path: sitio
 
       - id: publicar
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
 
   etiquetar:
     name: Mover latest
