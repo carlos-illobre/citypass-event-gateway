@@ -27,7 +27,7 @@ y un número viejo en la documentación es peor que ninguno, porque se lo cree.
 
 **El reporte completo se publica en cada merge a `main`:**
 
-### https://carlos-illobre.github.io/citypass-event-gateway/
+### https://carlos-illobre.github.io/citypass-event-gateway/coverage/
 
 Se entra, se abre una clase y se ve **qué línea ejecutó cada test y cuál no**, con el
 código fuente coloreado. No hay que descargar nada ni creerle a un porcentaje.
@@ -150,11 +150,16 @@ motivo de cada una:
 | `GatewayApplicationKt` | La función `main` de Spring Boot. No tiene lógica propia |
 | `DlqController` | Crea un `KafkaConsumer` directamente contra el broker |
 | `EventsController` | Ídem |
+| `KafkaTopicAdmin` | Una llamada al `AdminClient` de Kafka, que es un cliente real |
 | `SecurityConfig` | Configura el builder de Spring Security; necesita el contexto |
 
 Los dos controllers son adaptadores de infraestructura: casi todo su cuerpo es configuración
-de un consumer y un bucle de `poll`. Probarlos exigiría un broker real por test. El
-comportamiento de `SecurityConfig` se verifica indirectamente desde los tests de contexto.
+de un consumer y un bucle de `poll`. Probarlos exigiría un broker real por test.
+`KafkaTopicAdmin` existe justamente para aislar ese problema: se lo separó de
+`SchemaRegistryService` para que la lógica que decide **qué** tópicos borrar, y en qué
+orden respecto del Schema Registry, quede del lado medido, y afuera sólo la llamada al
+broker. El comportamiento de `SecurityConfig` se verifica indirectamente desde los
+tests de contexto.
 
 **Pero su lógica sí se mide.** La parte que decide qué ve cada usuario está extraída a
 `EventSelection`, que es una función pura con sus propios tests —incluidos los eventos sin
