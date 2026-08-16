@@ -1,0 +1,12 @@
+# `node_modules` lo instala la propia imagen con `npm install --production`, para su
+# versión de Node y su arquitectura. El de la máquina de desarrollo trae además las
+# dependencias de desarrollo y, si tiene módulos nativos, binarios que no corresponden a
+# la plataforma de destino.
+node_modules
+
+# La imagen sólo copia package.json, así que el lock no llega igual; excluirlo evita que
+# un cambio suyo invalide la caché de la capa de dependencias sin necesidad.
+package-lock.json
+
+# La configuración del ambiente se pasa al contenedor, no se hornea adentro.
+.env
