@@ -1,0 +1,264 @@
+name: Verificar y publicar
+
+# Un merge a main es un push a main. Los PR sólo verifican: nada se publica hasta que el
+# cambio está en main.
+#
+# Este workflow no despliega en ningún lado: deja las imágenes publicadas y etiquetadas.
+# El despliegue a un ambiente concreto vive en la rama de ese ambiente, en su propio
+# archivo, para que este no tenga que saber a dónde va a parar ni conflictúe al mergear.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # Una publicación por vez, para que dos merges seguidos no dejen `latest` apuntando al
+  # más viejo si terminara último. No se cancela la anterior: mover etiquetas a medias
+  # deja el registro en un estado que nadie pidió.
+  group: publicacion-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRO: ghcr.io/${{ github.repository }}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Los tres proyectos se verifican en jobs separados, no en steps del mismo job:
+# dentro de un job los steps son secuenciales, y en jobs distintos corren a la vez.
+#
+# El ahorro de tiempo es modesto —el gateway tarda 35 s y los otros dos 21 entre los
+# dos, contra ~30 s que cuesta arrancar cada runner—, pero se gana algo que no se mide
+# en segundos: cuando algo falla, se ve *cuál* falló sin abrir el log.
+#
+# El ahorro grande está en que `construir` NO espera a `verificar`. Construir una imagen
+# que después falle los tests no cuesta nada mientras no se publique como `latest`, así
+# que las dos etapas corren en paralelo y sólo el etiquetado espera a las dos.
+# ─────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  gateway:
+    name: Tests · event-gateway
+    # Runner ARM nativo, igual que la instancia de destino. Es gratis en repositorios
+    # públicos y evita emular: compilar arm64 sobre x86 con QEMU tarda varias veces más.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      # `build` corre unitarios, integración y el umbral de cobertura, que en este
+      # repositorio es del 100 %.
+      - run: ./gradlew build --no-daemon
+        working-directory: event-gateway
+
+      # Los números salen de lo que el build ya produjo, así que no pueden diferir de
+      # los que evalúa la compuerta. Con `always()` también se ven cuando algo falla,
+      # que es cuando más importa saber cuánto faltó.
+      - name: Resumen
+        if: always()
+        run: python3 scripts/resumen-cobertura.py event-gateway 'event-gateway' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-event-gateway
+          path: event-gateway/build/reports/jacoco/test/html
+          retention-days: 7
+
+  authorizer:
+    name: Tests · kafka-authorizer
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew build --no-daemon
+        working-directory: kafka-authorizer
+
+      # Los números salen de lo que el build ya produjo, así que no pueden diferir de
+      # los que evalúa la compuerta. Con `always()` también se ven cuando algo falla,
+      # que es cuando más importa saber cuánto faltó.
+      - name: Resumen
+        if: always()
+        run: python3 scripts/resumen-cobertura.py kafka-authorizer 'kafka-authorizer' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-kafka-authorizer
+          path: kafka-authorizer/build/reports/jacoco/test/html
+          retention-days: 7
+
+  ui:
+    name: Build · event-gateway-ui
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: event-gateway-ui/package-lock.json
+      - run: npm ci
+        working-directory: event-gateway-ui
+      - run: npm run build
+        working-directory: event-gateway-ui
+      - run: npx eslint .
+        working-directory: event-gateway-ui
+
+  configuracion:
+    name: Paridad de ambientes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Una variable definida en un solo ambiente hace que el otro caiga en su default
+      # sin que nada avise. Es el mismo chequeo que hace test-integration.sh.
+      - name: .env.dev y .env.prod declaran lo mismo
+        run: |
+          faltan=$(comm -3 \
+            <(grep -oE '^[A-Z_]+=' .env.dev  | tr -d '=' | sort) \
+            <(grep -oE '^[A-Z_]+=' .env.prod | tr -d '=' | sort))
+          if [ -n "$faltan" ]; then
+            echo "Variables que no están en los dos archivos:"; echo "$faltan"; exit 1
+          fi
+          echo "OK"
+
+  construir:
+    name: Imagen · ${{ matrix.servicio }}
+    # Sin `needs`: arranca al mismo tiempo que la verificación.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      # Si una imagen falla, las otras siguen: así se ve de una vez todo lo que hay que
+      # arreglar, en vez de descubrirlo de a una.
+      fail-fast: false
+      matrix:
+        servicio: [event-gateway, event-gateway-ui, auth-simulator, anomaly-detector, kafka-authorizer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.servicio }}
+          push: true
+          # Sólo el SHA. `latest` se mueve en otro job, recién cuando los tests pasaron:
+          # como esta etapa no los espera, publicar `latest` acá dejaría a la etiqueta
+          # «la última» apuntando a algo que todavía nadie verificó.
+          tags: ${{ env.REGISTRO }}/${{ matrix.servicio }}:${{ github.sha }}
+          # Caché de capas entre ejecuciones: sin esto cada build vuelve a bajar las
+          # dependencias de Gradle y de npm desde cero.
+          cache-from: type=gha,scope=${{ matrix.servicio }}
+          cache-to: type=gha,scope=${{ matrix.servicio }},mode=max
+
+  cobertura:
+    name: Publicar cobertura
+    needs: [gateway, authorizer]
+    # Sólo desde main: en un PR sobreescribiría el reporte publicado con código que
+    # todavía no se mergeó.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.publicar.outputs.page_url }}
+    concurrency:
+      # GitHub Pages admite un despliegue por vez. Sin esto, dos merges seguidos se
+      # pisan y uno de los dos falla.
+      group: pages
+      cancel-in-progress: false
+    steps:
+      # Se bajan los reportes que ya generaron los jobs de tests, en vez de volver a
+      # correr los builds sólo para producirlos.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cobertura-*
+          path: descargas
+
+      - name: Armar el sitio
+        run: |
+          mkdir -p sitio
+          mv descargas/cobertura-event-gateway    sitio/event-gateway
+          mv descargas/cobertura-kafka-authorizer sitio/kafka-authorizer
+
+          # Portada mínima: los reportes de JaCoCo son autosuficientes y usan enlaces
+          # relativos, así que alcanza con una página que lleve a cada uno.
+          cat > sitio/index.html <<HTML
+          <!doctype html>
+          <html lang="es">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Cobertura · CityPass+ Event Gateway</title>
+            <style>
+              :root { color-scheme: light dark; }
+              body { font: 16px/1.6 system-ui, sans-serif; max-width: 42rem;
+                     margin: 4rem auto; padding: 0 1.5rem; }
+              h1 { font-size: 1.5rem; margin-bottom: .25rem; }
+              p  { color: GrayText; }
+              ul { list-style: none; padding: 0; }
+              li { margin: .75rem 0; }
+              a.rep { display: block; padding: 1rem; border: 1px solid GrayText;
+                      border-radius: .5rem; text-decoration: none; }
+              a.rep:hover { border-color: LinkText; }
+              code { font-size: .85em; }
+            </style>
+          </head>
+          <body>
+            <h1>Cobertura de código</h1>
+            <p>El build exige el <strong>100 % de instrucciones y ramas</strong> y falla
+               si baja. Estos reportes permiten comprobarlo línea por línea.</p>
+            <ul>
+              <li><a class="rep" href="event-gateway/index.html">event-gateway</a></li>
+              <li><a class="rep" href="kafka-authorizer/index.html">kafka-authorizer</a></li>
+            </ul>
+            <p>Generado desde <code>${{ github.sha }}</code>.</p>
+          </body>
+          </html>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: sitio
+
+      - id: publicar
+        uses: actions/deploy-pages@v4
+
+  etiquetar:
+    name: Mover latest
+    needs: [gateway, authorizer, ui, configuracion, construir]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # `imagetools create` copia el manifiesto del lado del servidor: no descarga ni
+      # vuelve a subir las imágenes, así que son unos segundos para las cinco.
+      - name: Apuntar latest al commit verificado
+        run: |
+          for servicio in event-gateway event-gateway-ui auth-simulator anomaly-detector kafka-authorizer; do
+            docker buildx imagetools create \
+              -t "$REGISTRO/$servicio:latest" \
+              "$REGISTRO/$servicio:${{ github.sha }}"
+          done

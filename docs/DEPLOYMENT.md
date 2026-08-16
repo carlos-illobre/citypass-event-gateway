@@ -17,6 +17,7 @@ Cómo poner el bus en una VM de la nube, con TLS y sin exponer más de lo necesa
 6. [Levantar](#6-levantar)
 7. [Verificar](#7-verificar)
 8. [Operación](#8-operación)
+9. [Integración continua](#9-integración-continua)
 
 ---
 
@@ -88,7 +89,7 @@ el dominio, el mail y la contraseña de kafka-ui:
 | `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` | los tuyos | **No dejar `CAMBIAR`** |
 | `GRAFANA_USER` / `GRAFANA_PASSWORD` | los tuyos | Ídem: el compose no arranca si faltan |
 | `AUTH_CORS_ORIGIN` / `GATEWAY_CORS_ORIGIN` | `https://tu-dominio` | Un solo origen, nunca `*` |
-| `VITE_*` | `https://tu-dominio/...` | Se embeben en el build de la UI |
+| `LOGIN_API_URL` / `GATEWAY_API_URL` | `https://tu-dominio/...` | Las lee la UI al arrancar, no en el build |
 
 **Si alguna variable falta, el compose usa el valor de producción igual**: los defaults son
 los seguros. Olvidarse nunca abre nada.
@@ -103,8 +104,8 @@ arrancar, porque para una contraseña no existe un default seguro.
 
 ## 4. Abrir los puertos
 
-En la consola del proveedor (en Oracle Cloud: VCN → Security Lists), sólo estas tres reglas
-de entrada:
+En la consola del proveedor —el grupo de seguridad, security list o firewall de red, según
+cómo lo llame cada uno— sólo estas tres reglas de entrada:
 
 | Puerto | Protocolo | Para qué |
 |---|---|---|
@@ -152,9 +153,17 @@ nuevo.
 ## 6. Levantar
 
 ```bash
-docker compose build
-docker compose up -d
+docker compose pull
+docker compose up -d --no-build
 ```
+
+**En producción no se construye.** Las imágenes llegan ya compiladas desde el registro, y
+`--no-build` es lo que lo garantiza: si faltara alguna, esto falla en vez de ponerse a
+compilarla en la instancia. Compilar acá dejaría la aplicación degradada mientras dura el
+build, llenaría el disco de caché y, si fallara, te dejaría sin ambiente.
+
+Qué versión se levanta lo decide `TAG` en el `.env`. Lo escribe el despliegue automático
+(ver §9), pero se puede fijar a mano para volver a una versión anterior.
 
 ---
 
@@ -228,14 +237,20 @@ log, o sea datos de negocio de todos los grupos.
 
 ### Actualizar
 
+Normalmente no se hace a mano: un merge a `main` despliega solo (§9). Para forzar una
+versión concreta:
+
 ```bash
-git pull
-docker compose build
-docker compose up -d
+sed -i 's|^TAG=.*|TAG=<sha del commit>|' .env
+docker compose pull && docker compose up -d --no-build
 ```
 
-Las suscripciones y los schemas de los event types viven en volúmenes, así que sobreviven. Los
-tópicos y los schemas también.
+Ese mismo procedimiento es el **rollback**: se apunta `TAG` al SHA anterior. Como cada
+despliegue etiqueta las imágenes con el SHA del commit, volver atrás es determinístico y
+no depende de reconstruir nada.
+
+Las suscripciones y los schemas viven en volúmenes, así que sobreviven. Los tópicos
+también.
 
 ### Backup
 
@@ -249,6 +264,62 @@ docker run --rm -v citypass-eda_event-gateway-schemas:/d -v $PWD:/b alpine tar c
 
 Perder `event-gateway-data` borra las suscripciones webhook, que hoy no están replicadas en
 ningún lado. Es la limitación descrita en [ARCHITECTURE.md](ARCHITECTURE.md#6-limitaciones-conocidas).
+
+---
+
+---
+
+## 9. Integración continua
+
+`.github/workflows/deploy.yml` verifica cada cambio y publica las imágenes. **No despliega
+en ningún ambiente**: deja las imágenes listas en `ghcr.io`, etiquetadas con el SHA del
+commit.
+
+| Job | Qué hace |
+|---|---|
+| `gateway` | Tests de `event-gateway`, con su umbral de cobertura |
+| `authorizer` | Tests de `kafka-authorizer` |
+| `ui` | Build y lint del frontend |
+| `configuracion` | Paridad de `.env.dev` y `.env.prod` |
+| `construir` | Las cinco imágenes en paralelo, etiquetadas con el SHA |
+| `etiquetar` | Mueve `latest` al commit ya verificado |
+
+Los cuatro primeros y `construir` **arrancan a la vez**. Los PR ejecutan sólo la
+verificación: nada se publica hasta que el cambio está en `main`.
+
+### Por qué construir no espera a los tests
+
+Construir una imagen que después falle los tests no cuesta nada mientras no llegue a
+usarse, y así la verificación sale del camino crítico. Medido sobre este repositorio, la
+verificación tarda ~56 s en serie y la construcción unos dos minutos: solapadas, el
+pipeline pasa de unos cuatro minutos a unos dos y medio.
+
+Lo que sí importa es que una imagen sin verificar no quede como «la última». Por eso
+`construir` publica **sólo la etiqueta del SHA**, y `latest` se mueve en un job aparte que
+sí espera a los tests. Ese job usa `docker buildx imagetools create`, que copia el
+manifiesto del lado del servidor: no descarga ni vuelve a subir nada.
+
+Como efecto lateral, Gradle compila el gateway dos veces —una en los tests y otra dentro
+del build de la imagen— pero al correr en paralelo eso ya no cuesta tiempo de reloj.
+Evitarlo exigiría que el `Dockerfile` recibiera un jar ya compilado, y entonces
+`docker compose build` dejaría de funcionar en una máquina de desarrollo: dos caminos de
+build que se pueden desincronizar, a cambio de nada.
+
+### Runners ARM
+
+Los jobs que compilan corren en `ubuntu-24.04-arm`. Si el destino es una máquina ARM,
+compilar ahí es nativo y evita emular con QEMU, que tarda varias veces más. Son gratuitos
+en repositorios públicos.
+
+### Desplegar en un ambiente concreto
+
+Este workflow deja las imágenes publicadas; llevarlas a una máquina es responsabilidad de
+cada ambiente, **en la rama de ese ambiente**. La razón es práctica: si el despliegue
+viviera acá, cambiar de proveedor obligaría a tocar la rama principal, y cada ambiente
+nuevo entraría en conflicto con los demás.
+
+Una rama de ambiente agrega sus propios archivos —su workflow y su script— y no modifica
+ninguno de los que ya existen, así que los merges desde `main` nunca dan conflicto.
 
 ---
 

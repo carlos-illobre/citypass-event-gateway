@@ -344,7 +344,7 @@ No hay que tocar código del bus. Son tres variables:
 ```bash
 # .env
 AUTH_SERVICE_URL=https://identidad.citypass.tudominio.com    # lo lee el event-gateway
-VITE_LOGIN_API_URL=https://identidad.citypass.tudominio.com  # lo embebe la UI en su build
+LOGIN_API_URL=https://identidad.citypass.tudominio.com  # lo lee la UI al arrancar
 ```
 
 Y en `docker-compose.yml`, el broker apunta al JWKS:

@@ -1,5 +1,6 @@
 services:
   kafka-authorizer:
+    image: ${IMAGE_PREFIX:-citypass-eda}/kafka-authorizer:${TAG:-latest}
     build:
       context: ./kafka-authorizer
     container_name: kafka-authorizer
@@ -146,6 +147,7 @@ services:
     restart: unless-stopped
 
   auth-simulator:
+    image: ${IMAGE_PREFIX:-citypass-eda}/auth-simulator:${TAG:-latest}
     build:
       context: ./auth-simulator
       dockerfile: Dockerfile
@@ -165,6 +167,7 @@ services:
     restart: unless-stopped
 
   event-gateway:
+    image: ${IMAGE_PREFIX:-citypass-eda}/event-gateway:${TAG:-latest}
     build:
       context: ./event-gateway
       dockerfile: Dockerfile
@@ -201,7 +204,9 @@ services:
       - event-gateway-schemas:/app/schemas
       - event-gateway-data:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      # wget viene en el busybox de Alpine; curl habría que instalarlo, lo que agrega
+      # una capa y —al construir para ARM desde un runner x86— obliga a emular.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -209,14 +214,19 @@ services:
     restart: unless-stopped
 
   event-gateway-ui:
+    image: ${IMAGE_PREFIX:-citypass-eda}/event-gateway-ui:${TAG:-latest}
     build:
       context: ./event-gateway-ui
       dockerfile: Dockerfile
-      args:
-        VITE_LOGIN_API_URL: '${VITE_LOGIN_API_URL}'
-        VITE_EVENT_GATEWAY_API_URL: '${VITE_EVENT_GATEWAY_API_URL}'
     container_name: event-gateway-ui
     hostname: event-gateway-ui
+    # En runtime, no como argumentos de build: la imagen no sabe a qué ambiente sirve
+    # hasta que arranca, así que la misma vale para todos. `?` porque sin ellas la UI
+    # no puede hablar con nadie, y es mejor que el contenedor no levante a que levante
+    # apuntando a ningún lado.
+    environment:
+      LOGIN_API_URL: '${LOGIN_API_URL:?falta LOGIN_API_URL}'
+      GATEWAY_API_URL: '${GATEWAY_API_URL:?falta GATEWAY_API_URL}'
     ports:
       - "${PUBLISH_ADDR:-127.0.0.1}:5173:80"
     depends_on:
@@ -227,6 +237,7 @@ services:
     restart: unless-stopped
 
   anomaly-detector:
+    image: ${IMAGE_PREFIX:-citypass-eda}/anomaly-detector:${TAG:-latest}
     build:
       context: ./anomaly-detector
       dockerfile: Dockerfile
