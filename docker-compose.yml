@@ -68,6 +68,12 @@ services:
       # Retención por TAMAÑO, no sólo por tiempo. La de tiempo que trae el broker por
       # defecto no acota el disco: si entran más datos de los que caben, se llena igual.
       KAFKA_LOG_RETENTION_BYTES: ${KAFKA_RETENTION_BYTES:?falta KAFKA_RETENTION_BYTES en el .env}
+      # Kafka borra segmentos enteros: si el segmento fuera más grande que la retención,
+      # el techo de arriba no podría aplicarse nunca.
+      KAFKA_LOG_SEGMENT_BYTES: ${KAFKA_SEGMENT_BYTES:?falta KAFKA_SEGMENT_BYTES en el .env}
+      # Cada cuánto se revisa si hay segmentos para borrar. El default son 5 minutos, que
+      # con techos chicos deja el disco por encima del límite demasiado tiempo.
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 30000
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1

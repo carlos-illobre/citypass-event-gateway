@@ -61,12 +61,23 @@ Tres de ellos deciden si un disco lleno es posible:
 | Variable | Qué acota |
 |---|---|
 | `LOG_MAX_SIZE` × `LOG_MAX_FILES` | Lo que puede escribir cada contenedor en su log |
-| `KAFKA_RETENTION_BYTES` | El tamaño máximo de cada tópico |
+| `KAFKA_RETENTION_BYTES` × `KAFKA_SEGMENT_BYTES` | El tamaño máximo de cada tópico |
 | `RATE_LIMIT_PER_MINUTE` × `MAX_PAYLOAD_BYTES` | La velocidad a la que un equipo puede escribir |
 
 El del log es el que más se olvida: el driver `json-file` de Docker no tiene límite por
 defecto, así que sin esa variable un servicio que loguee mucho llena el disco sin pasar
 por ningún otro control.
+
+Y en el de Kafka hay dos trampas que conviene conocer:
+
+**La retención es por partición, no por broker.** Kafka no tiene un techo global: hay una
+partición por event type, así que el total es `KAFKA_RETENTION_BYTES` × la cantidad de
+event types. Con 5 MB, diez event types ocupan 50 MB y cien ocupan 500 MB.
+
+**El segmento tiene que ser más chico que la retención.** Kafka borra segmentos enteros,
+nunca eventos sueltos. Con el default de 1 GB, el segmento activo crece hasta 1 GB antes
+de rotar, así que una retención de 5 MB no podría borrar nada y el techo sería decorativo.
+Por eso `KAFKA_SEGMENT_BYTES` existe como variable y vale bastante menos que la retención.
 
 ---
 
