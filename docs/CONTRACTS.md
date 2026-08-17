@@ -33,6 +33,7 @@ elegís vos, en `PascalCase`, y describe **un hecho que ya ocurrió**.
 
 | Grupo | Namespace |
 |---|---|
+| 1 | `com.citypass.bus` |
 | 2 | `com.citypass.auth` |
 | 3 | `com.citypass.movilidad` |
 | 4 | `com.citypass.reclamos` |

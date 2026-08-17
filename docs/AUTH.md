@@ -173,6 +173,7 @@ Lo que **no** puede pasar es que `namespace` varíe entre los integrantes de un 
 
 | Cliente | Namespace |
 |---|---|
+| `grupo1` | `com.citypass.bus` |
 | `grupo2` | `com.citypass.auth` |
 | `grupo3` | `com.citypass.movilidad` |
 | `grupo4` | `com.citypass.reclamos` |
@@ -184,6 +185,14 @@ Lo que **no** puede pasar es que `namespace` varíe entre los integrantes de un 
 > El de `grupo8` lo inventamos nosotros. Si el Grupo 8 prefiere otro, avisen antes de que
 > haya tópicos creados: cambiarlo después deja los eventos anteriores en un namespace que
 > ya no le pertenece a nadie.
+
+Falta uno en la tabla a propósito: **`com.citypass.gateway` no es de ningún cliente**. Es el
+namespace del gateway mismo, donde vive `EsquemaCambiado`, el aviso de que un contrato
+cambió. Todos los grupos pueden leerlo —por webhook o consumiendo Kafka directo— y ninguno
+puede escribir en él, porque la autorización de escritura exige que el tópico empiece con el
+namespace del token. Por eso el Grupo 1 usa `com.citypass.bus` para sus propios eventos y no
+el del gateway: si lo tuviera podría publicar avisos de cambio de schema falsos, o borrar el
+event type del que dependen las suscripciones de los demás.
 
 ---
 
