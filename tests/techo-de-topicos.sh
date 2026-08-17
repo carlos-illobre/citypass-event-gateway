@@ -23,6 +23,9 @@ FQN="com.citypass.movilidad.PruebaTechoTopicos"
 
 curl -s -X DELETE "http://localhost:8080/api/v1/event-types/$FQN" -H "Authorization: Bearer $TOKEN" -o /dev/null
 
+usados_antes=$(curl -s http://localhost:8080/api/v1/event-types/quota -H "Authorization: Bearer $TOKEN" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin)["used"])' 2>/dev/null)
+
 resultado=$(python3 tests/romper_contrato.py "$TOKEN" "$FQN" $((MAX_VERSIONES + 3)))
 versiones=$(echo "$resultado" | cut -d' ' -f1)
 codigo=$(echo "$resultado" | cut -d' ' -f2)
@@ -32,12 +35,14 @@ afirmar "el intento de más recibe 409" "409" "$codigo"
 
 # El cupo tiene que haber contado cada versión: si contara nombres lógicos, un event type
 # con cinco tópicos gastaría uno solo y el disco quedaría sin techo.
-cupo=$(curl -s http://localhost:8080/api/v1/event-types/quota -H "Authorization: Bearer $TOKEN")
-usados=$(echo "$cupo" | python3 -c 'import sys,json;print(json.load(sys.stdin)["used"])' 2>/dev/null)
-topicos=$(docker exec kafka-authorizer kafka-topics --bootstrap-server localhost:29092 --list 2>/dev/null \
-    | grep -c "^com.citypass.movilidad\." )
-afirmar_que "el cupo cuenta tópicos y no nombres lógicos (${usados} >= ${topicos})" \
-    "[ ${usados:-0} -ge ${topicos:-0} ]"
+#
+# Se mide el CONSUMO de este event type y no se compara contra la lista de tópicos de
+# Kafka: las dos cosas pueden diferir legítimamente —un volumen de schemas recreado deja
+# tópicos que el gateway ya no conoce— y el test estaría midiendo eso en vez del cupo.
+usados_despues=$(curl -s http://localhost:8080/api/v1/event-types/quota -H "Authorization: Bearer $TOKEN" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin)["used"])' 2>/dev/null)
+consumido=$(( usados_despues - usados_antes ))
+afirmar "las $versiones versiones consumen $versiones de cupo" "$versiones" "$consumido"
 
 curl -s -X DELETE "http://localhost:8080/api/v1/event-types/$FQN" -H "Authorization: Bearer $TOKEN" -o /dev/null
 terminar

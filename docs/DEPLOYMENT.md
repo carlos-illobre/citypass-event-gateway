@@ -51,6 +51,33 @@ contrato que tiene que cumplir el reemplazo está en [AUTH.md](AUTH.md).
 
 Con una VM de 2 vCPU y 4 GB alcanza. El broker y el gateway son los que más consumen.
 
+### Los contenedores no corren como root
+
+Las cuatro imágenes que construye este repositorio declaran un usuario sin privilegios, y
+las que se descargan ya lo traían. No impide un compromiso, pero encarece la escalada: una
+ejecución remota de código en un proceso root deja al atacante como root dentro del
+contenedor, que es el primer escalón de cualquier fuga hacia el host.
+
+Dos consecuencias que conviene conocer:
+
+**La UI escucha en 8080 y no en 80.** Un proceso sin privilegios no puede ligar puertos por
+debajo de 1024. El compose publica igual en 5173 y el reverse-proxy la busca en 8080, así
+que de afuera no cambia nada.
+
+**Los volúmenes del gateway guardan el uid.** Docker copia el contenido de la imagen al
+volumen nuevo conservando el propietario, así que un volumen creado por esta versión nace
+escribible. Uno que venga de una versión anterior sigue siendo de root, y el gateway
+arranca pero falla al registrar el primer event type. Se resuelve recreándolo:
+
+```bash
+docker compose stop event-gateway
+docker volume rm citypass-eda_event-gateway-schemas citypass-eda_event-gateway-data
+docker compose up -d event-gateway
+```
+
+`tests/usuarios.sh` comprueba las dos cosas: que ningún contenedor sea root y que esos
+volúmenes pertenezcan al usuario del gateway.
+
 Los techos de recursos —memoria por contenedor, rotación de logs, retención de Kafka por
 tamaño y los límites de la API— se declaran en el `.env` de cada ambiente, no en el
 compose: dependen de la máquina que hospede el sistema, y el compose no sabe dónde va a

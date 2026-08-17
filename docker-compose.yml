@@ -274,7 +274,7 @@ services:
       LOGIN_API_URL: '${LOGIN_API_URL:?falta LOGIN_API_URL}'
       GATEWAY_API_URL: '${GATEWAY_API_URL:?falta GATEWAY_API_URL}'
     ports:
-      - "${PUBLISH_ADDR:-127.0.0.1}:5173:80"
+      - "${PUBLISH_ADDR:-127.0.0.1}:5173:8080"
     depends_on:
       event-gateway:
         condition: service_healthy

@@ -24,6 +24,12 @@ RUN sed -i 's/\r$//' gradlew && chmod +x gradlew && ./gradlew bootJar -x test --
 RUN java -Djarmode=tools -jar build/libs/*.jar extract --layers --launcher --destination extracted
 
 FROM eclipse-temurin:21-jre-alpine
+
+# Usuario sin privilegios. El uid es fijo para que el contenedor se comporte igual en
+# cualquier máquina, y porque los volúmenes guardan el número: si cambiara entre
+# versiones, el gateway dejaría de poder escribir sus schemas sin ninguna explicación.
+RUN addgroup -S -g 1001 gateway && adduser -S -u 1001 -G gateway gateway
+
 WORKDIR /app
 
 # Las cuatro capas del jar, de la que menos cambia a la que más.
@@ -31,6 +37,17 @@ COPY --from=builder /app/extracted/dependencies/ ./
 COPY --from=builder /app/extracted/spring-boot-loader/ ./
 COPY --from=builder /app/extracted/snapshot-dependencies/ ./
 COPY --from=builder /app/extracted/application/ ./
+
+# Los dos directorios que el gateway escribe en runtime —los .avsc de los event types y
+# subscriptions.json— van montados como volúmenes. Docker copia el contenido de la imagen
+# al volumen nuevo CONSERVANDO el propietario, así que crearlos acá con el dueño correcto
+# es lo que hace que el volumen nazca escribible.
+#
+# Un volumen que ya existía de una versión anterior sigue siendo de root: hay que
+# recrearlo, o cambiarle el dueño a mano.
+RUN mkdir -p /app/schemas /app/data && chown -R gateway:gateway /app/schemas /app/data
+
+USER gateway
 
 EXPOSE 8080
 

@@ -122,7 +122,7 @@ http {
 
         # La UI queda en la raíz.
         location / {
-            proxy_pass http://event-gateway-ui:80;
+            proxy_pass http://event-gateway-ui:8080;
             proxy_set_header Host $host;
         }
 

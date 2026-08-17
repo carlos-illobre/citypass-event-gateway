@@ -23,4 +23,20 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY config.js.template /etc/nginx/config.js.template
 COPY docker-entrypoint.d/40-config-js.sh /docker-entrypoint.d/40-config-js.sh
 
-EXPOSE 80
+# Se corre sin privilegios. Eso obliga a dos cosas:
+#
+# 1. Escuchar en 8080 y no en 80: un proceso sin privilegios no puede ligar puertos por
+#    debajo de 1024. El compose publica igual en 5173, así que de afuera no cambia nada.
+# 2. Dar permiso de escritura donde nginx y el entrypoint necesitan escribir: el
+#    config.js del ambiente, el pid y los directorios temporales.
+#
+# Se usa la imagen oficial y no `nginx-unprivileged` —que ya viene resuelta— para
+# conservar las capas compartidas con el reverse-proxy, que sí necesita ligar el 80 y el
+# 443 y por lo tanto sigue en la oficial. Comparten una sola capa de ocho, así que la
+# alternativa costaba unos 70 MB de imagen duplicada.
+RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx \
+    && touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
+
+USER nginx
+
+EXPOSE 8080
