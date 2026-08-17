@@ -6,15 +6,6 @@
   gap: 0.5rem;
 }
 
-.et-count {
-  font-size: 0.75rem;
-  font-weight: 600;
-  background: var(--border);
-  color: var(--text-muted);
-  border-radius: 99px;
-  padding: 0.1rem 0.5rem;
-}
-
 .et-error-wrap {
   margin: 0.75rem 1.25rem;
 }
@@ -333,11 +324,6 @@
 
 /* Cupo agotado: el contador cambia de color y aparece el aviso, para que no se descubra
    recién al recibir el 409 del servidor. */
-.et-count--lleno {
-  background: var(--danger);
-  color: #fff;
-}
-
 .et-cupo-lleno {
   margin: 0;
   padding: 0.625rem 0.875rem;
@@ -346,4 +332,101 @@
   color: var(--danger);
   font-size: 0.8125rem;
   line-height: 1.5;
+}
+
+
+/* ── Cupo de event types ─────────────────────────────────────────────────────
+   Es el dato que decide si se puede crear uno más, así que se muestra como un
+   bloque propio y no como una insignia al lado del título.
+
+   El color lo lleva el contenedor y los hijos lo heredan por variables: así el
+   estado se define en un solo lugar y no hay tres reglas que puedan quedar
+   desincronizadas entre sí. */
+
+.et-cupo {
+  --cupo-color:  var(--text-muted);
+  --cupo-fondo:  var(--surface-raised);
+  --cupo-borde:  var(--border);
+
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--cupo-fondo);
+}
+
+.et-cupo--cerca {
+  --cupo-color: var(--warning);
+  --cupo-fondo: var(--warning-bg);
+  --cupo-borde: var(--warning-border);
+}
+
+.et-cupo--lleno {
+  --cupo-color: var(--danger);
+  --cupo-fondo: var(--danger-bg);
+  --cupo-borde: var(--danger-border);
+}
+
+.et-cupo-fila {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.et-cupo-etiqueta {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Tabular para que el número no baile de ancho al cambiar de 9 a 10. */
+.et-cupo-numero {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--cupo-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.et-cupo-de {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.et-cupo-barra {
+  height: 4px;
+  margin: 0.625rem 0 0.5rem;
+  border-radius: 99px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.et-cupo-relleno {
+  height: 100%;
+  background: var(--cupo-color);
+  transition: width 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .et-cupo-relleno { transition: none; }
+}
+
+.et-cupo-detalle {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.et-cupo-detalle code {
+  font-size: 0.7188rem;
+  color: var(--text);
+}
+
+.et-cupo-aviso {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--cupo-color);
 }

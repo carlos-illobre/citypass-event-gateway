@@ -23,7 +23,7 @@ const businessFields = (fields: unknown): unknown[] =>
   dataRecordOf(fields)?.fields ?? (Array.isArray(fields) ? fields : [])
 
 export function ImportPanel({ onImport, onClose }: Props) {
-  const { token } = useContext(AuthContext)
+  const { token, namespace } = useContext(AuthContext)
   const [mode, setMode]   = useState<Mode>('paste')
   const [raw, setRaw]     = useState('')
   const [error, setError] = useState('')
@@ -35,11 +35,11 @@ export function ImportPanel({ onImport, onClose }: Props) {
   useEffect(() => {
     if (mode !== 'clone') return
     let cancelled = false
-    gateway.listEventTypes(token)
+    gateway.listEventTypes(token, namespace)
       .then(data => { if (!cancelled) setEventTypes(data) })
       .catch((err: Error) => { if (!cancelled) setError(err.message) })
     return () => { cancelled = true }
-  }, [mode, token])
+  }, [mode, token, namespace])
 
   const handlePaste = () => {
     setError('')

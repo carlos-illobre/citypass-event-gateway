@@ -196,10 +196,59 @@ type Props = {
   onDeleted?:   (fqn: string) => void
 }
 
+/**
+ * El cupo de event types, que es el número que decide si se puede crear uno más.
+ *
+ * Se muestra como un bloque y no como una insignia junto al título porque es un dato de
+ * decisión, no un adorno: antes estaba en 0,75rem y en gris, y lo único que explicaba qué
+ * significaba era un `title` que hay que descubrir pasando el mouse por encima.
+ *
+ * Aparecen los DOS cupos. El propio es el que se agota primero en el uso normal, pero el
+ * total puede bloquear la creación aunque sobre lugar en el propio —el disco es compartido
+ * y no hay forma de que un equipo se lleve la parte de otro—, y sin verlo el rechazo no
+ * tiene explicación posible desde la pantalla.
+ */
+function CupoPanel({ cupo }: { cupo: EventTypeQuota }) {
+  const lleno    = cupo.remaining === 0 || cupo.totalRemaining === 0
+  // Se avisa desde el 80 %: un cupo que se ve igual al 5 % que al 95 % avisa cuando ya no
+  // sirve de nada.
+  const cerca    = !lleno && (cupo.used / cupo.limit >= 0.8 || cupo.totalUsed / cupo.totalLimit >= 0.8)
+  const estado   = lleno ? 'lleno' : cerca ? 'cerca' : 'ok'
+  const porQuien = cupo.remaining === 0 ? 'tu namespace' : 'el bus'
+
+  return (
+    <div className={`et-cupo et-cupo--${estado}`}>
+      <div className="et-cupo-fila">
+        <span className="et-cupo-etiqueta">Event types que podés crear</span>
+        <span className="et-cupo-numero">
+          {cupo.remaining}<span className="et-cupo-de"> de {cupo.limit}</span>
+        </span>
+      </div>
+
+      <div className="et-cupo-barra" role="presentation">
+        <div className="et-cupo-relleno" style={{ width: `${Math.min(100, (cupo.used / cupo.limit) * 100)}%` }} />
+      </div>
+
+      <p className="et-cupo-detalle">
+        Usás <strong>{cupo.used}</strong> de <strong>{cupo.limit}</strong> en{' '}
+        <code>{cupo.namespace}</code>, y entre todos los equipos hay{' '}
+        <strong>{cupo.totalUsed}</strong> de <strong>{cupo.totalLimit}</strong> en el bus.
+        Cada versión mayor de un event type ocupa un lugar.
+      </p>
+
+      {lleno && (
+        <p className="et-cupo-aviso">
+          No podés crear más hasta borrar alguno: el cupo agotado es el de {porQuien}.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function EventTypeList({
   selectedFqn = null, onSelect, manageable = true, onEdit, onDeleted,
 }: Props = {}) {
-  const { token } = useContext(AuthContext)
+  const { token, namespace } = useContext(AuthContext)
   const [eventTypes, setEventTypes]       = useState<EventTypeSummary[]>([])
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState('')
@@ -218,7 +267,11 @@ export function EventTypeList({
 
   useEffect(() => {
     let cancelled = false
-    gateway.listEventTypes(token)
+    // Acotado al namespace del token: el gateway devuelve los event types de todos los
+    // equipos, y acá sólo tienen sentido los propios. Mostrar los ajenos contradecía al
+    // contador de cupo —que sí es por namespace, así que decía «0 / 25» con uno listado— y
+    // ofrecía para publicar tópicos sobre los que el usuario no tiene permiso.
+    gateway.listEventTypes(token, namespace)
       .then(data => { if (!cancelled) setEventTypes(data) })
       .catch((err: Error) => { if (!cancelled) setError(err.message) })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -230,7 +283,7 @@ export function EventTypeList({
       .catch(() => {})
 
     return () => { cancelled = true }
-  }, [token, reloadKey])
+  }, [token, namespace, reloadKey])
 
   const toggleExpand = (fqn: string) => {
     if (expandedFqn === fqn) { setExpandedFqn(null); return }
@@ -278,22 +331,10 @@ export function EventTypeList({
   return (
     <section className="et-list card">
       <div className="et-list-header card-header">
-        <h2 className="et-list-title card-title">
-          Event Types
-          {!loading && (
-            cupo
-              // Contra el cupo y no a secas: el número solo no dice si queda lugar, que
-              // es lo que hace falta saber antes de intentar crear uno más.
-              ? <span
-                  className={`et-count${cupo.remaining === 0 || cupo.totalRemaining === 0 ? ' et-count--lleno' : ''}`}
-                  title={`${cupo.used} de ${cupo.limit} tópicos en ${cupo.namespace} · ${cupo.totalUsed} de ${cupo.totalLimit} en todo el bus. Cada versión mayor de un event type cuenta como un tópico.`}
-                >
-                  {cupo.used} / {cupo.limit}
-                </span>
-              : <span className="et-count">{eventTypes.length}</span>
-          )}
-        </h2>
+        <h2 className="et-list-title card-title">Event Types</h2>
       </div>
+
+      {!loading && cupo && <CupoPanel cupo={cupo} />}
 
       {error && <div className="et-error-wrap"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
       {blockedBy.length > 0 && (
