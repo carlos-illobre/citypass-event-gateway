@@ -47,6 +47,10 @@ out/
 node_modules/
 
 ### Environment ###
+#
+# Sin barra: ignora cualquier `.env` a cualquier profundidad. Eso cubre el de la raíz y
+# también `oracle/.env`, que es el único lugar del repositorio donde hay datos concretos
+# del despliegue —dominio, IP, tokens—. El resto de `oracle/` es genérico y sí se versiona.
 .env
 
 # Logs

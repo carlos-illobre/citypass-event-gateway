@@ -49,8 +49,9 @@ Producir el compose desde una plantilla según el ambiente.
 
 ## Decisión
 
-**Un solo `docker-compose.yml`**, con toda la diferencia entre ambientes en `.env.dev` y
-`.env.prod`, que declaran exactamente las mismas variables con distintos valores.
+**Un solo `docker-compose.yml`**, con toda la diferencia entre ambientes en archivos
+`.env.*` que declaran exactamente las mismas variables con distintos valores: `.env.example`
+en el repositorio, y uno por proveedor de despliegue fuera de él.
 
 Los defaults del compose son siempre los de **producción**. Los ajustes del gateway se
 agrupan además bajo un único interruptor, el perfil de Spring `development`: así no puede
@@ -62,7 +63,7 @@ quedar un estado a medias con dos ajustes aflojados y uno no.
 
 - Olvidarse de una variable nunca abre nada: a lo sumo hace que en local no se llegue a un
   puerto, y eso se nota enseguida.
-- Un `diff .env.dev .env.prod` muestra exactamente qué cambia entre ambientes.
+- Un `diff` entre dos `.env.*` muestra exactamente qué cambia entre ambientes.
 - La configuración insegura de desarrollo vive en un archivo que producción no carga, en vez
   de estar en el compose protegida por un comentario que dice «no copiar esto».
 

@@ -143,7 +143,7 @@ bash tests/retencion-kafka.sh    # una sola
 
 ### Verificación de configuración
 
-`test-integration.sh` comprueba que `.env.dev` y `.env.prod` declaren exactamente las mismas
+`test-integration.sh` comprueba que todos los `.env.*` declaren exactamente las mismas
 variables y que ninguna de las que usa el compose quede sin definir. No es un test de
 código, pero previene un fallo real: una variable que quede definida en un solo ambiente
 hace que el otro caiga en el default sin que nada avise.
@@ -206,7 +206,7 @@ críticos se verificó rompiendo el código a propósito:
 | `enable.auto.commit` a `true` y quitar `ackMode=RECORD` | Sí: falla el unitario y el de broker embebido |
 | Quitar el read timeout del cliente de webhooks | Sí |
 | Quitar `@Service` de `CallbackUrlValidator` | Sí: los cuatro tests de contexto fallan con `NoSuchBeanDefinitionException` |
-| Borrar una variable de `.env.prod` | Sí: `test-integration.sh` la nombra y sale con código 1 |
+| Borrar una variable de un `.env.*` | Sí: `test-integration.sh` la nombra y sale con código 1 |
 
 Ese ejercicio encontró **dos tests decorativos** que había que arreglar:
 

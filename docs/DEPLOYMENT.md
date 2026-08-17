@@ -81,7 +81,7 @@ volúmenes pertenezcan al usuario del gateway.
 Los techos de recursos —memoria por contenedor, rotación de logs, retención de Kafka por
 tamaño y los límites de la API— se declaran en el `.env` de cada ambiente, no en el
 compose: dependen de la máquina que hospede el sistema, y el compose no sabe dónde va a
-correr. Están agrupados al final de `.env.dev` y `.env.prod`, con el porqué de cada valor.
+correr. Están agrupados al final de `.env.example`, con el porqué de cada valor.
 
 Tres de ellos deciden si un disco lleno es posible:
 
@@ -141,11 +141,12 @@ cd citypass-eda
 ## 3. Configurar el ambiente
 
 ```bash
-cp .env.prod .env
+cp .env.example .env
 nano .env
 ```
 
-`.env.prod` ya trae los valores correctos y explica cada variable. Sólo hay que reemplazar
+`.env.example` explica cada variable y marca con «EN UN SERVIDOR» las que hay que cambiar
+para desplegar. Sólo hay que reemplazar
 el dominio, el mail y la contraseña de kafka-ui:
 
 | Variable | Valor | Qué produce |
@@ -169,7 +170,7 @@ los seguros. Olvidarse nunca abre nada.
 La única excepción son las credenciales de kafka-ui: si faltan, el compose se niega a
 arrancar, porque para una contraseña no existe un default seguro.
 
-> `.env.prod` **se versiona** —es una plantilla— así que la contraseña real va sólo en el
+> `.env.example` **se versiona** —es una plantilla— así que la contraseña real va sólo en el
 > `.env` de la VM, que está en `.gitignore`.
 
 ---
@@ -207,10 +208,15 @@ stack:
 
 ```bash
 source .env
-docker compose run --rm -p 80:80 certbot certonly --standalone \
+docker compose run --rm --entrypoint certbot -p 80:80 certbot certonly --standalone \
   --cert-name citypass -d "$PUBLIC_DOMAIN" \
   --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email -n
 ```
+
+`--entrypoint certbot` es obligatorio: el servicio tiene como entrypoint el bucle de
+renovación, y `docker compose run` reemplaza el *command* pero no el entrypoint. Sin esa
+opción el contenedor corre el bucle —que no renueva nada porque todavía no hay certificado,
+no escucha en ningún puerto y no imprime nada por el `--quiet`— y se queda ahí para siempre.
 
 El nombre `citypass` es fijo a propósito: la configuración de nginx referencia
 `/etc/letsencrypt/live/citypass/`, así que no depende del dominio y no necesita plantillas
@@ -352,7 +358,7 @@ commit.
 | `gateway` | Tests de `event-gateway`, con su umbral de cobertura |
 | `authorizer` | Tests de `kafka-authorizer` |
 | `ui` | Build y lint del frontend |
-| `configuracion` | Paridad de `.env.dev` y `.env.prod` |
+| `configuracion` | Paridad entre todos los `.env.*` |
 | `construir` | Las cinco imágenes en paralelo, etiquetadas con el SHA |
 | `etiquetar` | Mueve `latest` al commit ya verificado |
 

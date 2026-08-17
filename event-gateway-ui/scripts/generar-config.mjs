@@ -48,7 +48,7 @@ const salida = plantilla.replace(/\$\{(\w+)\}/g, (_, clave) => {
 if (faltantes.length > 0) {
   console.error(
     `\nFaltan variables para generar config.js: ${faltantes.join(', ')}\n` +
-    `Definilas en ${envDelRepo} (copialo de .env.dev si todavía no existe).\n`
+    `Definilas en ${envDelRepo} (copialo de .env.example si todavía no existe).\n`
   )
   process.exit(1)
 }
