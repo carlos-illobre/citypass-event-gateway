@@ -86,6 +86,23 @@ gateway:
   rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:600}
   # Timeouts de la entrega de webhooks. Con la entrega sincrónica, un suscriptor que se
   # cuelga sin estos topes bloquea el tópico entero.
+  # Webhooks que un mismo equipo puede tener sobre un mismo event type.
+  #
+  # La entrega bloquea al consumer hasta atender a TODOS los suscriptores, así que este
+  # número es el factor de amplificación de cada evento.
+  max-webhooks-per-event-type: ${MAX_WEBHOOKS_PER_EVENT_TYPE:3}
+
+  # Eventos seguidos sin poder entregar tras los cuales se deja de intentar.
+  #
+  # Los reintentos cubren un fallo pasajero; esto cubre un destino que ya no existe. Como
+  # la entrega bloquea al consumer, sin este techo un solo webhook muerto hace que su
+  # tópico procese un mensaje cada varios segundos, indefinidamente.
+  webhook-failures-before-disable: ${WEBHOOK_FAILURES_BEFORE_DISABLE:5}
+
+  # Cuánto se espera antes de volver a probar una suscripción silenciada. Al vencer entra
+  # de nuevo en el reparto: si el destino se recuperó, se rehabilita sola.
+  webhook-disable-minutes: ${WEBHOOK_DISABLE_MINUTES:10}
+
   webhook-connect-timeout-ms: ${WEBHOOK_CONNECT_TIMEOUT_MS:5000}
   webhook-read-timeout-ms: ${WEBHOOK_READ_TIMEOUT_MS:10000}
 

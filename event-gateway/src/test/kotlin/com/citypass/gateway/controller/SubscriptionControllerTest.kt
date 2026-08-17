@@ -2,7 +2,9 @@ package com.citypass.gateway.controller
 
 import com.citypass.gateway.model.Subscription
 import com.citypass.gateway.service.CallbackUrlValidator
+import com.citypass.gateway.service.CupoAgotadoException
 import com.citypass.gateway.service.SubscriptionService
+import com.citypass.gateway.service.WebhookDeliveryService
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -20,6 +22,7 @@ import org.springframework.security.oauth2.jwt.Jwt
 class SubscriptionControllerTest {
 
     private val subscriptionService: SubscriptionService = mock()
+    private val webhookDeliveryService: WebhookDeliveryService = mock()
 
     // Acepta cualquier destino salvo donde el test diga lo contrario: la lógica del
     // validador se prueba aparte, en CallbackUrlValidatorTest.
@@ -32,7 +35,7 @@ class SubscriptionControllerTest {
 
     @BeforeEach
     fun setUp() {
-        controller = SubscriptionController(subscriptionService, callbackUrlValidator)
+        controller = SubscriptionController(subscriptionService, callbackUrlValidator, webhookDeliveryService)
     }
 
     /** Un token de grupo. Sin `namespace` cuando se pasa null. */
@@ -76,7 +79,7 @@ class SubscriptionControllerTest {
             owner = movilidad, createdBy = "usuario1"
         )
         whenever(subscriptionService.register("test.topic", "http://localhost/hook", movilidad, "usuario1"))
-            .thenReturn(sub)
+            .thenReturn(Result.success(sub))
 
         val request = mapOf("topic" to "test.topic", "callbackUrl" to "http://localhost/hook")
         val response = controller.register(request, jwtOf(movilidad))
@@ -88,7 +91,7 @@ class SubscriptionControllerTest {
     @Test
     fun `register falls back to unknown when the token has no subject`() {
         val sub = Subscription(topic = "t", callbackUrl = "http://c", owner = movilidad, createdBy = "unknown")
-        whenever(subscriptionService.register("t", "http://c", movilidad, "unknown")).thenReturn(sub)
+        whenever(subscriptionService.register("t", "http://c", movilidad, "unknown")).thenReturn(Result.success(sub))
 
         val response = controller.register(
             mapOf("topic" to "t", "callbackUrl" to "http://c"),
@@ -125,7 +128,13 @@ class SubscriptionControllerTest {
         val response = controller.list(null, jwtOf(movilidad))
 
         assertEquals(HttpStatus.OK, response.statusCode)
-        assertEquals(listOf(propia), response.body)
+        // La respuesta enriquece cada suscripción con el estado del cortacircuitos, así
+        // que se comparan los campos y no el objeto entero.
+        val listada = (response.body as List<*>).single() as Map<*, *>
+        assertEquals(propia.id, listada["id"])
+        assertEquals("t1", listada["topic"])
+        assertEquals("active", listada["status"], "sin fallos registrados está activa")
+        assertNull(listada["silencedUntil"])
         // Listar las ajenas expondría las URLs internas de otros equipos y los ids
         // con los que darlas de baja.
         verify(subscriptionService, never()).getAll(eq(reclamos))
@@ -139,7 +148,9 @@ class SubscriptionControllerTest {
 
         val response = controller.list("t2", jwtOf(movilidad))
 
-        assertEquals(listOf(dos), response.body)
+        val listada = (response.body as List<*>).single() as Map<*, *>
+        assertEquals(dos.id, listada["id"])
+        assertEquals("t2", listada["topic"])
     }
 
     @Test
@@ -174,5 +185,49 @@ class SubscriptionControllerTest {
     fun `unregister returns 400 when the token has no namespace`() {
         val response = controller.unregister("s-1", jwtOf(null))
         assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+    }
+
+    @Test
+    fun `register returns 409 when the event type ran out of webhook slots`() {
+        whenever(subscriptionService.register(any(), any(), any(), any()))
+            .thenReturn(Result.failure(CupoAgotadoException("ya tiene 3 webhooks sobre 't'")))
+
+        val response = controller.register(
+            mapOf("topic" to "t", "callbackUrl" to "http://c"), jwtOf(movilidad)
+        )
+
+        // 409 y no 400: el pedido está bien formado, lo que falta es lugar.
+        assertEquals(HttpStatus.CONFLICT, response.statusCode)
+        assertEquals("Cupo de webhooks agotado", problemOf(response).title)
+    }
+
+    @Test
+    fun `list marks the subscriptions the circuit breaker silenced`() {
+        val sub = Subscription(topic = "t1", callbackUrl = "http://c1", owner = movilidad)
+        val hasta = java.time.Instant.parse("2030-01-01T00:00:00Z")
+        whenever(subscriptionService.getAll(movilidad)).thenReturn(listOf(sub))
+        whenever(webhookDeliveryService.silenciadaHasta(sub.id)).thenReturn(hasta)
+
+        val listada = (controller.list(null, jwtOf(movilidad)).body as List<*>).single() as Map<*, *>
+
+        // Sin esto, un equipo cuyo endpoint estuvo caído ve su suscripción listada como
+        // si nada y no tiene forma de saber por qué dejó de recibir eventos.
+        assertEquals("silenced", listada["status"])
+        assertEquals(hasta.toString(), listada["silencedUntil"])
+    }
+
+    @Test
+    fun `tolerates a rejection without a message`() {
+        // El `?:` del controller existe porque Throwable.message es nullable. Sin este
+        // caso quedaría como una rama que ningún test alcanza, que es código muerto.
+        whenever(subscriptionService.register(any(), any(), any(), any()))
+            .thenReturn(Result.failure(RuntimeException()))
+
+        val response = controller.register(
+            mapOf("topic" to "t", "callbackUrl" to "http://c"), jwtOf(movilidad)
+        )
+
+        assertEquals(HttpStatus.CONFLICT, response.statusCode)
+        assertEquals("", problemOf(response).detail)
     }
 }

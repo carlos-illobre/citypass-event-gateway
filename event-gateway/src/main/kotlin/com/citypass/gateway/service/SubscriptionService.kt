@@ -42,7 +42,8 @@ class SubscriptionService(
     private val avroService: AvroService,
     private val webhookDeliveryService: WebhookDeliveryService,
     private val dlqService: DlqService,
-    @Value("\${gateway.data-dir}") private val dataDir: String
+    @Value("\${gateway.data-dir}") private val dataDir: String,
+    @Value("\${gateway.max-webhooks-per-event-type}") private val maxPorEventType: Int
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val mapper = jacksonObjectMapper()
@@ -81,13 +82,27 @@ class SubscriptionService(
      * @param callbackUrl URL HTTP donde se entregarán los eventos.
      * @return Suscripción creada con su ID generado.
      */
-    fun register(topic: String, callbackUrl: String, owner: String, createdBy: String): Subscription {
+    fun register(topic: String, callbackUrl: String, owner: String, createdBy: String): Result<Subscription> {
+        // El techo es por equipo y por tópico, no global: la entrega bloquea al consumer
+        // hasta atender a todos los suscriptores, así que la cantidad de webhooks sobre
+        // un tópico es el factor de amplificación de cada evento. Sin esto, un equipo
+        // puede hacer que un solo evento dispare miles de peticiones salientes antes de
+        // que el tópico avance.
+        val propias = subscriptions.values.count { it.topic == topic && it.owner == owner }
+        if (propias >= maxPorEventType)
+            return Result.failure(
+                CupoAgotadoException(
+                    "El namespace '$owner' ya tiene $propias webhooks sobre '$topic', que es el " +
+                        "máximo permitido. Dá de baja alguno antes de registrar otro."
+                )
+            )
+
         val sub = Subscription(topic = topic, callbackUrl = callbackUrl, owner = owner, createdBy = createdBy)
         subscriptions[sub.id] = sub
         ensureConsumer(topic)
         saveToDisk()
         logger.info("Registered webhook for topic '$topic' → $callbackUrl (id: ${sub.id}, owner: $owner)")
-        return sub
+        return Result.success(sub)
     }
 
     /**

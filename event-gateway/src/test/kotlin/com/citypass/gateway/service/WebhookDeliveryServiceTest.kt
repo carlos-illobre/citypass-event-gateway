@@ -3,6 +3,8 @@ package com.citypass.gateway.service
 import com.citypass.gateway.model.Subscription
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.mockito.Answers.RETURNS_DEEP_STUBS
 import org.mockito.kotlin.*
@@ -25,7 +27,13 @@ class WebhookDeliveryServiceTest {
 
     private val registry = SimpleMeterRegistry()
 
-    private fun service() = WebhookDeliveryService(dlqService, restClient, callbackUrlValidator, registry)
+    /**
+     * @param fallosParaSilenciar Alto por defecto para que el cortacircuitos no
+     *   interfiera con los tests de entrega, que son sobre otra cosa.
+     */
+    private fun service(fallosParaSilenciar: Int = 99, minutosSilenciada: Long = 10) =
+        WebhookDeliveryService(dlqService, restClient, callbackUrlValidator, registry,
+                               fallosParaSilenciar, minutosSilenciada)
 
     /** Cuenta del contador de entregas para un resultado. */
     private fun entregas(resultado: String) =
@@ -124,5 +132,67 @@ class WebhookDeliveryServiceTest {
             owner = eq("com.citypass.movilidad")
         )
         assertEquals(1.0, entregas("bloqueado"))
+    }
+
+    // ── cortacircuitos ────────────────────────────────────────────────────────
+
+    /** Un destino que siempre falla, con reintentos sin espera entre ellos. */
+    private fun fallar(servicio: WebhookDeliveryService, veces: Int) {
+        whenever(restClient.post()).thenThrow(RuntimeException("connection refused"))
+        repeat(veces) { servicio.deliverWithRetry(subscription, event, maxRetries = 3, retryDelayMs = 0) }
+    }
+
+    @Test
+    fun `tras varios eventos seguidos sin entregar, la suscripción se silencia`() {
+        val servicio = service(fallosParaSilenciar = 3)
+
+        assertNull(servicio.silenciadaHasta(subscription.id), "arranca activa")
+        fallar(servicio, 3)
+
+        assertNotNull(servicio.silenciadaHasta(subscription.id))
+        // Es lo único que evita que un destino muerto siga frenando su tópico: los
+        // reintentos cubren un fallo pasajero, no una URL que ya no existe.
+        assertEquals(1.0, entregas("silenciado"))
+    }
+
+    @Test
+    fun `una silenciada no recibe ni un intento de conexión`() {
+        val servicio = service(fallosParaSilenciar = 1)
+        fallar(servicio, 1)
+        assertNotNull(servicio.silenciadaHasta(subscription.id))
+        clearInvocations(restClient)
+
+        servicio.deliverAll(listOf(subscription), event)
+
+        // Ni siquiera se abre el cliente HTTP: si se abriera, el consumer volvería a
+        // bloquearse los mismos segundos por cada mensaje.
+        verify(restClient, never()).post()
+        assertEquals(1.0, entregas("omitido"))
+    }
+
+    @Test
+    fun `un evento entregado reinicia la cuenta de fallos`() {
+        val servicio = service(fallosParaSilenciar = 3)
+        fallar(servicio, 2)
+
+        // Un éxito en el medio: el mock deja de lanzar y la cadena fluente responde.
+        reset(restClient)
+        servicio.deliverWithRetry(subscription, event, maxRetries = 3, retryDelayMs = 0)
+
+        fallar(servicio, 2)
+
+        // Dos fallos, un éxito, dos fallos. Sin el reinicio serían cuatro seguidos y
+        // habría que silenciarla.
+        assertNull(servicio.silenciadaHasta(subscription.id))
+    }
+
+    @Test
+    fun `el silencio vence solo`() {
+        // Cero minutos vence en el acto: comprueba que el estado caduca en vez de quedar
+        // pegado hasta el próximo reinicio del gateway.
+        val servicio = service(fallosParaSilenciar = 1, minutosSilenciada = 0)
+        fallar(servicio, 1)
+
+        assertNull(servicio.silenciadaHasta(subscription.id), "vencido, vuelve al reparto")
     }
 }

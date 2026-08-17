@@ -2,6 +2,7 @@ package com.citypass.gateway.controller
 
 import com.citypass.gateway.service.CallbackUrlValidator
 import com.citypass.gateway.service.SubscriptionService
+import com.citypass.gateway.service.WebhookDeliveryService
 import com.citypass.gateway.web.problem
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
@@ -32,7 +33,8 @@ import org.springframework.web.bind.annotation.*
 @Tag(name = "Subscriptions", description = "Registro de webhooks para recibir eventos de Kafka via HTTP")
 class SubscriptionController(
     private val subscriptionService: SubscriptionService,
-    private val callbackUrlValidator: CallbackUrlValidator
+    private val callbackUrlValidator: CallbackUrlValidator,
+    private val webhookDeliveryService: WebhookDeliveryService
 ) {
 
     /**
@@ -119,8 +121,12 @@ y las direcciones de red privada no apuntan a tu servicio y se rechazan.""",
             return problem(HttpStatus.BAD_REQUEST, "callbackUrl inválida", it)
         }
 
-        val sub = subscriptionService.register(topic, callbackUrl, owner, jwt.subject ?: "unknown")
-        return ResponseEntity.status(201).body(sub)
+        return subscriptionService.register(topic, callbackUrl, owner, jwt.subject ?: "unknown").fold(
+            onSuccess = { ResponseEntity.status(201).body(it) },
+            // 409 y no 400: el pedido está bien formado, lo que falta es lugar. Se
+            // arregla dando de baja otro webhook, no corrigiendo el request.
+            onFailure = { problem(HttpStatus.CONFLICT, "Cupo de webhooks agotado", it.message ?: "") }
+        )
     }
 
     @Operation(
@@ -158,8 +164,25 @@ y las direcciones de red privada no apuntan a tu servicio y se rechazan.""",
                 HttpStatus.BAD_REQUEST, "Token sin namespace",
                 "El token JWT no contiene el claim 'namespace'."
             )
+        // Se agrega el estado del cortacircuitos: sin esto, un equipo cuyo endpoint
+        // estuvo caído ve su suscripción listada como si nada y no entiende por qué no
+        // le llegan eventos.
         return ResponseEntity.ok(
-            subscriptionService.getAll(owner).filter { topic == null || it.topic == topic }
+            subscriptionService.getAll(owner)
+                .filter { topic == null || it.topic == topic }
+                .map { sub ->
+                    val silenciada = webhookDeliveryService.silenciadaHasta(sub.id)
+                    mapOf(
+                        "id" to sub.id,
+                        "topic" to sub.topic,
+                        "callbackUrl" to sub.callbackUrl,
+                        "owner" to sub.owner,
+                        "createdBy" to sub.createdBy,
+                        "createdAt" to sub.createdAt,
+                        "status" to if (silenciada == null) "active" else "silenced",
+                        "silencedUntil" to silenciada?.toString()
+                    )
+                }
         )
     }
 

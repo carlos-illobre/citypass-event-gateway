@@ -10,8 +10,10 @@ set -uo pipefail
 
 VERDE='\033[0;32m'; ROJO='\033[0;31m'; AMARILLO='\033[0;33m'; NC='\033[0m'
 
-FALLOS=0
-OMITIDOS=0
+# Prefijados: son estado interno del arnés, y un script que definiera una variable con
+# el mismo nombre —pasó— rompería la cuenta sin que nada lo avise.
+_TEST_FALLOS=0
+_TEST_OMITIDOS=0
 
 # Afirma que algo se cumple. No corta el script: interesa ver todo lo que falla de una
 # vez y no de a uno por corrida.
@@ -23,7 +25,7 @@ afirmar() {
         echo -e "  ${ROJO}✗${NC} $descripcion"
         echo -e "      esperado: $esperado"
         echo -e "      obtenido: $obtenido"
-        FALLOS=$((FALLOS + 1))
+        _TEST_FALLOS=$((_TEST_FALLOS + 1))
     fi
 }
 
@@ -34,7 +36,7 @@ afirmar_que() {
         echo -e "  ${VERDE}✓${NC} $descripcion"
     else
         echo -e "  ${ROJO}✗${NC} $descripcion  (falló: $condicion)"
-        FALLOS=$((FALLOS + 1))
+        _TEST_FALLOS=$((_TEST_FALLOS + 1))
     fi
 }
 
@@ -42,7 +44,7 @@ afirmar_que() {
 # herramienta— para que un script no reporte un problema que no existe.
 omitir() {
     echo -e "  ${AMARILLO}—${NC} $1"
-    OMITIDOS=$((OMITIDOS + 1))
+    _TEST_OMITIDOS=$((_TEST_OMITIDOS + 1))
 }
 
 contenedor_activo() {
@@ -58,10 +60,10 @@ token_de() {
 
 terminar() {
     echo
-    if [ "$FALLOS" -eq 0 ]; then
-        [ "$OMITIDOS" -gt 0 ] && echo -e "  ${AMARILLO}$OMITIDOS omitido(s)${NC}"
+    if [ "$_TEST_FALLOS" -eq 0 ]; then
+        [ "$_TEST_OMITIDOS" -gt 0 ] && echo -e "  ${AMARILLO}$_TEST_OMITIDOS omitido(s)${NC}"
         exit 0
     fi
-    echo -e "  ${ROJO}$FALLOS comprobación(es) fallaron${NC}"
+    echo -e "  ${ROJO}$_TEST_FALLOS comprobación(es) fallaron${NC}"
     exit 1
 }

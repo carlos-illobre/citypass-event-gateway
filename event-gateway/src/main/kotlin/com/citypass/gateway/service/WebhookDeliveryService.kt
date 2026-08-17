@@ -7,7 +7,11 @@ import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.web.client.RestClient
+import org.springframework.beans.factory.annotation.Value
+import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Servicio de entrega de eventos via webhook HTTP.
@@ -32,16 +36,71 @@ import java.util.concurrent.Executors
  * @param meterRegistry Registro de métricas: la entrega de webhooks no pasa por ningún
  *   endpoint HTTP propio, así que sin un contador acá no queda rastro medible de por qué
  *   un grupo dejó de recibir eventos.
+ * @param fallosParaSilenciar Fallos seguidos tras los cuales se deja de intentar.
+ * @param minutosSilenciada Cuánto se espera antes de volver a probar una silenciada.
  */
 @Service
 class WebhookDeliveryService(
     private val dlqService: DlqService,
     @Qualifier("webhookRestClient") private val restClient: RestClient,
     private val callbackUrlValidator: CallbackUrlValidator,
-    private val meterRegistry: MeterRegistry
+    private val meterRegistry: MeterRegistry,
+    @Value("\${gateway.webhook-failures-before-disable}") private val fallosParaSilenciar: Int,
+    @Value("\${gateway.webhook-disable-minutes}") private val minutosSilenciada: Long
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val executor = Executors.newVirtualThreadPerTaskExecutor()
+
+    // ── Cortacircuitos ────────────────────────────────────────────────────────
+    //
+    // Los reintentos sirven para un fallo pasajero. Lo que no sirve es seguir golpeando
+    // una puerta que no existe: como la entrega bloquea al consumer hasta terminar, un
+    // destino muerto hace que su tópico procese un mensaje cada varios segundos, para
+    // siempre. Con un solo suscriptor alcanza.
+    //
+    // El estado vive en memoria y no en el disco a propósito: reiniciar el gateway
+    // vuelve a probar todos los destinos, que es lo que uno querría después de arreglar
+    // el que estaba caído.
+    // AtomicInteger y no Int: `merge` devuelve un nullable que en este uso nunca es
+    // nulo, así que el `?:` obligatorio sería una rama que ningún test puede alcanzar.
+    private val fallosSeguidos = ConcurrentHashMap<String, AtomicInteger>()
+    private val silenciadaHasta = ConcurrentHashMap<String, Instant>()
+
+    /** Hasta cuándo está silenciada una suscripción, o null si está activa. */
+    fun silenciadaHasta(idSuscripcion: String): Instant? =
+        silenciadaHasta[idSuscripcion]?.takeIf { it.isAfter(Instant.now()) }
+
+    /**
+     * Registra una entrega exitosa: la suscripción vuelve a estar sana.
+     *
+     * Se limpian las dos marcas, así que un destino que se recupera deja de arrastrar los
+     * fallos de antes y necesita volver a fallar de cero para silenciarse.
+     */
+    private fun anotarExito(idSuscripcion: String) {
+        fallosSeguidos.remove(idSuscripcion)
+        silenciadaHasta.remove(idSuscripcion)
+    }
+
+    /**
+     * Registra que se agotaron los reintentos y silencia la suscripción si corresponde.
+     *
+     * Se cuenta una vez por evento —no una por intento— para que el umbral se lea como
+     * "cinco eventos seguidos sin poder entregar" y no dependa de cuántos reintentos
+     * haya configurados.
+     */
+    private fun anotarFallo(subscription: Subscription) {
+        val fallos = fallosSeguidos.computeIfAbsent(subscription.id) { AtomicInteger() }.incrementAndGet()
+        if (fallos < fallosParaSilenciar) return
+
+        val hasta = Instant.now().plusSeconds(minutosSilenciada * 60)
+        silenciadaHasta[subscription.id] = hasta
+        fallosSeguidos.remove(subscription.id)
+        logger.error(
+            "Webhook ${subscription.callbackUrl} (sub ${subscription.id}) silenciado hasta $hasta " +
+                "tras $fallos eventos seguidos sin poder entregar"
+        )
+        contar(subscription.topic, "silenciado")
+    }
 
     /**
      * Cuenta una entrega terminada.
@@ -73,7 +132,17 @@ class WebhookDeliveryService(
      * @param event Evento deserializado como mapa clave-valor.
      */
     fun deliverAll(subscriptions: Collection<Subscription>, event: Map<String, Any?>) {
-        subscriptions
+        // Las silenciadas se saltean sin abrir una conexión: es lo único que evita que un
+        // destino muerto siga frenando el tópico. Pasado el tiempo de espera vuelve a
+        // entrar en el reparto por sí sola, y si anda, se rehabilita.
+        val (silenciadas, activas) = subscriptions.partition { silenciadaHasta(it.id) != null }
+
+        silenciadas.forEach {
+            logger.debug("Webhook ${it.callbackUrl} silenciado, se omite la entrega")
+            contar(it.topic, "omitido")
+        }
+
+        activas
             .map { sub -> executor.submit { deliverWithRetry(sub, event) } }
             .forEach { it.get() }
     }
@@ -126,6 +195,7 @@ class WebhookDeliveryService(
                     .toBodilessEntity()
                 logger.info("Webhook delivered to ${subscription.callbackUrl} (sub ${subscription.id})")
                 contar(subscription.topic, "entregado")
+                anotarExito(subscription.id)
                 return
             } catch (e: Exception) {
                 logger.warn("Webhook attempt $attempt/$maxRetries to ${subscription.callbackUrl} failed: ${e.message}")
@@ -134,6 +204,7 @@ class WebhookDeliveryService(
                 } else {
                     logger.error("Giving up on ${subscription.callbackUrl} after $maxRetries attempts, sending to DLQ")
                     contar(subscription.topic, "agotado")
+                    anotarFallo(subscription)
                     dlqService.sendWebhookFailure(
                         originalTopic = subscription.topic,
                         originalKey = null,
