@@ -51,6 +51,78 @@ contrato que tiene que cumplir el reemplazo está en [AUTH.md](AUTH.md).
 
 Con una VM de 2 vCPU y 4 GB alcanza. El broker y el gateway son los que más consumen.
 
+### Los contenedores no corren como root
+
+Las cuatro imágenes que construye este repositorio declaran un usuario sin privilegios, y
+las que se descargan ya lo traían. No impide un compromiso, pero encarece la escalada: una
+ejecución remota de código en un proceso root deja al atacante como root dentro del
+contenedor, que es el primer escalón de cualquier fuga hacia el host.
+
+Dos consecuencias que conviene conocer:
+
+**La UI escucha en 8080 y no en 80.** Un proceso sin privilegios no puede ligar puertos por
+debajo de 1024. El compose publica igual en 5173 y el reverse-proxy la busca en 8080, así
+que de afuera no cambia nada.
+
+**Los volúmenes del gateway guardan el uid.** Docker copia el contenido de la imagen al
+volumen nuevo conservando el propietario, así que un volumen creado por esta versión nace
+escribible. Uno que venga de una versión anterior sigue siendo de root, y el gateway
+arranca pero falla al registrar el primer event type. Se resuelve recreándolo:
+
+```bash
+docker compose stop event-gateway
+docker volume rm citypass-eda_event-gateway-schemas citypass-eda_event-gateway-data
+docker compose up -d event-gateway
+```
+
+`tests/usuarios.sh` comprueba las dos cosas: que ningún contenedor sea root y que esos
+volúmenes pertenezcan al usuario del gateway.
+
+Los techos de recursos —memoria por contenedor, rotación de logs, retención de Kafka por
+tamaño y los límites de la API— se declaran en el `.env` de cada ambiente, no en el
+compose: dependen de la máquina que hospede el sistema, y el compose no sabe dónde va a
+correr. Están agrupados al final de `.env.dev` y `.env.prod`, con el porqué de cada valor.
+
+Tres de ellos deciden si un disco lleno es posible:
+
+| Variable | Qué acota |
+|---|---|
+| `LOG_MAX_SIZE` × `LOG_MAX_FILES` | Lo que puede escribir cada contenedor en su log |
+| `KAFKA_RETENTION_BYTES` × `KAFKA_SEGMENT_BYTES` | El tamaño máximo de cada tópico |
+| `RATE_LIMIT_PER_MINUTE` × `MAX_PAYLOAD_BYTES` | La velocidad a la que un equipo puede escribir |
+
+El del log es el que más se olvida: el driver `json-file` de Docker no tiene límite por
+defecto, así que sin esa variable un servicio que loguee mucho llena el disco sin pasar
+por ningún otro control.
+
+Y hay una alerta de disco provisionada en Grafana, en la carpeta **CityPass**: dispara
+cuando el uso pasa del 80 % y se mantiene diez minutos así.
+
+El dato sale de `disk_free_bytes`, que el actuator del gateway ya expone y Prometheus ya
+scrapea, así que no hizo falta agregar `node_exporter` ni montar el socket de Docker —que
+es justamente lo que se evita para que un contenedor comprometido no pueda salirse. La
+métrica mide el sistema de archivos donde corre el contenedor, o sea el disco del host.
+
+El umbral es un porcentaje y no una cantidad de bytes a propósito: 80 % significa lo mismo
+en un disco de 200 GB que en uno de 2 TB, así que no depende del ambiente y no necesita
+estar en el `.env`.
+
+> **La alerta detecta, pero por ahora no avisa a nadie.** Grafana trae un contact point de
+> correo sin servidor SMTP configurado, así que la alerta se ve en su interfaz y nada más.
+> Para que llegue un mail hay que definir las variables `GF_SMTP_*` del contenedor de
+> Grafana con un servidor real.
+
+Y en el de Kafka hay dos trampas que conviene conocer:
+
+**La retención es por partición, no por broker.** Kafka no tiene un techo global: hay una
+partición por event type, así que el total es `KAFKA_RETENTION_BYTES` × la cantidad de
+event types. Con 5 MB, diez event types ocupan 50 MB y cien ocupan 500 MB.
+
+**El segmento tiene que ser más chico que la retención.** Kafka borra segmentos enteros,
+nunca eventos sueltos. Con el default de 1 GB, el segmento activo crece hasta 1 GB antes
+de rotar, así que una retención de 5 MB no podría borrar nada y el techo sería decorativo.
+Por eso `KAFKA_SEGMENT_BYTES` existe como variable y vale bastante menos que la retención.
+
 ---
 
 ## 2. Preparar la VM

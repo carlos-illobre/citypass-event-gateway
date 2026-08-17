@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from 'react'
 import { AuthContext } from '@/contexts/auth-context'
 import { ApiError } from '@/api/client'
-import { gateway, type EventTypeSchema, type EventTypeSummary } from '@/api/gateway'
+import { gateway, type EventTypeQuota, type EventTypeSchema, type EventTypeSummary } from '@/api/gateway'
 import { dataRecordOf, metadataRecordOf, type RawField } from '@/domain/avro'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import './EventTypeList.css'
@@ -208,6 +208,7 @@ export function EventTypeList({
   const [expandedFqn, setExpandedFqn]     = useState<string | null>(null)
   const [schemas, setSchemas]             = useState<Record<string, EventTypeSchema>>({})
   const [schemaLoading, setSchemaLoading] = useState<string | null>(null)
+  const [cupo, setCupo]                   = useState<EventTypeQuota | null>(null)
 
   // La lista se recarga bumpeando reloadKey desde un handler, no llamando a una
   // función que hace setState dentro del efecto. `loading` ya arranca en true,
@@ -221,6 +222,13 @@ export function EventTypeList({
       .then(data => { if (!cancelled) setEventTypes(data) })
       .catch((err: Error) => { if (!cancelled) setError(err.message) })
       .finally(() => { if (!cancelled) setLoading(false) })
+
+    // El cupo se pide aparte y su fallo se ignora: no poder mostrar el contador no es
+    // motivo para dejar sin lista a quien vino a ver sus event types.
+    gateway.getQuota(token)
+      .then(q => { if (!cancelled) setCupo(q) })
+      .catch(() => {})
+
     return () => { cancelled = true }
   }, [token, reloadKey])
 
@@ -272,7 +280,18 @@ export function EventTypeList({
       <div className="et-list-header card-header">
         <h2 className="et-list-title card-title">
           Event Types
-          {!loading && <span className="et-count">{eventTypes.length}</span>}
+          {!loading && (
+            cupo
+              // Contra el cupo y no a secas: el número solo no dice si queda lugar, que
+              // es lo que hace falta saber antes de intentar crear uno más.
+              ? <span
+                  className={`et-count${cupo.remaining === 0 || cupo.totalRemaining === 0 ? ' et-count--lleno' : ''}`}
+                  title={`${cupo.used} de ${cupo.limit} tópicos en ${cupo.namespace} · ${cupo.totalUsed} de ${cupo.totalLimit} en todo el bus. Cada versión mayor de un event type cuenta como un tópico.`}
+                >
+                  {cupo.used} / {cupo.limit}
+                </span>
+              : <span className="et-count">{eventTypes.length}</span>
+          )}
         </h2>
       </div>
 
@@ -281,6 +300,22 @@ export function EventTypeList({
         <div className="et-error-wrap">
           <BlockedBySubscribers subscribers={blockedBy} onDismiss={() => setBlockedBy([])} />
         </div>
+      )}
+
+      {/* Dos techos distintos y dos mensajes distintos: uno se resuelve borrando algo
+          propio y el otro puede estar agotado por event types de otros equipos. */}
+      {cupo && cupo.remaining === 0 && (
+        <p className="et-cupo-lleno">
+          Llegaste al máximo de {cupo.limit} tópicos. Cada versión mayor cuenta como uno,
+          así que también liberan lugar las versiones viejas que ya nadie lee.
+        </p>
+      )}
+      {cupo && cupo.remaining > 0 && cupo.totalRemaining === 0 && (
+        <p className="et-cupo-lleno">
+          El bus llegó a su máximo de {cupo.totalLimit} tópicos entre todos los
+          equipos. Te queda lugar propio, pero nadie puede crear uno nuevo hasta que se
+          borre alguno de los existentes.
+        </p>
       )}
 
       {loading ? (

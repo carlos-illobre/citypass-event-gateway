@@ -73,6 +73,11 @@ app.use(cors({
  * entero. Todos los grupos tienen exactamente los mismos permisos sobre lo suyo.
  */
 const CLIENTS = {
+  // El Grupo 1 mantiene el bus, pero no recibe `com.citypass.gateway`: ese namespace es
+  // del gateway mismo y su dueño no puede ser nadie. Ahí vive `EsquemaCambiado`, que todos
+  // leen y nadie escribe; si un cliente lo tuviera podría publicar avisos de cambio de
+  // schema falsos, o borrar el event type del que dependen las suscripciones de los demás.
+  grupo1: { secret: 'grupo1', namespace: 'com.citypass.bus' },
   grupo2: { secret: 'grupo2', namespace: 'com.citypass.auth' },
   grupo3: { secret: 'grupo3', namespace: 'com.citypass.movilidad' },
   grupo4: { secret: 'grupo4', namespace: 'com.citypass.reclamos' },

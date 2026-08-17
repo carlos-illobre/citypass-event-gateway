@@ -330,3 +330,20 @@
   border-radius: 999px;
   padding: 0.0625rem 0.4rem;
 }
+
+/* Cupo agotado: el contador cambia de color y aparece el aviso, para que no se descubra
+   recién al recibir el 409 del servidor. */
+.et-count--lleno {
+  background: var(--danger);
+  color: #fff;
+}
+
+.et-cupo-lleno {
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}

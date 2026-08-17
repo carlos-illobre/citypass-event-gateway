@@ -40,6 +40,29 @@ export type EventTypeSummary = {
   versions:  EventTypeVersion[]
 }
 
+/**
+ * Cuántos event types puede tener el namespace de quien pregunta.
+ *
+ * Se cuentan nombres lógicos, no tópicos: las versiones mayores de un mismo event type
+ * son el mismo contrato y no consumen cupo aparte.
+ */
+export type EventTypeQuota = {
+  namespace: string
+  used:      number
+  limit:     number
+  remaining: number
+  /**
+   * El cupo del bus entero, sumando todos los equipos.
+   *
+   * Se expone porque un equipo puede tener lugar propio y aun así no poder crear: si el
+   * techo compartido está agotado, no crea nadie. Sin este dato, ese rechazo se leería
+   * como un problema del equipo y no habría forma de entenderlo.
+   */
+  totalUsed:      number
+  totalLimit:     number
+  totalRemaining: number
+}
+
 export type CreateEventTypePayload = {
   name: string
   fields: AvroField[]
@@ -134,6 +157,9 @@ export const gateway = {
    */
   listMyEvents: (token: string, limit = 50): Promise<RecentEventsResponse> =>
     apiFetch<RecentEventsResponse>(`${config.api.gateway.events}?limit=${limit}`, { token }),
+
+  getQuota: (token: string): Promise<EventTypeQuota> =>
+    apiFetch<EventTypeQuota>(`${BASE}/quota`, { token }),
 
   getEventTypeSchema: (token: string, fqn: string): Promise<EventTypeSchema> =>
     apiFetch<EventTypeSchema>(path(fqn), { token }),

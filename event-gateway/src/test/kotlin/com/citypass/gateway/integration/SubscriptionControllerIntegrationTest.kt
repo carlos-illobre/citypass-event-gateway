@@ -61,7 +61,7 @@ class SubscriptionControllerIntegrationTest {
 
     @BeforeEach
     fun setUp() {
-        val controller = SubscriptionController(subscriptionService, callbackUrlValidator)
+        val controller = SubscriptionController(subscriptionService, callbackUrlValidator, mock())
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setCustomArgumentResolvers(tokenDePrueba)
             .build()
@@ -82,7 +82,7 @@ class SubscriptionControllerIntegrationTest {
             id = "sub-123", topic = "movilidad.bici", callbackUrl = "http://localhost/hook",
             owner = OWNER, createdBy = "usuario1"
         )
-        whenever(subscriptionService.register("movilidad.bici", "http://localhost/hook", OWNER, "usuario1")).thenReturn(sub)
+        whenever(subscriptionService.register("movilidad.bici", "http://localhost/hook", OWNER, "usuario1")).thenReturn(Result.success(sub))
 
         mockMvc.perform(
             post("/api/v1/subscriptions")

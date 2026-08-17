@@ -2,6 +2,7 @@ package com.citypass.gateway.controller
 
 import com.citypass.gateway.model.Subscription
 import com.citypass.gateway.service.CambioDeEsquema
+import com.citypass.gateway.service.CupoAgotadoException
 import com.citypass.gateway.service.SchemaChangeNotifier
 import com.citypass.gateway.service.SchemaRegistryService
 import com.citypass.gateway.service.SubscriptionService
@@ -513,5 +514,51 @@ class SchemaControllerTest {
             .thenReturn(Result.failure(RuntimeException("broker caído")))
 
         assertEquals(HttpStatus.BAD_GATEWAY, controller.deleteVersion(fqn, 1, autorizado()).statusCode)
+    }
+
+    // ── cupo ──────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `quota returns the namespace usage`() {
+        val cupo = mapOf<String, Any>("namespace" to "com.citypass.test", "used" to 3, "limit" to 25, "remaining" to 22)
+        whenever(schemaRegistryService.cupoDe("com.citypass.test")).thenReturn(cupo)
+
+        val response = controller.quota(jwtWithNamespace("com.citypass.test"))
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertEquals(cupo, response.body)
+    }
+
+    @Test
+    fun `quota returns 401 without a token`() {
+        assertEquals(HttpStatus.UNAUTHORIZED, controller.quota(null).statusCode)
+    }
+
+    @Test
+    fun `quota returns 400 when the token has no namespace`() {
+        val jwt: Jwt = mock()
+        whenever(jwt.claims).thenReturn(emptyMap())
+
+        val response = controller.quota(jwt)
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+        assertEquals("Token sin namespace", problemOf(response).title)
+    }
+
+    @Test
+    fun `register returns 409 when the namespace ran out of quota`() {
+        val jwt = jwtWithNamespace("com.citypass.test")
+        whenever(schemaRegistryService.registerNewSchema(any(), any(), any()))
+            .thenReturn(Result.failure(CupoAgotadoException("ya tiene 25 event types, que es el máximo")))
+
+        val response = controller.register(
+            mapOf("name" to "TestEvent", "fields" to emptyList<Any>()), jwt
+        )
+
+        // 409 y no 400: el pedido está bien, lo que falta es lugar. Se arregla borrando
+        // algo, no corrigiendo el request, y el código tiene que decir cuál de las dos.
+        assertEquals(HttpStatus.CONFLICT, response.statusCode)
+        assertEquals("Cupo de event types agotado", problemOf(response).title)
+        assertTrue(problemOf(response).detail!!.contains("máximo"))
     }
 }

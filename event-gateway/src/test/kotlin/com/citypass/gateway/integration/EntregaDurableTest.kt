@@ -121,7 +121,7 @@ class EntregaDurableTest {
             "value.deserializer" to "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         ))
         val service = SubscriptionService(
-            consumerFactory, avroService, webhookDeliveryService, dlqService, tempDir.absolutePath
+            consumerFactory, avroService, webhookDeliveryService, dlqService, tempDir.absolutePath, 3
         )
 
         service.register(TOPICO, "https://ejemplo.test/hook", "com.citypass.movilidad", "usuario1")

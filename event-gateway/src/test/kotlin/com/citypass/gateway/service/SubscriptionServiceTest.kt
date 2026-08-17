@@ -43,7 +43,8 @@ class SubscriptionServiceTest {
             avroService = avroService,
             webhookDeliveryService = webhookDeliveryService,
             dlqService = dlqService,
-            dataDir = tempDir.absolutePath
+            dataDir = tempDir.absolutePath,
+            maxPorEventType = 3
         )
     }
 
@@ -51,7 +52,7 @@ class SubscriptionServiceTest {
 
     @Test
     fun `register creates subscription and stores in memory`() {
-        val sub = subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1")
+        val sub = subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1").getOrThrow()
 
         assertNotNull(sub.id)
         assertEquals("topic.a", sub.topic)
@@ -64,14 +65,14 @@ class SubscriptionServiceTest {
 
     @Test
     fun `register second subscription on same topic reuses existing consumer`() {
-        subscriptionService.register("topic.shared", "http://localhost/hook1", OWNER, "usuario1")
-        subscriptionService.register("topic.shared", "http://localhost/hook2", OWNER, "usuario1")
+        subscriptionService.register("topic.shared", "http://localhost/hook1", OWNER, "usuario1").getOrThrow()
+        subscriptionService.register("topic.shared", "http://localhost/hook2", OWNER, "usuario1").getOrThrow()
         assertEquals(2, subscriptionService.getAll(OWNER).size)
     }
 
     @Test
     fun `unregister removes subscription and returns true`() {
-        val sub = subscriptionService.register("topic.b", "http://localhost/hook2", OWNER, "usuario1")
+        val sub = subscriptionService.register("topic.b", "http://localhost/hook2", OWNER, "usuario1").getOrThrow()
         val removed = subscriptionService.unregister(sub.id, OWNER)
 
         assertTrue(removed)
@@ -80,7 +81,7 @@ class SubscriptionServiceTest {
 
     @Test
     fun `unregister refuses to delete a subscription of another group`() {
-        val ajena = subscriptionService.register("topic.a", "http://localhost/hook", "com.citypass.reclamos", "otro")
+        val ajena = subscriptionService.register("topic.a", "http://localhost/hook", "com.citypass.reclamos", "otro").getOrThrow()
 
         val removed = subscriptionService.unregister(ajena.id, OWNER)
 
@@ -93,8 +94,8 @@ class SubscriptionServiceTest {
 
     @Test
     fun `getAll only returns the subscriptions of the given group`() {
-        subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1")
-        subscriptionService.register("topic.b", "http://localhost/hook", "com.citypass.reclamos", "otro")
+        subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1").getOrThrow()
+        subscriptionService.register("topic.b", "http://localhost/hook", "com.citypass.reclamos", "otro").getOrThrow()
 
         assertEquals(1, subscriptionService.getAll(OWNER).size)
         assertEquals(OWNER, subscriptionService.getAll(OWNER).single().owner)
@@ -108,8 +109,8 @@ class SubscriptionServiceTest {
 
     @Test
     fun `unregister keeps consumer when another subscriber remains on same topic`() {
-        val sub1 = subscriptionService.register("topic.shared", "http://localhost/hook1", OWNER, "usuario1")
-        subscriptionService.register("topic.shared", "http://localhost/hook2", OWNER, "usuario1")
+        val sub1 = subscriptionService.register("topic.shared", "http://localhost/hook1", OWNER, "usuario1").getOrThrow()
+        subscriptionService.register("topic.shared", "http://localhost/hook2", OWNER, "usuario1").getOrThrow()
 
         val removed = subscriptionService.unregister(sub1.id, OWNER)
 
@@ -150,7 +151,7 @@ class SubscriptionServiceTest {
         // Make tempDir read-only to force saveToDisk IOException
         tempDir.setReadOnly()
         try {
-            assertDoesNotThrow { subscriptionService.register("topic.x", "http://example.com", OWNER, "usuario1") }
+            assertDoesNotThrow { subscriptionService.register("topic.x", "http://example.com", OWNER, "usuario1").getOrThrow() }
         } finally {
             tempDir.setWritable(true)
         }
@@ -161,7 +162,7 @@ class SubscriptionServiceTest {
     @Test
     @Suppress("UNCHECKED_CAST")
     fun `ensureConsumer message listener delegates to dispatch`() {
-        subscriptionService.register("topic.wired", "http://localhost/hook", OWNER, "usuario1")
+        subscriptionService.register("topic.wired", "http://localhost/hook", OWNER, "usuario1").getOrThrow()
         val rawBytes = byteArrayOf(9, 8, 7)
         val event = mapOf<String, Any?>("eventId" to "e-wired")
         whenever(avroService.deserialize(rawBytes)).thenReturn(event)
@@ -185,7 +186,7 @@ class SubscriptionServiceTest {
 
     @Test
     fun `dispatch delivers deserialized event to all subscribers of topic`() {
-        val sub = subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1")
+        val sub = subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1").getOrThrow()
         val rawBytes = byteArrayOf(1, 2, 3)
         val event = mapOf<String, Any?>("eventId" to "uuid-1")
         whenever(avroService.deserialize(rawBytes)).thenReturn(event)
@@ -198,7 +199,7 @@ class SubscriptionServiceTest {
 
     @Test
     fun `dispatch sends to DLQ when deserialization fails`() {
-        subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1")
+        subscriptionService.register("topic.a", "http://localhost/hook", OWNER, "usuario1").getOrThrow()
         val rawBytes = byteArrayOf(1, 2, 3)
         val exception = RuntimeException("bad avro")
         whenever(avroService.deserialize(rawBytes)).thenThrow(exception)
@@ -219,7 +220,7 @@ class SubscriptionServiceTest {
         // espera a que el listener termine. Si alguien las cambia, el sistema sigue
         // compilando y todos los demás tests siguen pasando, pero los eventos vuelven a
         // perderse en cada reinicio — en silencio.
-        subscriptionService.register("topic.durable", "http://localhost/hook", OWNER, "usuario1")
+        subscriptionService.register("topic.durable", "http://localhost/hook", OWNER, "usuario1").getOrThrow()
 
         val container = subscriptionService.containers["topic.durable"]!!
         assertEquals(ContainerProperties.AckMode.RECORD, container.containerProperties.ackMode)
@@ -235,9 +236,9 @@ class SubscriptionServiceTest {
 
     @Test
     fun `suscriptoresA lists every subscriber, including other teams`() {
-        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
-        subscriptionService.register("topic.uno", "http://b", "com.citypass.otros", "u2")
-        subscriptionService.register("topic.dos", "http://c", OWNER, "u3")
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1").getOrThrow()
+        subscriptionService.register("topic.uno", "http://b", "com.citypass.otros", "u2").getOrThrow()
+        subscriptionService.register("topic.dos", "http://c", OWNER, "u3").getOrThrow()
 
         val suscriptores = subscriptionService.suscriptoresA(listOf("topic.uno"))
 
@@ -249,16 +250,16 @@ class SubscriptionServiceTest {
 
     @Test
     fun `suscriptoresA returns nothing for a topic without subscribers`() {
-        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1").getOrThrow()
 
         assertTrue(subscriptionService.suscriptoresA(listOf("topic.sin.nadie")).isEmpty())
     }
 
     @Test
     fun `unregisterTopics drops the subscriptions and stops their consumers`() {
-        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
-        subscriptionService.register("topic.uno", "http://b", "com.citypass.otros", "u2")
-        subscriptionService.register("topic.queda", "http://c", OWNER, "u3")
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1").getOrThrow()
+        subscriptionService.register("topic.uno", "http://b", "com.citypass.otros", "u2").getOrThrow()
+        subscriptionService.register("topic.queda", "http://c", OWNER, "u3").getOrThrow()
 
         val bajas = subscriptionService.unregisterTopics(listOf("topic.uno"))
 
@@ -274,7 +275,7 @@ class SubscriptionServiceTest {
 
     @Test
     fun `unregisterTopics on a topic nobody subscribed to changes nothing`() {
-        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1").getOrThrow()
 
         assertEquals(0, subscriptionService.unregisterTopics(listOf("topic.sin.nadie")))
         assertEquals(1, subscriptionService.getAll(OWNER).size)
@@ -282,14 +283,59 @@ class SubscriptionServiceTest {
 
     @Test
     fun `unregisterTopics survives a restart`() {
-        subscriptionService.register("topic.uno", "http://a", OWNER, "u1")
+        subscriptionService.register("topic.uno", "http://a", OWNER, "u1").getOrThrow()
         subscriptionService.unregisterTopics(listOf("topic.uno"))
 
         val reiniciado = SubscriptionService(
-            consumerFactory, avroService, webhookDeliveryService, dlqService, tempDir.absolutePath
+            consumerFactory, avroService, webhookDeliveryService, dlqService, tempDir.absolutePath, 3
         )
         reiniciado.loadFromDisk()
 
         assertTrue(reiniciado.getAll(OWNER).isEmpty())
+    }
+
+    // ── techo de webhooks por event type ─────────────────────────────────────
+
+    @Test
+    fun `un equipo no puede pasarse del máximo de webhooks sobre un tópico`() {
+        // El techo acota el factor de amplificación: la entrega bloquea al consumer
+        // hasta atender a TODOS los suscriptores, así que sin límite un solo evento
+        // puede disparar miles de peticiones salientes antes de que el tópico avance.
+        repeat(3) { subscriptionService.register("topic.tope", "http://a$it", OWNER, "u") }
+
+        val result = subscriptionService.register("topic.tope", "http://uno-mas", OWNER, "u")
+
+        assertTrue(result.isFailure)
+        assertInstanceOf(CupoAgotadoException::class.java, result.exceptionOrNull())
+        assertEquals(3, subscriptionService.suscriptoresA(listOf("topic.tope")).size)
+    }
+
+    @Test
+    fun `el techo es por tópico, no global`() {
+        repeat(3) { subscriptionService.register("topic.lleno", "http://a$it", OWNER, "u") }
+
+        assertTrue(subscriptionService.register("topic.otro", "http://b", OWNER, "u").isSuccess)
+    }
+
+    @Test
+    fun `el techo es por equipo, no compartido entre equipos`() {
+        repeat(3) { subscriptionService.register("topic.compartido", "http://a$it", OWNER, "u") }
+
+        // Otro equipo tiene su propio cupo sobre el mismo tópico: el de uno no puede
+        // dejar sin webhooks al otro.
+        assertTrue(
+            subscriptionService.register("topic.compartido", "http://otro", "com.citypass.otros", "u").isSuccess
+        )
+    }
+
+    @Test
+    fun `dar de baja libera lugar`() {
+        val primera = subscriptionService.register("topic.libera", "http://a", OWNER, "u").getOrThrow()
+        repeat(2) { subscriptionService.register("topic.libera", "http://b$it", OWNER, "u") }
+        assertTrue(subscriptionService.register("topic.libera", "http://c", OWNER, "u").isFailure)
+
+        subscriptionService.unregister(primera.id, OWNER)
+
+        assertTrue(subscriptionService.register("topic.libera", "http://c", OWNER, "u").isSuccess)
     }
 }

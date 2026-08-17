@@ -2,10 +2,24 @@
 # tenga que cargarlo a mano por la interfaz.
 apiVersion: 1
 
+# Se borra antes de crearlo para que el `uid` de abajo se aplique siempre.
+#
+# Grafana identifica un datasource por su uid, así que al provisionar uno que ya existe
+# actualiza sus campos pero NO su uid: una instalación anterior se queda con el uid
+# aleatorio que Grafana le asignó, y las reglas de alerta —que lo referencian por uid— no
+# lo encuentran. Con esto el uid es el mismo en cualquier instalación, nueva o vieja.
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
 datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
+    # UID fijo y no el que genera Grafana al azar: las reglas de alerta provisionadas
+    # referencian el datasource por uid, y con uno aleatorio no funcionarían en una
+    # instalación nueva.
+    uid: prometheus
     # Nombre del servicio en la red de Docker, no localhost: Grafana corre en otro contenedor.
     url: http://prometheus:9090
     isDefault: true

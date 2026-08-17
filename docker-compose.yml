@@ -1,5 +1,21 @@
+# Rotación del log de todos los contenedores.
+#
+# El driver json-file no tiene límite por defecto: lo que un servicio escriba se guarda
+# para siempre. Es la forma más silenciosa de llenar el disco, porque no pasa por ningún
+# rate limit ni deja rastro en la aplicación.
+#
+# Va como ancla y no en /etc/docker/daemon.json —que sería lo habitual— porque los
+# valores dependen del ambiente y la fuente de la verdad tiene que ser el .env.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: "${LOG_MAX_FILES:-3}"
+
 services:
   kafka-authorizer:
+    mem_limit: ${MEM_LIMIT_KAFKA:?falta MEM_LIMIT_KAFKA en el .env}
+    logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/kafka-authorizer:${TAG:-latest}
     build:
       context: ./kafka-authorizer
@@ -49,6 +65,15 @@ services:
       # de identidad: si deja de emitir tokens para un grupo, el acceso se corta solo.
       KAFKA_AUTHORIZER_CLASS_NAME: 'com.citypass.kafka.NamespaceAuthorizer'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-authorizer:9093'
+      # Retención por TAMAÑO, no sólo por tiempo. La de tiempo que trae el broker por
+      # defecto no acota el disco: si entran más datos de los que caben, se llena igual.
+      KAFKA_LOG_RETENTION_BYTES: ${KAFKA_RETENTION_BYTES:?falta KAFKA_RETENTION_BYTES en el .env}
+      # Kafka borra segmentos enteros: si el segmento fuera más grande que la retención,
+      # el techo de arriba no podría aplicarse nunca.
+      KAFKA_LOG_SEGMENT_BYTES: ${KAFKA_SEGMENT_BYTES:?falta KAFKA_SEGMENT_BYTES en el .env}
+      # Cada cuánto se revisa si hay segmentos para borrar. El default son 5 minutos, que
+      # con techos chicos deja el disco por encima del límite demasiado tiempo.
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 30000
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -80,6 +105,8 @@ services:
     restart: unless-stopped
 
   schema-registry:
+    mem_limit: ${MEM_LIMIT_SCHEMA_REGISTRY:?falta MEM_LIMIT_SCHEMA_REGISTRY en el .env}
+    logging: *logging
     image: confluentinc/cp-schema-registry:7.7.1
     container_name: schema-registry
     hostname: schema-registry
@@ -106,6 +133,8 @@ services:
     restart: unless-stopped
 
   kafka-ui:
+    mem_limit: ${MEM_LIMIT_KAFKA_UI:?falta MEM_LIMIT_KAFKA_UI en el .env}
+    logging: *logging
     image: provectuslabs/kafka-ui:v0.7.2
     container_name: kafka-ui
     hostname: kafka-ui
@@ -147,6 +176,8 @@ services:
     restart: unless-stopped
 
   auth-simulator:
+    mem_limit: ${MEM_LIMIT_AUTH_SIMULATOR:?falta MEM_LIMIT_AUTH_SIMULATOR en el .env}
+    logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/auth-simulator:${TAG:-latest}
     build:
       context: ./auth-simulator
@@ -167,6 +198,8 @@ services:
     restart: unless-stopped
 
   event-gateway:
+    mem_limit: ${MEM_LIMIT_EVENT_GATEWAY:?falta MEM_LIMIT_EVENT_GATEWAY en el .env}
+    logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/event-gateway:${TAG:-latest}
     build:
       context: ./event-gateway
@@ -193,6 +226,17 @@ services:
       DATA_DIR: /app/data
       AUTH_SERVICE_URL: http://auth-simulator:8083
       DLQ_TOPIC: sistema.dlq
+      # Multiplicados dan la velocidad máxima a la que un equipo puede llenar el disco.
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:?falta RATE_LIMIT_PER_MINUTE en el .env}
+      MAX_PAYLOAD_BYTES: ${MAX_PAYLOAD_BYTES:?falta MAX_PAYLOAD_BYTES en el .env}
+      # Único lugar donde se puede acotar cuántos tópicos llegan a existir: el gateway es
+      # el único que los crea.
+      MAX_EVENT_TYPES_PER_NAMESPACE: ${MAX_EVENT_TYPES_PER_NAMESPACE:?falta MAX_EVENT_TYPES_PER_NAMESPACE en el .env}
+      MAX_EVENT_TYPES_TOTAL: ${MAX_EVENT_TYPES_TOTAL:?falta MAX_EVENT_TYPES_TOTAL en el .env}
+      MAX_VERSIONS_PER_EVENT_TYPE: ${MAX_VERSIONS_PER_EVENT_TYPE:?falta MAX_VERSIONS_PER_EVENT_TYPE en el .env}
+      MAX_WEBHOOKS_PER_EVENT_TYPE: ${MAX_WEBHOOKS_PER_EVENT_TYPE:?falta MAX_WEBHOOKS_PER_EVENT_TYPE en el .env}
+      WEBHOOK_FAILURES_BEFORE_DISABLE: ${WEBHOOK_FAILURES_BEFORE_DISABLE:?falta WEBHOOK_FAILURES_BEFORE_DISABLE en el .env}
+      WEBHOOK_DISABLE_MINUTES: ${WEBHOOK_DISABLE_MINUTES:?falta WEBHOOK_DISABLE_MINUTES en el .env}
       TOPIC_PARTITIONS: 1
       TOPIC_REPLICATION_FACTOR: 1
       GATEWAY_CORS_ORIGIN: '${GATEWAY_CORS_ORIGIN}'
@@ -214,6 +258,8 @@ services:
     restart: unless-stopped
 
   event-gateway-ui:
+    mem_limit: ${MEM_LIMIT_EVENT_GATEWAY_UI:?falta MEM_LIMIT_EVENT_GATEWAY_UI en el .env}
+    logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/event-gateway-ui:${TAG:-latest}
     build:
       context: ./event-gateway-ui
@@ -228,7 +274,7 @@ services:
       LOGIN_API_URL: '${LOGIN_API_URL:?falta LOGIN_API_URL}'
       GATEWAY_API_URL: '${GATEWAY_API_URL:?falta GATEWAY_API_URL}'
     ports:
-      - "${PUBLISH_ADDR:-127.0.0.1}:5173:80"
+      - "${PUBLISH_ADDR:-127.0.0.1}:5173:8080"
     depends_on:
       event-gateway:
         condition: service_healthy
@@ -237,6 +283,8 @@ services:
     restart: unless-stopped
 
   anomaly-detector:
+    mem_limit: ${MEM_LIMIT_ANOMALY_DETECTOR:?falta MEM_LIMIT_ANOMALY_DETECTOR en el .env}
+    logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/anomaly-detector:${TAG:-latest}
     build:
       context: ./anomaly-detector
@@ -270,6 +318,8 @@ services:
   # El gateway expone sus métricas, pero sin alguien que las consulte sólo se ve el valor
   # instantáneo. Prometheus guarda la serie y Grafana la muestra.
   prometheus:
+    mem_limit: ${MEM_LIMIT_PROMETHEUS:?falta MEM_LIMIT_PROMETHEUS en el .env}
+    logging: *logging
     image: prom/prometheus:v3.1.0
     container_name: prometheus
     hostname: prometheus
@@ -286,6 +336,8 @@ services:
     restart: unless-stopped
 
   grafana:
+    mem_limit: ${MEM_LIMIT_GRAFANA:?falta MEM_LIMIT_GRAFANA en el .env}
+    logging: *logging
     image: grafana/grafana:11.5.1
     container_name: grafana
     hostname: grafana
@@ -310,6 +362,7 @@ services:
   # Estos dos servicios existen únicamente cuando COMPOSE_PROFILES=prod en el
   # .env. En desarrollo no se levantan y cada servicio se habla directo por su puerto.
   reverse-proxy:
+    logging: *logging
     image: nginx:1.27-alpine
     profiles: ["prod"]
     container_name: reverse-proxy
@@ -323,20 +376,25 @@ services:
     depends_on:
       event-gateway:
         condition: service_healthy
+    # Los límites por IP dependen del ambiente, así que la configuración es una
+    # plantilla que el entrypoint completa al arrancar.
+    environment:
+      NGINX_MAX_BODY: ${NGINX_MAX_BODY:?falta NGINX_MAX_BODY en el .env}
+      NGINX_RATE_LIMIT: ${NGINX_RATE_LIMIT:?falta NGINX_RATE_LIMIT en el .env}
+      NGINX_RATE_BURST: ${NGINX_RATE_BURST:?falta NGINX_RATE_BURST en el .env}
+      NGINX_CONN_LIMIT: ${NGINX_CONN_LIMIT:?falta NGINX_CONN_LIMIT en el .env}
     volumes:
-      - ./reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - ./reverse-proxy/entrypoint.sh:/entrypoint.sh:ro
       - certbot-conf:/etc/letsencrypt:ro
       - certbot-www:/var/www/certbot:ro
-    # Recarga cada 6 horas para tomar el certificado renovado. certbot corre en otro
-    # contenedor y no puede señalizar a nginx, así que nginx se recarga solo; una
-    # recarga sin cambios no corta ninguna conexión.
-    command: >
-      sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     restart: unless-stopped
 
   # Emite y renueva el certificado. Un solo certificado con nombre fijo `citypass`
   # sirve a la vez para HTTPS y para el listener TLS de Kafka.
   certbot:
+    logging: *logging
     image: certbot/certbot:latest
     profiles: ["prod"]
     container_name: certbot

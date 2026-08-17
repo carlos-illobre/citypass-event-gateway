@@ -33,6 +33,28 @@ gateway:
   # Los tópicos se crean al registrar el event type, no al publicar el primer evento,
   # así que estos valores reemplazan a los defaults del broker.
   topic-partitions: ${TOPIC_PARTITIONS:1}
+
+  # Máximo de event types por namespace.
+  #
+  # El gateway es el único que puede crear tópicos —el authorizer se lo niega a todo
+  # cliente externo y la autocreación del broker está apagada—, así que este es el único
+  # lugar donde se puede acotar cuántos llegan a existir. Sin techo, el disco tampoco lo
+  # tiene: cada event type es una partición con su propia retención.
+  max-event-types-per-namespace: ${MAX_EVENT_TYPES_PER_NAMESPACE:25}
+
+  # Techo del bus entero, sumando todos los equipos.
+  #
+  # El de arriba impide que un equipo solo acapare; este acota el total, que es lo que
+  # multiplica a la retención de Kafka y por lo tanto lo que ocupa el disco. Si se agota,
+  # no puede crear nadie —tenga o no lugar en su propio cupo— hasta que se borre alguno.
+  max-event-types-total: ${MAX_EVENT_TYPES_TOTAL:200}
+
+  # Máximo de versiones mayores de un mismo event type.
+  #
+  # Cada versión es un tópico con su propia retención. Sin este techo, un PUT en bucle con
+  # schemas incompatibles multiplica los tópicos de a uno por llamada, que es la forma más
+  # rápida de llenar el disco teniendo credenciales.
+  max-versions-per-event-type: ${MAX_VERSIONS_PER_EVENT_TYPE:5}
   topic-replication-factor: ${TOPIC_REPLICATION_FACTOR:1}
   # Audiencia que debe declarar el JWT para ser aceptado.
   token-audience: ${TOKEN_AUDIENCE:citypass}
@@ -64,6 +86,23 @@ gateway:
   rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:600}
   # Timeouts de la entrega de webhooks. Con la entrega sincrónica, un suscriptor que se
   # cuelga sin estos topes bloquea el tópico entero.
+  # Webhooks que un mismo equipo puede tener sobre un mismo event type.
+  #
+  # La entrega bloquea al consumer hasta atender a TODOS los suscriptores, así que este
+  # número es el factor de amplificación de cada evento.
+  max-webhooks-per-event-type: ${MAX_WEBHOOKS_PER_EVENT_TYPE:3}
+
+  # Eventos seguidos sin poder entregar tras los cuales se deja de intentar.
+  #
+  # Los reintentos cubren un fallo pasajero; esto cubre un destino que ya no existe. Como
+  # la entrega bloquea al consumer, sin este techo un solo webhook muerto hace que su
+  # tópico procese un mensaje cada varios segundos, indefinidamente.
+  webhook-failures-before-disable: ${WEBHOOK_FAILURES_BEFORE_DISABLE:5}
+
+  # Cuánto se espera antes de volver a probar una suscripción silenciada. Al vencer entra
+  # de nuevo en el reparto: si el destino se recuperó, se rehabilita sola.
+  webhook-disable-minutes: ${WEBHOOK_DISABLE_MINUTES:10}
+
   webhook-connect-timeout-ms: ${WEBHOOK_CONNECT_TIMEOUT_MS:5000}
   webhook-read-timeout-ms: ${WEBHOOK_READ_TIMEOUT_MS:10000}
 

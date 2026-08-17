@@ -51,7 +51,24 @@ http {
 
     # Un evento con un payload grande no debería tumbar la conexión, pero tampoco
     # queremos aceptar cuerpos arbitrarios: el gateway todavía no tiene límite propio.
-    client_max_body_size 1m;
+    client_max_body_size ${NGINX_MAX_BODY};
+
+    # ── Límites por IP ────────────────────────────────────────────────────────
+    #
+    # El rate limit del gateway es por namespace, sacado del JWT, así que sólo alcanza a
+    # las peticiones autenticadas que llegan hasta él. Las que van a /auth/ no lo tocan
+    # —y emitir un token es una firma RSA, cara en CPU—, así que sin un límite acá
+    # martillar ese endpoint es la forma más barata de saturar la máquina.
+    #
+    # `$binary_remote_addr` y no `$remote_addr`: ocupa 4 bytes por IPv4 en vez de hasta
+    # 15, que con una zona de 10 MB es la diferencia entre 160 mil IPs y 40 mil.
+    limit_req_zone  $binary_remote_addr zone=peticiones:10m rate=${NGINX_RATE_LIMIT};
+    limit_conn_zone $binary_remote_addr zone=conexiones:10m;
+
+    # 429 en vez del 503 que pone nginx por defecto: es lo que ya devuelve el gateway
+    # cuando se pasa del límite, así que un cliente ve el mismo código venga de donde venga.
+    limit_req_status  429;
+    limit_conn_status 429;
 
     # ── HTTP: sólo el desafío de ACME y redirección a HTTPS ──────────────────
     server {
@@ -69,6 +86,11 @@ http {
 
     server {
         listen 443 ssl;
+
+        # La ráfaga se acepta y se encola; lo que la supere se rechaza en el acto en
+        # lugar de esperar, para que un ataque no consuma workers de nginx.
+        limit_req  zone=peticiones burst=${NGINX_RATE_BURST} nodelay;
+        limit_conn conexiones ${NGINX_CONN_LIMIT};
         http2 on;
         server_name _;
 
@@ -100,7 +122,7 @@ http {
 
         # La UI queda en la raíz.
         location / {
-            proxy_pass http://event-gateway-ui:80;
+            proxy_pass http://event-gateway-ui:8080;
             proxy_set_header Host $host;
         }
 

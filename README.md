@@ -22,7 +22,8 @@ deliberada y está explicada en [ARCHITECTURE.md](docs/ARCHITECTURE.md#por-qué-
 5. [Definir un event type](#5-definir-un-event-type)
 6. [Consumir eventos desde Kafka](#6-consumir-eventos-desde-kafka)
 7. [El recorrido completo](#7-el-recorrido-completo)
-8. [Resto de la documentación](#8-resto-de-la-documentación)
+8. [Límites](#8-límites)
+9. [Resto de la documentación](#9-resto-de-la-documentación)
 
 ---
 
@@ -117,6 +118,7 @@ puede emitir cada grupo.
 
 | Cliente (username) | Secret (password) | Namespace |
 |---|---|---|
+| `grupo1` | `grupo1` | `com.citypass.bus` |
 | `grupo2` | `grupo2` | `com.citypass.auth` |
 | `grupo3` | `grupo3` | `com.citypass.movilidad` |
 | `grupo4` | `grupo4` | `com.citypass.reclamos` |
@@ -790,7 +792,104 @@ lee la cola de tus tópicos y filtra. Un evento más viejo que esa ventana no ap
 
 ---
 
-## 8. Resto de la documentación
+## 8. Límites
+
+El bus corre en una sola máquina con disco acotado y la comparten los ocho equipos, así que
+hay techos. Los vas a notar como un error HTTP, no como una degradación silenciosa: cuando
+algo se agota el gateway lo dice y explica cuál es el límite.
+
+Todos salen de variables de entorno del `.env`, que es la única fuente de la verdad. Si
+alguno te queda corto, es una conversación con el Grupo 1, no algo que haga falta esquivar.
+
+### Cuántos event types podés crear
+
+| Variable | Por defecto | Qué limita |
+|---|---|---|
+| `MAX_EVENT_TYPES_PER_NAMESPACE` | `25` | Tópicos que puede tener **tu** namespace |
+| `MAX_EVENT_TYPES_TOTAL` | `200` | Tópicos en **todo el bus**, sumando los de los ocho equipos |
+| `MAX_VERSIONS_PER_EVENT_TYPE` | `5` | Versiones mayores de un **mismo** event type |
+
+Los tres cuentan **tópicos**, no nombres. La diferencia importa: cada versión mayor de un
+event type es un tópico aparte con su propia retención, así que
+`com.citypass.movilidad.BiciDevuelta` y `...BiciDevuelta.v2` gastan dos de tus 25. Es el
+único techo posible a la cantidad de tópicos —el gateway es el único que puede crearlos— y
+la cantidad de tópicos es lo que multiplica al disco.
+
+Los dos primeros son independientes y **gana el que se agote antes**: si el bus llegó a 200
+no podés crear un event type nuevo aunque te sobre lugar en tus 25, hasta que alguien borre
+alguno. Es a propósito: el disco es compartido y ningún equipo puede llevarse la parte de
+otro.
+
+Cualquiera de los tres devuelve **409** con el detalle de cuál se agotó. Para ver dónde
+estás parado sin tener que chocarte:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/event-types/quota
+```
+
+```json
+{ "namespace": "com.citypass.movilidad", "used": 4, "limit": 25, "remaining": 21,
+  "totalUsed": 37, "totalLimit": 200, "totalRemaining": 163 }
+```
+
+Si te quedaste sin lugar, `DELETE /api/v1/event-types/{fqn}` libera cupo — mirá
+[EVENT-TYPES.md](docs/EVENT-TYPES.md) antes, porque borra los eventos con el tópico.
+
+### Cuántos webhooks podés registrar
+
+| Variable | Por defecto | Qué limita |
+|---|---|---|
+| `MAX_WEBHOOKS_PER_EVENT_TYPE` | `3` | Suscripciones que tu equipo puede tener sobre un mismo event type |
+| `WEBHOOK_FAILURES_BEFORE_DISABLE` | `5` | Entregas fallidas seguidas tras las cuales se deja de intentar |
+| `WEBHOOK_DISABLE_MINUTES` | `10` | Cuánto queda silenciada antes de volver a probarse |
+
+El techo de tres existe porque la entrega **bloquea al consumer hasta atender a todos los
+suscriptores**: la cantidad de webhooks sobre un tópico es el factor de amplificación de
+cada evento. Tres alcanza para la aplicación, un ambiente de prueba y algo más. El cuarto
+recibe **409**.
+
+Los otros dos son el cortacircuitos, y es lo que más te conviene conocer: si tu endpoint
+deja de responder, después de 5 eventos seguidos sin poder entregar la suscripción se
+**silencia** por 10 minutos. No se borra — al vencer entra de nuevo en el reparto y, si tu
+servicio volvió, se rehabilita sola. Existe porque un destino muerto cuesta ~19 segundos de
+timeouts por mensaje y alcanza uno solo para frenar el tópico de todos.
+
+Que una suscripción tuya esté silenciada lo ves en el listado:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/subscriptions
+```
+
+Cada suscripción trae `status` (`active` o `silenced`) y, si está silenciada,
+`silencedUntil`.
+
+### Cuánto y qué tan rápido podés publicar
+
+| Variable | Por defecto | Qué limita |
+|---|---|---|
+| `MAX_PAYLOAD_BYTES` | `262144` (256 KB) | Tamaño del cuerpo de una petición |
+| `RATE_LIMIT_PER_MINUTE` | `600` en desarrollo, `60` en producción | Peticiones por minuto **por namespace** |
+
+Pasarse del tamaño devuelve **413**; pasarse del ritmo, **429**. El rate limit es por
+namespace y no por token, así que lo comparten todos los integrantes de tu equipo: si un
+script de carga lo agota, a tus compañeros también les da 429 hasta la ventana siguiente.
+
+### Cuánto se guarda de lo que publicaste
+
+| Variable | Por defecto | Qué limita |
+|---|---|---|
+| `KAFKA_RETENTION_BYTES` | `5242880` (5 MB) | Datos guardados **por partición** |
+
+No es un límite que te rechace nada: cuando un tópico pasa los 5 MB, Kafka borra los eventos
+**más viejos** para hacer lugar. Publicar siempre funciona; lo que no hay es historial
+infinito. Si tu consumidor estuvo caído mucho tiempo, puede volver y encontrar que los
+primeros eventos ya no están.
+
+Es lo que hace que 200 tópicos x 5 MB ≈ 1 GB sea un techo de disco real y no una intención.
+
+---
+
+## 9. Resto de la documentación
 
 | Documento | Qué contiene |
 |---|---|
