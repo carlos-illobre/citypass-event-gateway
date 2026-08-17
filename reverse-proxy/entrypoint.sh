@@ -10,11 +10,12 @@ set -eu
 : "${NGINX_RATE_LIMIT:?falta NGINX_RATE_LIMIT}"
 : "${NGINX_RATE_BURST:?falta NGINX_RATE_BURST}"
 : "${NGINX_CONN_LIMIT:?falta NGINX_CONN_LIMIT}"
+: "${NGINX_KAFKA_CONN_LIMIT:?falta NGINX_KAFKA_CONN_LIMIT}"
 
 # La lista explícita de variables no es opcional: sin ella, envsubst reemplazaría también
 # `$binary_remote_addr`, `$host`, `$uri` y todas las variables propias de nginx por
 # cadenas vacías, y la configuración resultante no tendría sentido.
-envsubst '${NGINX_MAX_BODY} ${NGINX_RATE_LIMIT} ${NGINX_RATE_BURST} ${NGINX_CONN_LIMIT}' \
+envsubst '${NGINX_MAX_BODY} ${NGINX_RATE_LIMIT} ${NGINX_RATE_BURST} ${NGINX_CONN_LIMIT} ${NGINX_KAFKA_CONN_LIMIT}' \
   < /etc/nginx/nginx.conf.template \
   > /etc/nginx/nginx.conf
 

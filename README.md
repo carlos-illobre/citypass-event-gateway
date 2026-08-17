@@ -887,6 +887,27 @@ primeros eventos ya no están.
 
 Es lo que hace que 200 tópicos x 5 MB ≈ 1 GB sea un techo de disco real y no una intención.
 
+Con una excepción que conviene conocer si consumís Kafka directo: los **offsets de tu
+consumer group** no viven en tu tópico sino en `__consumer_offsets`, que es compactado y no
+se rige por la retención de arriba.
+
+| Variable | Por defecto | Qué limita |
+|---|---|---|
+| `KAFKA_OFFSETS_RETENTION_MINUTES` | `10080` (7 días) en desarrollo, `1440` (1 día) en producción | Cuánto sobrevive el offset de un grupo **inactivo** |
+
+Si tu consumidor estuvo apagado más que eso, su offset se borra y al volver arranca desde
+donde diga su `auto.offset.reset` —el principio o el final del tópico, no donde lo dejaste—.
+Existe porque el `group.id` lo elegís vos y la compactación guarda un registro por cada uno,
+así que sin esta ventana el tópico crecería sin techo. Si te importa no perder la posición,
+que tu consumidor commitee al menos una vez por día.
+
+### Los que no te van a tocar
+
+No los vas a ver desde la API, pero están y son los que sostienen todo lo anterior:
+`NGINX_KAFKA_CONN_LIMIT` (conexiones simultáneas por IP al puerto 9092),
+`KAFKA_OFFSETS_SEGMENT_BYTES`, `KAFKA_SEGMENT_BYTES`, `MEM_LIMIT_*`, `LOG_MAX_SIZE` y
+`LOG_MAX_FILES`. Están comentados uno por uno en `.env.dev` y `.env.prod`.
+
 ---
 
 ## 9. Resto de la documentación

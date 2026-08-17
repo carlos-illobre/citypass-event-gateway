@@ -33,12 +33,30 @@ events {
 #
 # El authorizer no se ve afectado: autoriza por principal SASL, no por IP de origen.
 stream {
+    # El techo de conexiones por IP vive acá y no en `http`: son dos bloques distintos y
+    # `limit_conn` del uno no alcanza al otro. Sin esto, este puerto era el único camino
+    # sin ningún límite hacia la VM.
+    #
+    # Importa que la conexión se acepta ANTES de SASL, así que este techo es lo único que
+    # actúa contra alguien sin credenciales. Y como `worker_connections` se comparte con
+    # el bloque `http`, agotarlo desde acá se llevaba puestos también la API y la UI.
+    limit_conn_zone $binary_remote_addr zone=kafka_conexiones:10m;
+
     server {
         listen 9092 ssl;
 
         ssl_certificate     /etc/letsencrypt/live/citypass/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/citypass/privkey.pem;
         ssl_protocols       TLSv1.2 TLSv1.3;
+
+        limit_conn kafka_conexiones ${NGINX_KAFKA_CONN_LIMIT};
+
+        # Un cliente de Kafka abre una conexión por broker y la mantiene abierta esperando
+        # mensajes, así que el timeout de inactividad tiene que ser largo o se cortarían
+        # los consumidores legítimos. El de conexión, en cambio, es corto: el broker está
+        # en el mismo host y si no atiende en cinco segundos no va a atender.
+        proxy_connect_timeout 5s;
+        proxy_timeout         10m;
 
         proxy_pass kafka-authorizer:9092;
     }

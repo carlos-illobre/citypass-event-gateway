@@ -158,6 +158,24 @@ El principal de Kafka es el **namespace** y no el `sub`, porque un consumer grou
 aplicación: dos instancias del mismo grupo con credenciales distintas tienen que poder
 compartir el `group.id`.
 
+**Lo que la regla 2 no acota: cuántos grupos.** Exige un prefijo, no una lista, así que el
+resto del nombre lo elige el cliente y puede usar uno distinto cada vez. Eso importa porque
+los offsets van a `__consumer_offsets`, que es **compactado**: la compactación conserva el
+último registro por clave y la clave incluye el `group.id`, de modo que cada nombre nuevo es
+una clave que nunca se colapsa. `KAFKA_RETENTION_BYTES` no lo toca —acota tópicos por
+tamaño, no compactados— y Kafka no tiene ningún límite de cantidad de grupos.
+
+Se acota con dos opciones del broker, porque no hay forma de hacerlo desde el authorizer sin
+guardar estado:
+
+| Opción | Qué hace |
+|---|---|
+| `KAFKA_OFFSETS_RETENTION_MINUTES` | Vence el offset de un grupo inactivo, así que en régimen el tópico guarda los grupos vistos en la ventana y no todos los de la historia |
+| `KAFKA_OFFSETS_SEGMENT_BYTES` | El segmento activo nunca se compacta; con el default de 100 MB la limpieza recién empieza ahí |
+
+El precio de la primera es real: un consumidor apagado más que la ventana pierde su posición
+y vuelve según su `auto.offset.reset`.
+
 ---
 
 ## 4. Integridad de los eventos
@@ -316,6 +334,15 @@ los consumidores del compose son contenedores con IP privada.
 |---|---|---|
 | Tamaño del body | 256 KB (1 MB en nginx) | Un evento de cientos de megas se guarda, se replica y se entrega a cada suscriptor |
 | Peticiones por minuto | 600 por namespace | Que el loop de un grupo deje sin servicio a los otros siete |
+| Conexiones por IP al 9092 | `NGINX_KAFKA_CONN_LIMIT` | Agotar `worker_connections` de nginx y con eso tumbar también la API y la UI |
+
+El último es el único que actúa **sin credenciales de por medio**: la conexión TLS al 9092 se
+acepta antes de negociar SASL, así que hasta ese punto el atacante no se identificó con nada.
+Vive en el bloque `stream` de nginx y no en el `http`, porque son dos contextos distintos y
+`limit_conn` de uno no alcanza al otro — el límite de peticiones y el de conexiones de la
+tabla de arriba sólo cubren el 443. Junto al techo van `proxy_connect_timeout` y
+`proxy_timeout`: sin ellos una conexión que abre y no habla ocupa un lugar para siempre, que
+es la misma denegación de servicio por otro camino.
 
 La cuota es **por namespace y no global**: si fuera global, el error de un grupo afectaría a
 todos, que es exactamente lo que se busca evitar. Devuelve `429` con `Retry-After`, porque

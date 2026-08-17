@@ -74,6 +74,30 @@ services:
       # Cada cuánto se revisa si hay segmentos para borrar. El default son 5 minutos, que
       # con techos chicos deja el disco por encima del límite demasiado tiempo.
       KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 30000
+
+      # ── El techo de `__consumer_offsets` ──
+      #
+      # Este tópico es COMPACTADO, así que KAFKA_LOG_RETENTION_BYTES no lo toca: la
+      # compactación conserva el último registro por CLAVE, y la clave incluye el
+      # `group.id`. Un cliente autenticado puede unirse a grupos con nombres distintos
+      # indefinidamente —el authorizer sólo exige que empiecen con su namespace— y cada
+      # nombre nuevo es una clave que la compactación no puede colapsar. Kafka no tiene
+      # ningún límite de cantidad de grupos, así que sin las dos opciones de abajo este
+      # tópico no tiene techo.
+      #
+      # Cuánto sobrevive el offset de un grupo que dejó de consumir. Es lo que acota el
+      # total: en régimen, el tópico guarda los grupos vistos en esta ventana y no todos
+      # los de la historia. El precio es real y hay que conocerlo: un grupo que estuvo
+      # inactivo más que esto pierde su offset y vuelve a leer desde donde diga su
+      # `auto.offset.reset`. Con 5 MB de retención por partición, lo que se re-lee es poco.
+      KAFKA_OFFSETS_RETENTION_MINUTES: ${KAFKA_OFFSETS_RETENTION_MINUTES:?falta KAFKA_OFFSETS_RETENTION_MINUTES en el .env}
+
+      # Cada cuánto rota el segmento de `__consumer_offsets`, que es lo que dispara la
+      # compactación: el segmento activo nunca se compacta. El default son 100 MB, así que
+      # el tópico crece hasta 100 MB de basura antes de limpiarse por primera vez. Con
+      # segmentos chicos la limpieza empieza enseguida y el pico es mucho menor.
+      KAFKA_OFFSETS_TOPIC_SEGMENT_BYTES: ${KAFKA_OFFSETS_SEGMENT_BYTES:?falta KAFKA_OFFSETS_SEGMENT_BYTES en el .env}
+
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -383,6 +407,7 @@ services:
       NGINX_RATE_LIMIT: ${NGINX_RATE_LIMIT:?falta NGINX_RATE_LIMIT en el .env}
       NGINX_RATE_BURST: ${NGINX_RATE_BURST:?falta NGINX_RATE_BURST en el .env}
       NGINX_CONN_LIMIT: ${NGINX_CONN_LIMIT:?falta NGINX_CONN_LIMIT en el .env}
+      NGINX_KAFKA_CONN_LIMIT: ${NGINX_KAFKA_CONN_LIMIT:?falta NGINX_KAFKA_CONN_LIMIT en el .env}
     volumes:
       - ./reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
       - ./reverse-proxy/entrypoint.sh:/entrypoint.sh:ro
