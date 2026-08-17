@@ -765,15 +765,34 @@ ssh citypass 'cd ~/citypass-event-gateway && docker compose logs -f event-gatewa
 Actualizar a la última versión verificada de `main`:
 
 ```bash
+bash oracle/deploy.sh
+```
+
+Y para volver a una versión anterior, o desplegar un commit concreto:
+
+```bash
+bash oracle/deploy.sh SHA_DEL_COMMIT
+```
+
+El script despliega **por SHA y no por `latest`**, así el `.env` de la instancia dice
+exactamente qué versión hay corriendo y el rollback es determinístico. Hace, en orden: deja
+el checkout en ese commit —el compose y lo que monta salen de ahí, no de las imágenes—, baja
+las imágenes, reemplaza sólo los contenedores cuya imagen cambió, y espera a que
+`event-gateway` quede `healthy`. Si las imágenes no están todavía en el registro, restaura el
+`TAG` anterior y aborta sin tocar ningún contenedor.
+
+`oracle/deploy.sh` está en `.gitignore`. No contiene datos —los lee de `oracle/.env`— así que
+podés versionarlo sacando esa línea si te resulta más cómodo.
+
+Si preferís hacerlo a mano, son los dos `pull`:
+
+```bash
 ssh citypass 'cd ~/citypass-event-gateway && git pull && docker compose pull && docker compose up -d --no-build'
 ```
 
-El `git pull` trae la configuración —el compose y lo que monta— y el `docker compose pull`
-trae las imágenes. Hacen falta los dos: si sólo bajaras las imágenes, un cambio en el compose
-no se aplicaría y el despliegue diría que salió bien.
-
-Para volver a una versión anterior, poner su SHA en `TAG` del `.env` y repetir. Cada imagen
-está etiquetada con el commit del que salió, así que el rollback no reconstruye nada.
+Hacen falta los dos: el de git trae la configuración y el de docker las imágenes. Si sólo
+bajaras las imágenes, un cambio en el compose no se aplicaría **y el despliegue diría que
+salió bien**.
 
 Si cambiás el `oracle/.env.oracle` de tu máquina, la instancia **no se entera**: un `git
 pull` allá trae la plantilla, pero el `.env` que usa el sistema se genera a partir de ella y
