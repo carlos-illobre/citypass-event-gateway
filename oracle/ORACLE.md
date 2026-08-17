@@ -777,9 +777,16 @@ bash oracle/deploy.sh SHA_DEL_COMMIT
 El script despliega **por SHA y no por `latest`**, así el `.env` de la instancia dice
 exactamente qué versión hay corriendo y el rollback es determinístico. Hace, en orden: deja
 el checkout en ese commit —el compose y lo que monta salen de ahí, no de las imágenes—, baja
-las imágenes, reemplaza sólo los contenedores cuya imagen cambió, y espera a que
-`event-gateway` quede `healthy`. Si las imágenes no están todavía en el registro, restaura el
-`TAG` anterior y aborta sin tocar ningún contenedor.
+las imágenes, reemplaza los contenedores cuya imagen cambió, **recrea los que leen
+configuración montada si esa configuración cambió**, y espera a que `event-gateway` quede
+`healthy`. Si las imágenes no están todavía en el registro, restaura el `TAG` anterior y
+aborta sin tocar ningún contenedor.
+
+Ese paso de la configuración montada no es un detalle. `reverse-proxy`, `prometheus` y
+`grafana` leen archivos del repositorio por bind mount, y **`docker compose up` no recrea un
+contenedor porque cambie el contenido de un archivo montado**: sólo mira si cambió la
+definición del servicio. Sin recrearlos, editar `nginx.conf.template` o un dashboard no
+tiene ningún efecto y el despliegue informa éxito igual.
 
 `oracle/deploy.sh` está en `.gitignore`. No contiene datos —los lee de `oracle/.env`— así que
 podés versionarlo sacando esa línea si te resulta más cómodo.
