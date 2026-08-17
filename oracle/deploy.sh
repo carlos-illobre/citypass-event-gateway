@@ -114,6 +114,37 @@ paso "Reemplazando los contenedores"
 ssh "$SSH" "cd $CITYPASS_DIR && docker compose up -d --no-build --remove-orphans" \
     || morir "falló el arranque. La versión anterior era $ANTERIOR: para volver, 'bash oracle/deploy.sh $ANTERIOR'"
 
+# ── La configuración montada ─────────────────────────────────────────────────
+#
+# Tres servicios leen su configuración de archivos del repositorio, montados como bind
+# mount. `docker compose up` NO los recrea cuando ese archivo cambia de contenido: sólo
+# mira si cambió la definición del servicio en el compose.
+#
+# Sin este paso, editar nginx.conf.template, prometheus.yml o los dashboards de Grafana no
+# tiene ningún efecto —el archivo nuevo queda en el disco y el proceso sigue con el que
+# leyó al arrancar— y el despliegue informa éxito igual. Es el mismo modo de fallar que
+# cuida el `checkout` de más arriba, un nivel más adentro.
+#
+# Un `reload` de nginx tampoco alcanzaría: el entrypoint renderiza la plantilla UNA VEZ al
+# arrancar, así que recargar vuelve a leer el archivo ya renderizado, que es el viejo.
+
+paso "Aplicando la configuración"
+
+# `docker compose up` decide si recrear comparando la DEFINICIÓN del servicio, no el
+# contenido de los archivos que monta. Estos tres leen su configuración del repositorio por
+# bind mount, así que un cambio ahí les es invisible: el archivo nuevo queda en el disco y
+# el proceso sigue con el que leyó al arrancar, mientras el despliegue informa éxito.
+#
+# Se recrean SIEMPRE, sin averiguar si hacía falta. Se intentó deducirlo comparando commits
+# y el resultado fue peor: la comparación fallaba justo en los casos límite —un redespliegue
+# de la misma versión da diff vacío— y esos son precisamente los casos en que uno redespliega
+# porque algo no se aplicó. Tres reinicios de dos segundos son más baratos que una condición
+# que puede equivocarse, y acá ya se equivocó dos veces.
+
+ssh "$SSH" "cd $CITYPASS_DIR && docker compose up -d --no-build --force-recreate reverse-proxy prometheus grafana" \
+    || morir "no se pudieron recrear los servicios de configuración"
+ok "reverse-proxy, prometheus y grafana recreados con la configuración de ${SHA:0:8}"
+
 # ── La comprobación ──────────────────────────────────────────────────────────
 #
 # Un despliegue que devuelve éxito con el gateway caído es peor que uno que falla: nadie se
@@ -131,6 +162,28 @@ for i in $(seq 1 30); do
        Para volver: 'bash oracle/deploy.sh $ANTERIOR'"
     sleep 4
 done
+
+# ── La comprobación que importa ──────────────────────────────────────────────
+#
+# Todo lo anterior mira contenedores, y un contenedor sano no significa un servicio que
+# funciona: este script llegó a informar «Listo» con event-gateway healthy mientras el sitio
+# devolvía 502 a todo, porque el proxy tenía una configuración vieja. Lo único que descarta
+# eso es pedirle una respuesta al dominio real, por afuera, como lo haría un usuario.
+
+if [ -n "${DOMINIO:-}" ]; then
+    paso "Comprobando el servicio desde afuera"
+
+    for i in $(seq 1 10); do
+        codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$DOMINIO/health" || echo 000)
+        [ "$codigo" = "200" ] && { ok "https://$DOMINIO/health responde 200"; break; }
+        [ "$i" -eq 10 ] && morir "el sitio responde HTTP $codigo a través del dominio, con los contenedores sanos.
+       Suele ser el reverse-proxy: 'ssh $SSH \"docker logs reverse-proxy --tail 20\"'.
+       Para volver: 'bash oracle/deploy.sh $ANTERIOR'"
+        sleep 3
+    done
+else
+    printf '  \033[0;34m·\033[0m sin DOMINIO en oracle/.env: no se comprueba el servicio desde afuera\n'
+fi
 
 # ── Limpieza ─────────────────────────────────────────────────────────────────
 #
