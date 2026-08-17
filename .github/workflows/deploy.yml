@@ -139,15 +139,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Una variable definida en un solo ambiente hace que el otro caiga en su default
-      # sin que nada avise. Es el mismo chequeo que hace test-integration.sh.
-      - name: .env.dev y .env.prod declaran lo mismo
+      # Una variable que el compose interpola y ningún .env define cae en su default sin
+      # que nada avise: en el mejor caso el ambiente arranca distinto de lo esperado, y en
+      # el peor —una variable de seguridad— arranca abierto.
+      #
+      # Acá sólo se comprueba .env.example, que es el único que viaja en el repositorio.
+      # La paridad ENTRE ambientes la verifica test-integration.sh, que ve también los
+      # .env de las carpetas de despliegue por proveedor (están en .gitignore).
+      - name: .env.example define todo lo que el compose usa
         run: |
-          faltan=$(comm -3 \
-            <(grep -oE '^[A-Z_]+=' .env.dev  | tr -d '=' | sort) \
-            <(grep -oE '^[A-Z_]+=' .env.prod | tr -d '=' | sort))
+          faltan=$(comm -23 \
+            <(grep -oE '\$\{[A-Z_]+' docker-compose.yml | sed 's/\${//' | sort -u) \
+            <(grep -oE '^[A-Z_]+=' .env.example | tr -d '=' | sort))
           if [ -n "$faltan" ]; then
-            echo "Variables que no están en los dos archivos:"; echo "$faltan"; exit 1
+            echo "Usadas en docker-compose.yml y ausentes en .env.example:"; echo "$faltan"; exit 1
           fi
           echo "OK"
 

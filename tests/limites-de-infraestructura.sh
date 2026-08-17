@@ -23,8 +23,7 @@ leer_env() { grep -E "^$1=" "${2:-.env}" 2>/dev/null | cut -d= -f2- | tr -d '"';
 # La paridad importa: la que falte en uno de los dos .env cae en el default de la imagen
 # —7 días de offsets, 100 MB de segmento, ningún límite de conexiones— sin que nada avise.
 for var in NGINX_KAFKA_CONN_LIMIT KAFKA_OFFSETS_RETENTION_MINUTES KAFKA_OFFSETS_SEGMENT_BYTES; do
-    afirmar_que "$var está en .env.dev y .env.prod" \
-        "[ -n '$(leer_env $var .env.dev)' ] && [ -n '$(leer_env $var .env.prod)' ]"
+    afirmar_que "$var está en .env.example" "[ -n '$(leer_env $var .env.example)' ]"
 done
 
 # ── el entrypoint real conoce la variable ──
@@ -40,7 +39,7 @@ afirmar_que "el entrypoint falla si la variable no está" \
 
 # ── el bloque stream de nginx, tal como queda en producción ──
 #
-# Se renderiza la plantilla con el .env.prod real en vez de leerla a ojo: el error que se
+# Se renderiza la plantilla con el .env.example real en vez de leerla a ojo: el error que se
 # quiere atrapar es que la variable no esté en la lista de envsubst, y eso sólo se ve en
 # la configuración generada.
 if ! command -v openssl >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
@@ -53,7 +52,7 @@ else
     openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=citypass" \
         -keyout "$TMP/live/citypass/privkey.pem" -out "$TMP/live/citypass/fullchain.pem" 2>/dev/null
 
-    set -a; . ./.env.prod; set +a
+    set -a; . ./.env.example; set +a
 
     salida=$(docker run --rm \
         --add-host kafka-authorizer:127.0.0.1 --add-host event-gateway:127.0.0.1 \
@@ -74,7 +73,7 @@ else
         "echo '$salida' | grep -q 'test is successful'"
 
     stream=$(echo "$salida" | sed -n '/--- stream ---/,$p')
-    esperado=$(leer_env NGINX_KAFKA_CONN_LIMIT .env.prod)
+    esperado=$(leer_env NGINX_KAFKA_CONN_LIMIT .env.example)
 
     # El valor sustituido, no sólo la directiva: si NGINX_KAFKA_CONN_LIMIT faltara en la
     # lista de envsubst, acá quedaría el literal `${NGINX_KAFKA_CONN_LIMIT}`.
