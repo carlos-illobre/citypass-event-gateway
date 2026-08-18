@@ -18,7 +18,7 @@ services:
     logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/kafka-authorizer:${TAG:-latest}
     build:
-      context: ./kafka-authorizer
+      context: ./microservices/kafka-authorizer
     container_name: kafka-authorizer
     hostname: kafka-authorizer
     ports:
@@ -204,7 +204,7 @@ services:
     logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/auth-simulator:${TAG:-latest}
     build:
-      context: ./auth-simulator
+      context: ./microservices/auth-simulator
       dockerfile: Dockerfile
     container_name: auth-simulator
     hostname: auth-simulator
@@ -226,7 +226,7 @@ services:
     logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/event-gateway:${TAG:-latest}
     build:
-      context: ./event-gateway
+      context: ./microservices/event-gateway
       dockerfile: Dockerfile
     container_name: event-gateway
     hostname: event-gateway
@@ -286,7 +286,7 @@ services:
     logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/event-gateway-ui:${TAG:-latest}
     build:
-      context: ./event-gateway-ui
+      context: ./microservices/event-gateway-ui
       dockerfile: Dockerfile
     container_name: event-gateway-ui
     hostname: event-gateway-ui
@@ -311,7 +311,7 @@ services:
     logging: *logging
     image: ${IMAGE_PREFIX:-citypass-eda}/anomaly-detector:${TAG:-latest}
     build:
-      context: ./anomaly-detector
+      context: ./microservices/anomaly-detector
       dockerfile: Dockerfile
     container_name: anomaly-detector
     hostname: anomaly-detector
@@ -355,7 +355,7 @@ services:
       event-gateway:
         condition: service_healthy
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     restart: unless-stopped
 
@@ -377,8 +377,8 @@ services:
       # Nadie se registra solo: los usuarios los crea el administrador.
       GF_USERS_ALLOW_SIGN_UP: 'false'
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     restart: unless-stopped
 
@@ -409,8 +409,8 @@ services:
       NGINX_CONN_LIMIT: ${NGINX_CONN_LIMIT:?falta NGINX_CONN_LIMIT en el .env}
       NGINX_KAFKA_CONN_LIMIT: ${NGINX_KAFKA_CONN_LIMIT:?falta NGINX_KAFKA_CONN_LIMIT en el .env}
     volumes:
-      - ./reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
-      - ./reverse-proxy/entrypoint.sh:/entrypoint.sh:ro
+      - ./infrastructure/reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - ./infrastructure/reverse-proxy/entrypoint.sh:/entrypoint.sh:ro
       - certbot-conf:/etc/letsencrypt:ro
       - certbot-www:/var/www/certbot:ro
     entrypoint: ["/bin/sh", "/entrypoint.sh"]

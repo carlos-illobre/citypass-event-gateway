@@ -1,12 +1,17 @@
-# Poner CityPass+ EDA online en Oracle Cloud
+# Poner CityPass+ EDA online en Oracle Cloud — una sola VM
 
 Guía paso a paso, de una cuenta recién creada a la aplicación funcionando en internet con
 HTTPS. Once pasos, en orden, sin vueltas atrás: nada de lo que hacés acá se deshace después.
 
+Todo el sistema corre en **una única instancia Always Free**. Es la topología más simple que
+funciona, y la que cabe entera en la capa gratuita; de ahí el `-single` de la carpeta. Otras
+topologías sobre Oracle —repartir los servicios entre varias VMs, por ejemplo— van en
+carpetas hermanas de `deployment/`, no acá.
+
 Cada paso dice qué esperar y qué hacer si no sale.
 
-> **Esta carpeta se versiona, menos un archivo.** Todo lo de `oracle/` es genérico salvo
-> `oracle/.env`, que está en `.gitignore` y es el **único** lugar con datos concretos:
+> **Esta carpeta se versiona, menos un archivo.** Todo lo de `deployment/oracle-single/` es genérico salvo
+> `deployment/oracle-single/.env`, que está en `.gitignore` y es el **único** lugar con datos concretos:
 > dominio, IP, mail y tokens. Para seguir esta guía, empezá creando ese archivo con tus
 > valores —hay un ejemplo comentado en el que ya está—.
 >
@@ -116,7 +121,7 @@ A partir de acá alcanza con `ssh citypass`.
 **Desde tu máquina**, sin copiar nada:
 
 ```bash
-ssh citypass 'bash -s' < oracle/preflight.sh
+ssh citypass 'bash -s' < deployment/oracle-single/preflight.sh
 ```
 
 `bash -s` hace que bash lea el script de la entrada estándar, y `ssh` conecta tu archivo
@@ -255,12 +260,12 @@ ssh citypass 'git clone https://github.com/carlos-illobre/citypass-event-gateway
 Queda en `~/citypass-event-gateway`, o sea el directorio donde caés al conectarte por SSH:
 un `ls` al entrar te lo muestra. No hace falta `sudo` ni cambiar dueños, porque es tuyo.
 
-Y ahora la configuración. Los valores salen de `oracle/.env`, el archivo con tus datos que
+Y ahora la configuración. Los valores salen de `deployment/oracle-single/.env`, el archivo con tus datos que
 no se versiona:
 
 ```bash
-set -a; . oracle/.env; set +a
-sed -e "s|TU_DOMINIO|$DOMINIO|g" -e "s|TU_MAIL|$MAIL|g" oracle/.env.oracle \
+set -a; . deployment/oracle-single/.env; set +a
+sed -e "s|TU_DOMINIO|$DOMINIO|g" -e "s|TU_MAIL|$MAIL|g" deployment/oracle-single/.env.oracle \
   | ssh citypass 'cd ~/citypass-event-gateway && cat > .env && while grep -q "=CAMBIAR" .env; do sed -i "0,/=CAMBIAR/s//=$(openssl rand -hex 18)/" .env; done && echo ".env listo"'
 ```
 
@@ -270,7 +275,7 @@ Grafana y para kafka-ui. **No hay nada que editar a mano en la instancia.**
 Tres detalles del comando, por si algo falla:
 
 - El `sed` corre **en tu máquina** y el resultado viaja por la conexión, así que
-  `oracle/.env.oracle` queda intacto con sus marcadores, listo para la próxima instancia.
+  `deployment/oracle-single/.env.oracle` queda intacto con sus marcadores, listo para la próxima instancia.
 - `cat > .env` **reemplaza** el archivo si ya existía, sin preguntar. Correrlo de nuevo es la
   forma normal de reconfigurar; el costo es que **genera contraseñas nuevas**, así que las de
   Grafana y kafka-ui cambian en cada envío.
@@ -749,6 +754,10 @@ En una cuenta **Pay As You Go** los recursos gratuitos conviven con los que se c
   almacenamiento: si se llena no se puede agrandar sin pagar. Lo acotan tres cosas, todas en
   el `.env`: la rotación de los logs de contenedores, la retención de Kafka por tamaño, y el
   rate limit por namespace multiplicado por el tamaño máximo del evento.
+- **Las imágenes viejas se acumulan solas.** Cada despliegue baja un juego nuevo etiquetado
+  con su SHA, y el anterior queda ocupando lugar. `deploy.sh` las borra al final y te informa
+  cuánto liberó y cuánto disco queda; si preferís mirarlo aparte, `ssh <destino> 'docker
+  system df'` muestra el total y cuánto es recuperable.
 
 ---
 
@@ -765,13 +774,13 @@ ssh citypass 'cd ~/citypass-event-gateway && docker compose logs -f event-gatewa
 Actualizar a la última versión verificada de `main`:
 
 ```bash
-bash oracle/deploy.sh
+bash deployment/oracle-single/deploy.sh
 ```
 
 Y para volver a una versión anterior, o desplegar un commit concreto:
 
 ```bash
-bash oracle/deploy.sh SHA_DEL_COMMIT
+bash deployment/oracle-single/deploy.sh SHA_DEL_COMMIT
 ```
 
 El script despliega **por SHA y no por `latest`**, así el `.env` de la instancia dice
@@ -788,8 +797,8 @@ contenedor porque cambie el contenido de un archivo montado**: sólo mira si cam
 definición del servicio. Sin recrearlos, editar `nginx.conf.template` o un dashboard no
 tiene ningún efecto y el despliegue informa éxito igual.
 
-`oracle/deploy.sh` está en `.gitignore`. No contiene datos —los lee de `oracle/.env`— así que
-podés versionarlo sacando esa línea si te resulta más cómodo.
+`deployment/oracle-single/deploy.sh` se versiona: no contiene ningún dato del despliegue, los lee
+todos de `deployment/oracle-single/.env`, que es el único archivo ignorado de la carpeta.
 
 Si preferís hacerlo a mano, son los dos `pull`:
 
@@ -801,7 +810,7 @@ Hacen falta los dos: el de git trae la configuración y el de docker las imágen
 bajaras las imágenes, un cambio en el compose no se aplicaría **y el despliegue diría que
 salió bien**.
 
-Si cambiás el `oracle/.env.oracle` de tu máquina, la instancia **no se entera**: un `git
+Si cambiás el `deployment/oracle-single/.env.oracle` de tu máquina, la instancia **no se entera**: un `git
 pull` allá trae la plantilla, pero el `.env` que usa el sistema se genera a partir de ella y
 no se rehace solo. Hay que volver a mandarlo con el comando del paso 6, que **reemplaza el
 `.env` remoto** sin preguntar.

@@ -74,5 +74,5 @@ quedar un estado a medias con dos ajustes aflojados y uno no.
 - `COMPOSE_PROFILES` acepta en silencio un perfil inexistente: un error de tipeo no levanta
   el proxy y no avisa. Falla cerrado —el despliegue queda inalcanzable— pero el diagnóstico
   no es obvio, y por eso está documentado en el propio `.env`.
-- Nada impide que los dos archivos se desincronicen, así que `test-integration.sh` comprueba
+- Nada impide que los dos archivos se desincronicen, así que `tests/itest.sh` comprueba
   que declaren el mismo conjunto de variables.

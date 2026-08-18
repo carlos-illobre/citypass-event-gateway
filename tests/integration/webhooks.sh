@@ -9,8 +9,8 @@
 #   - un webhook que no responde      → cada evento cuesta ~19 s de timeouts, para siempre
 #
 # La segunda es la peligrosa: alcanza con uno solo.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ webhooks"
 
@@ -24,7 +24,7 @@ UMBRAL_FALLOS=$(leer_env WEBHOOK_FAILURES_BEFORE_DISABLE)
 FQN="com.citypass.movilidad.PruebaWebhooks"
 
 limpiar() {
-    python3 tests/limpiar_webhooks.py "$TOKEN" "$FQN" >/dev/null 2>&1
+    python3 tests/integration/limpiar_webhooks.py "$TOKEN" "$FQN" >/dev/null 2>&1
     curl -s -X DELETE "http://localhost:8080/api/v1/event-types/$FQN" -H "Authorization: Bearer $TOKEN" -o /dev/null
 }
 limpiar
@@ -59,18 +59,18 @@ fi
 # Queda una sola suscripción: el cortacircuitos es POR suscripción, así que con tres
 # activas se silenciaría una mientras las otras dos siguen abriendo conexiones, y la
 # comprobación de "no abre ninguna" mediría algo que no es.
-python3 tests/limpiar_webhooks.py "$TOKEN" "$FQN" --dejar-una >/dev/null 2>&1
+python3 tests/integration/limpiar_webhooks.py "$TOKEN" "$FQN" --dejar-una >/dev/null 2>&1
 
 # Se publican los eventos necesarios para agotar el umbral. Cada uno cuesta unos 19 s de
 # timeouts, así que la espera es larga por definición: es exactamente el problema que el
 # cortacircuitos elimina.
-python3 tests/publicar_n.py "$TOKEN" "$FQN" $((UMBRAL_FALLOS + 2)) >/dev/null
+python3 tests/integration/publicar_n.py "$TOKEN" "$FQN" $((UMBRAL_FALLOS + 2)) >/dev/null
 
 silenciada=no
 for _ in $(seq 1 20); do
     sleep 15
     estado=$(curl -s http://localhost:8080/api/v1/subscriptions -H "Authorization: Bearer $TOKEN" \
-        | python3 tests/estado_webhook.py "$FQN")
+        | python3 tests/integration/estado_webhook.py "$FQN")
     if [ "$estado" = "silenced" ]; then silenciada=si; break; fi
 done
 afirmar "la suscripción a un destino muerto termina silenciada" "si" "$silenciada"
@@ -82,7 +82,7 @@ if [ "$silenciada" = "si" ]; then
     # 25s" el corte alcanzaba el instante en que la suscripción se silenció y contaba el
     # último intento legítimo de entonces como si fuera posterior.
     desde=$(date -u +%Y-%m-%dT%H:%M:%S)
-    python3 tests/publicar_n.py "$TOKEN" "$FQN" 3 >/dev/null
+    python3 tests/integration/publicar_n.py "$TOKEN" "$FQN" 3 >/dev/null
     sleep 15
     intentos=$(docker logs event-gateway --since "$desde" 2>&1 | grep -c "Webhook attempt" || true)
     omitidas=$(docker logs event-gateway --since "$desde" 2>&1 | grep -c "se omite la entrega" || true)

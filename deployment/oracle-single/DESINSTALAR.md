@@ -6,10 +6,10 @@ Cómo dejar la instancia como estaba, deshaciendo lo que hizo
 Está organizado en **niveles**: cada uno borra más que el anterior. Podés parar en cualquiera.
 Sólo los dos primeros son reversibles sin volver a instalar.
 
-Todos los comandos se corren **desde tu máquina**, con los valores de `oracle/.env`:
+Todos los comandos se corren **desde tu máquina**, con los valores de `deployment/oracle-single/.env`:
 
 ```bash
-set -a; . oracle/.env; set +a
+set -a; . deployment/oracle-single/.env; set +a
 ```
 
 ---
@@ -202,7 +202,7 @@ no cuestan nada. Si igual las querés sacar, es desde
 El archivo con tus datos:
 
 ```bash
-rm oracle/.env
+rm deployment/oracle-single/.env
 ```
 
 Y la entrada de `~/.ssh/config`. Primero mirá qué hay:
@@ -228,7 +228,7 @@ mv /tmp/sshconfig.nuevo ~/.ssh/config && chmod 600 ~/.ssh/config
 > en blanco —y las creadas con `>>` no terminan—, el rango llega hasta el final del archivo y
 > **se lleva puestas todas las entradas siguientes**.
 
-Ese `.env` es el único archivo de `oracle/` con datos concretos; el resto es genérico y puede
+Ese `.env` es el único archivo de `deployment/oracle-single/` con datos concretos; el resto es genérico y puede
 quedarse en el repositorio para la próxima vez.
 
 ---

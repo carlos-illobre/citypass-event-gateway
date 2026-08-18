@@ -3,7 +3,7 @@
 #
 # Cada script comprueba una cosa que hoy sólo se verificaba a mano y que se rompe al
 # cambiar configuración: los techos de recursos, la retención, el rate limit, el cupo.
-# La idea es que después de tocar un .env o el compose, `./test-integration.sh` diga si
+# La idea es que después de tocar un .env o el compose, `./tests/itest.sh` diga si
 # algo dejó de cumplirse, en lugar de descubrirlo en la instancia.
 
 set -uo pipefail

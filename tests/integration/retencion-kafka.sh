@@ -4,8 +4,8 @@
 # Es la comprobación que distingue una retención configurada de una que funciona: Kafka
 # borra SEGMENTOS enteros, así que si log.segment.bytes fuera mayor que la retención el
 # techo quedaría escrito y no haría nada. Ese error no se ve leyendo la configuración.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ retención de Kafka"
 
@@ -47,7 +47,7 @@ fi
 # Se publica el doble de la retención para forzar varias rotaciones. El rate limit es
 # por namespace y por minuto, así que un 429 no es un fallo: se espera a la ventana
 # siguiente. Sin esto el test dependería de que nadie haya usado el namespace hace poco.
-publicados=$(python3 tests/publicar_hasta.py "$TOKEN" "$RETENCION")
+publicados=$(python3 tests/integration/publicar_hasta.py "$TOKEN" "$RETENCION")
 bytes_publicados=$(( publicados * 20000 ))
 afirmar_que "se publicó más que la retención ($bytes_publicados > $RETENCION)" \
     "[ $bytes_publicados -gt $RETENCION ]"

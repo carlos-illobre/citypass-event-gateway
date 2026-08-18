@@ -3,8 +3,8 @@
 #
 # Un rate limit mal cableado no falla: simplemente no corta, y eso sólo se nota cuando
 # alguien llena el disco. Lo mismo el tamaño máximo del evento y el cupo de event types.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ límites de la API"
 

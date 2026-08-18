@@ -11,8 +11,8 @@
 #   - `__consumer_offsets` → es compactado, así que KAFKA_RETENTION_BYTES no lo acota: la
 #     compactación conserva el último registro por clave y la clave incluye el group.id,
 #     que el cliente elige. Kafka no tiene techo de cantidad de grupos.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ límites de infraestructura"
 
@@ -28,14 +28,14 @@ done
 
 # ── el entrypoint real conoce la variable ──
 #
-# Se comprueba sobre reverse-proxy/entrypoint.sh y no sobre la copia que usa este test más
+# Se comprueba sobre infrastructure/reverse-proxy/entrypoint.sh y no sobre la copia que usa este test más
 # abajo: son dos listas de envsubst distintas, y si sólo se mirara la de acá el test podría
 # quedar en verde con el entrypoint de producción dejando `${NGINX_KAFKA_CONN_LIMIT}` sin
 # sustituir. Ese es exactamente el fallo que se quiere atrapar.
 afirmar_que "el entrypoint sustituye NGINX_KAFKA_CONN_LIMIT" \
-    "grep -q 'envsubst.*NGINX_KAFKA_CONN_LIMIT' reverse-proxy/entrypoint.sh"
+    "grep -q 'envsubst.*NGINX_KAFKA_CONN_LIMIT' infrastructure/reverse-proxy/entrypoint.sh"
 afirmar_que "el entrypoint falla si la variable no está" \
-    "grep -q '\${NGINX_KAFKA_CONN_LIMIT:?' reverse-proxy/entrypoint.sh"
+    "grep -q '\${NGINX_KAFKA_CONN_LIMIT:?' infrastructure/reverse-proxy/entrypoint.sh"
 
 # ── el bloque stream de nginx, tal como queda en producción ──
 #
@@ -59,7 +59,7 @@ else
         --add-host auth-simulator:127.0.0.1 --add-host event-gateway-ui:127.0.0.1 \
         -e NGINX_MAX_BODY -e NGINX_RATE_LIMIT -e NGINX_RATE_BURST -e NGINX_CONN_LIMIT \
         -e NGINX_KAFKA_CONN_LIMIT \
-        -v "$PWD/reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro" \
+        -v "$PWD/infrastructure/reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro" \
         -v "$TMP:/etc/letsencrypt:ro" \
         --entrypoint sh nginx:1.27-alpine -c '
             envsubst "\${NGINX_MAX_BODY} \${NGINX_RATE_LIMIT} \${NGINX_RATE_BURST} \${NGINX_CONN_LIMIT} \${NGINX_KAFKA_CONN_LIMIT}" \
