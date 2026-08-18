@@ -4,8 +4,8 @@
 # Docker acepta un compose con mem_limit o logging mal escritos sin quejarse: los ignora
 # y el contenedor arranca sin techo. Lo único que lo demuestra es preguntarle al
 # contenedor en marcha.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ techos de recursos"
 

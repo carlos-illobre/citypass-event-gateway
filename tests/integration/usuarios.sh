@@ -7,8 +7,8 @@
 #
 # Es fácil de perder sin darse cuenta: alcanza con que alguien agregue un RUN después del
 # USER, o con reescribir un Dockerfile y olvidarse la línea. El contenedor arranca igual.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ usuarios de los contenedores"
 

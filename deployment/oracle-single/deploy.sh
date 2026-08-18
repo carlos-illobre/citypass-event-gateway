@@ -6,10 +6,10 @@
 # las imágenes de los cinco servicios se bajan del registro y se reemplazan sólo los
 # contenedores cuya imagen cambió.
 #
-#   bash oracle/deploy.sh              # despliega el último commit verificado de main
-#   bash oracle/deploy.sh <sha>        # despliega un commit concreto, o vuelve a uno anterior
+#   bash deployment/oracle-single/deploy.sh              # despliega el último commit verificado de main
+#   bash deployment/oracle-single/deploy.sh <sha>        # despliega un commit concreto, o vuelve a uno anterior
 #
-# Todo sale de oracle/.env, así que este archivo no contiene ningún dato del despliegue.
+# Todo sale de deployment/oracle-single/.env, así que este archivo no contiene ningún dato del despliegue.
 #
 # ── Por qué despliega por SHA y no por `latest` ──
 #
@@ -25,10 +25,10 @@ ok()   { printf '  \033[0;32m✓\033[0m %s\n' "$1"; }
 paso() { printf '\n\033[1m▶ %s\033[0m\n' "$1"; }
 morir() { printf '\n\033[0;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
-[ -f oracle/.env ] || morir "falta oracle/.env — es de donde salen el destino SSH y la ruta remota"
-set -a; . oracle/.env; set +a
-: "${SSH:?falta SSH en oracle/.env}"
-: "${CITYPASS_DIR:?falta CITYPASS_DIR en oracle/.env}"
+[ -f deployment/oracle-single/.env ] || morir "falta deployment/oracle-single/.env — es de donde salen el destino SSH y la ruta remota"
+set -a; . deployment/oracle-single/.env; set +a
+: "${SSH:?falta SSH en deployment/oracle-single/.env}"
+: "${CITYPASS_DIR:?falta CITYPASS_DIR en deployment/oracle-single/.env}"
 
 # ── Qué versión desplegar ────────────────────────────────────────────────────
 
@@ -112,7 +112,7 @@ ok "imágenes de ${SHA:0:8} en la instancia"
 paso "Reemplazando los contenedores"
 
 ssh "$SSH" "cd $CITYPASS_DIR && docker compose up -d --no-build --remove-orphans" \
-    || morir "falló el arranque. La versión anterior era $ANTERIOR: para volver, 'bash oracle/deploy.sh $ANTERIOR'"
+    || morir "falló el arranque. La versión anterior era $ANTERIOR: para volver, 'bash deployment/oracle-single/deploy.sh $ANTERIOR'"
 
 # ── La configuración montada ─────────────────────────────────────────────────
 #
@@ -156,10 +156,10 @@ for i in $(seq 1 30); do
     estado=$(ssh "$SSH" "docker inspect -f '{{.State.Health.Status}}' event-gateway" 2>/dev/null || echo desconocido)
     case "$estado" in
         healthy)   ok "event-gateway healthy"; break ;;
-        unhealthy) morir "event-gateway quedó unhealthy. Para volver: 'bash oracle/deploy.sh $ANTERIOR'" ;;
+        unhealthy) morir "event-gateway quedó unhealthy. Para volver: 'bash deployment/oracle-single/deploy.sh $ANTERIOR'" ;;
     esac
     [ "$i" -eq 30 ] && morir "el gateway no llegó a healthy en 2 minutos. Revisá 'docker compose logs event-gateway'.
-       Para volver: 'bash oracle/deploy.sh $ANTERIOR'"
+       Para volver: 'bash deployment/oracle-single/deploy.sh $ANTERIOR'"
     sleep 4
 done
 
@@ -178,22 +178,50 @@ if [ -n "${DOMINIO:-}" ]; then
         [ "$codigo" = "200" ] && { ok "https://$DOMINIO/health responde 200"; break; }
         [ "$i" -eq 10 ] && morir "el sitio responde HTTP $codigo a través del dominio, con los contenedores sanos.
        Suele ser el reverse-proxy: 'ssh $SSH \"docker logs reverse-proxy --tail 20\"'.
-       Para volver: 'bash oracle/deploy.sh $ANTERIOR'"
+       Para volver: 'bash deployment/oracle-single/deploy.sh $ANTERIOR'"
         sleep 3
     done
 else
-    printf '  \033[0;34m·\033[0m sin DOMINIO en oracle/.env: no se comprueba el servicio desde afuera\n'
+    printf '  \033[0;34m·\033[0m sin DOMINIO en deployment/oracle-single/.env: no se comprueba el servicio desde afuera\n'
 fi
 
 # ── Limpieza ─────────────────────────────────────────────────────────────────
 #
-# Sólo las imágenes que ya no usa ningún contenedor. Sin esto, cada despliegue deja las
-# anteriores ocupando disco.
+# Las imágenes que ya no usa ningún contenedor. Sin esto, cada despliegue deja las
+# anteriores ocupando disco, y el boot volume de la Always Free no sobra.
+#
+# El `-a` NO es opcional: sin él, `prune` borra sólo las imágenes *colgantes* (sin tag), y
+# las del despliegue anterior no lo están —quedan etiquetadas con su SHA—, así que
+# sobrevivirían para siempre. Cada despliegue usa un TAG distinto, con lo cual sin `-a` esto
+# no libera absolutamente nada.
+#
+# Es seguro porque todos los servicios del compose, certbot incluido, corren de forma
+# permanente: sus imágenes están en uso y `prune` no las toca. Lo único que queda "sin uso"
+# son los SHA viejos.
+#
+# El `until=24h` deja intacto el último día: volver al despliegue anterior sigue siendo
+# instantáneo durante ese margen, sin tener que bajar las imágenes de nuevo.
+#
+# Lo que libera se informa, y el disco que queda también: el boot volume es un recurso
+# finito y silencioso —nada avisa hasta que Kafka no puede escribir—, así que cada
+# despliegue deja el número a la vista. Si "liberado" es 0 B despliegue tras despliegue
+# mientras el disco baja, la limpieza dejó de hacer su trabajo y se ve en el momento.
+#
+# Ninguno de los dos comandos es crítico: si fallan, el despliegue ya terminó bien. Por eso
+# no cortan, sólo dejan el dato sin informar.
 
-ssh "$SSH" "docker image prune -f --filter 'until=24h'" >/dev/null 2>&1 || true
+paso "Limpiando imágenes sin uso"
+
+LIBERADO=$(ssh "$SSH" "docker image prune -af --filter 'until=24h'" 2>/dev/null \
+           | grep -i '^Total reclaimed space:' | cut -d: -f2- | tr -d ' ') || true
+ok "liberado ${LIBERADO:-desconocido}"
+
+DISCO=$(ssh "$SSH" 'df -h / | tail -1' 2>/dev/null \
+        | awk '{print $4" libres de "$2" ("$5" usado)"}') || true
+[ -n "${DISCO:-}" ] && ok "disco $DISCO"
 
 paso "Listo"
 printf '  desplegado  %s\n' "${SHA:0:8}"
 printf '  anterior    %s\n' "${ANTERIOR:0:8}"
 [ -n "${DOMINIO:-}" ] && printf '  verificar   curl https://%s/health\n' "$DOMINIO"
-printf '  volver      bash oracle/deploy.sh %s\n' "$ANTERIOR"
+printf '  volver      bash deployment/oracle-single/deploy.sh %s\n' "$ANTERIOR"

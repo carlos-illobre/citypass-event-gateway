@@ -5,8 +5,8 @@
 # datasource no tiene un uid fijo, Grafana le asigna uno al azar y la regla —que lo
 # referencia por uid— falla con "data source not found". Se ve verde en la lista de
 # reglas y no evalúa nunca.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ alerta de disco"
 
@@ -38,7 +38,7 @@ afirmar "la regla referencia el datasource por su uid fijo" "si" "$usa_ds"
 #
 # Es lo que distingue una regla cargada de una que funciona.
 estado=$(curl -s -u "$U:$P" "$API/api/prometheus/grafana/api/v1/rules" 2>/dev/null \
-    | python3 tests/estado_alerta.py)
+    | python3 tests/integration/estado_alerta.py)
 
 salud="${estado%%|*}"
 error="${estado#*|}"

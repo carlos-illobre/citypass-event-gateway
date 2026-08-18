@@ -377,7 +377,7 @@ Un script de verificación comprueba que los dos archivos declaren exactamente l
 variables, para que ninguna quede definida en uno solo:
 
 ```bash
-./test-integration.sh
+./tests/itest.sh
 ```
 
 ---

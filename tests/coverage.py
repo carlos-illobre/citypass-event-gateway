@@ -9,7 +9,7 @@ muestre los números arriba de todo sin que nadie los mantenga a mano. Los de
 Lee lo que el build ya produce —el XML de JaCoCo y los resultados JUnit— así que no hay
 un segundo cálculo que pueda diferir del que hace fallar la compuerta.
 
-Uso:  python3 scripts/resumen-cobertura.py <directorio-del-proyecto> [nombre]
+Uso:  python3 tests/coverage.py <directorio-del-proyecto> [nombre]
 """
 
 import glob

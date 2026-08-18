@@ -2,15 +2,15 @@
 # Verificación previa de la instancia. NO modifica nada: sólo informa.
 #
 # Comprueba todo lo que puede estar mal antes de instalar, con el remedio de cada caso
-# documentado en oracle/ORACLE.md, sección 4.
+# documentado en deployment/oracle-single/ORACLE.md, sección 4.
 #
 # Conviene correrlo ANTES del primer `docker compose up`: una vez que el sistema está
 # arriba, la comprobación de puertos libres marca como ocupados los que usa el stack.
 #
 # Dos formas de correrlo:
 #
-#   en la instancia   bash oracle/preflight.sh
-#   desde tu máquina  ssh <destino> 'bash -s' < oracle/preflight.sh
+#   en la instancia   bash deployment/oracle-single/preflight.sh
+#   desde tu máquina  ssh <destino> 'bash -s' < deployment/oracle-single/preflight.sh
 #
 # La segunda no copia nada: el script viaja por stdin y no toca el disco remoto, así que
 # sirve incluso antes de clonar el repositorio en la instancia.
@@ -177,5 +177,5 @@ if [ "$FALTA" -eq 0 ]; then
     echo "  Todo listo."
 else
     echo "  Hay que resolver lo marcado con ✗ antes de seguir."
-    echo "  El remedio de cada uno está en oracle/ORACLE.md, sección 4."
+    echo "  El remedio de cada uno está en deployment/oracle-single/ORACLE.md, sección 4."
 fi

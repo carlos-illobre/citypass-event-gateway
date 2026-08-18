@@ -50,7 +50,7 @@ edite a propósito.
 Todo junto, incluyendo la verificación de cobertura:
 
 ```bash
-cd event-gateway && ./gradlew build
+cd microservices/event-gateway && ./gradlew build
 ```
 
 `build` ejecuta los tests unitarios, los de integración y el umbral de cobertura. Si alguno
@@ -68,14 +68,24 @@ Sólo los de integración:
 ./gradlew integrationTest
 ```
 
-Y desde la raíz del repo, que además verifica la coherencia de la configuración por
-ambiente:
+Y desde la raíz del repo hay dos corredores, separados a propósito:
 
 ```bash
-./test-integration.sh
+./tests/utest.sh
 ```
 
-Los reportes quedan en `event-gateway/build/reports/`:
+Los unitarios de **todos** los microservicios que tienen —hoy `event-gateway` y
+`kafka-authorizer`—. Corren en segundos porque no levantan nada, y **exigen el 100 %**: el
+script sale con código 1 si alguno baja, nombrando cuál y en qué métrica.
+
+```bash
+./tests/itest.sh
+```
+
+Los de integración, que necesitan el stack arriba y no tienen esa compuerta. Además
+verifican la coherencia de la configuración por ambiente.
+
+Los reportes quedan en `microservices/event-gateway/build/reports/`:
 `tests/test/index.html` y `jacoco/test/html/index.html`.
 
 ---
@@ -136,14 +146,14 @@ el stack no reporte fallas inexistentes. Con `--rapido` se saltean las pruebas l
 —llenar un tópico, agotar el rate limit— que tardan varios minutos.
 
 ```bash
-./test-integration.sh            # todo
-./test-integration.sh --rapido   # sin las lentas
+./tests/itest.sh            # todo
+./tests/itest.sh --rapido   # sin las lentas
 bash tests/retencion-kafka.sh    # una sola
 ```
 
 ### Verificación de configuración
 
-`test-integration.sh` comprueba que todos los `.env.*` declaren exactamente las mismas
+`tests/itest.sh` comprueba que todos los `.env.*` declaren exactamente las mismas
 variables y que ninguna de las que usa el compose quede sin definir. No es un test de
 código, pero previene un fallo real: una variable que quede definida en un solo ambiente
 hace que el otro caiga en el default sin que nada avise.
@@ -206,7 +216,7 @@ críticos se verificó rompiendo el código a propósito:
 | `enable.auto.commit` a `true` y quitar `ackMode=RECORD` | Sí: falla el unitario y el de broker embebido |
 | Quitar el read timeout del cliente de webhooks | Sí |
 | Quitar `@Service` de `CallbackUrlValidator` | Sí: los cuatro tests de contexto fallan con `NoSuchBeanDefinitionException` |
-| Borrar una variable de un `.env.*` | Sí: `test-integration.sh` la nombra y sale con código 1 |
+| Borrar una variable de un `.env.*` | Sí: `tests/itest.sh` la nombra y sale con código 1 |
 
 Ese ejercicio encontró **dos tests decorativos** que había que arreglar:
 

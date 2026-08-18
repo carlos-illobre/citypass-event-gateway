@@ -8,8 +8,8 @@
 #
 # Es el ataque más barato contra el disco, así que conviene que quede probado y no
 # confiado a que nadie vuelva a cambiar la unidad de cuenta.
-cd "$(dirname "$0")/.." || exit 1
-source tests/comun.sh
+cd "$(dirname "$0")/../.." || exit 1
+source tests/integration/comun.sh
 
 echo "▶ techo de tópicos"
 
@@ -26,7 +26,7 @@ curl -s -X DELETE "http://localhost:8080/api/v1/event-types/$FQN" -H "Authorizat
 usados_antes=$(curl -s http://localhost:8080/api/v1/event-types/quota -H "Authorization: Bearer $TOKEN" \
     | python3 -c 'import sys,json;print(json.load(sys.stdin)["used"])' 2>/dev/null)
 
-resultado=$(python3 tests/romper_contrato.py "$TOKEN" "$FQN" $((MAX_VERSIONES + 3)))
+resultado=$(python3 tests/integration/romper_contrato.py "$TOKEN" "$FQN" $((MAX_VERSIONES + 3)))
 versiones=$(echo "$resultado" | cut -d' ' -f1)
 codigo=$(echo "$resultado" | cut -d' ' -f2)
 
