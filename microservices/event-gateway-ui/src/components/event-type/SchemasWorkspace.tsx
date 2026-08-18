@@ -4,6 +4,7 @@ import { gateway, type EventTypeSchema, type EventTypeSummary } from '@/api/gate
 import { dataRecordOf, fromAvroFields, makeField, type FieldDef } from '@/domain/avro'
 import { CreateEventTypeForm } from './CreateEventTypeForm'
 import { EventTypeList } from './EventTypeList'
+import { BackupPanel } from './BackupPanel'
 import { PreviewPanel } from './PreviewPanel'
 import './SchemasWorkspace.css'
 
@@ -70,6 +71,8 @@ export function SchemasWorkspace() {
   return (
     <div className="ws">
       <div className="ws-list">
+        <BackupPanel onRestored={() => setRefresh(k => k + 1)} />
+
         <EventTypeList
           key={refreshKey}
           selectedFqn={editing?.fqn ?? null}

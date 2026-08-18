@@ -63,6 +63,32 @@ export type EventTypeQuota = {
   totalRemaining: number
 }
 
+/**
+ * Un event type dentro de un archivo de backup.
+ *
+ * `fields` viene en el mismo formato que espera el alta, así que restaurar es volver a
+ * registrar sin traducción. `version` y `versions` describen lo que había al exportar:
+ * son informativos, porque una restauración deja todo en v1.
+ */
+export type BackupEventType = {
+  name:     string
+  fqn:      string
+  fields:   AvroField[]
+  version:  number
+  topic:    string
+  versions: EventTypeVersion[]
+}
+
+export type SchemaBackup = {
+  formatVersion: number
+  namespace:     string
+  exportedAt:    string
+  eventTypes:    BackupEventType[]
+}
+
+/** El formato que esta versión de la interfaz sabe restaurar. */
+export const BACKUP_FORMAT_VERSION = 1
+
 export type CreateEventTypePayload = {
   name: string
   fields: AvroField[]
@@ -160,6 +186,16 @@ export const gateway = {
 
   getQuota: (token: string): Promise<EventTypeQuota> =>
     apiFetch<EventTypeQuota>(`${BASE}/quota`, { token }),
+
+  /**
+   * Backup de todos los event types del namespace del token.
+   *
+   * Es un pedido y no uno por event type: el listado más un `GET` por cada tipo daría
+   * una foto que puede cambiar entre medio, y acá lo que se guarda tiene que ser
+   * consistente consigo mismo.
+   */
+  exportBackup: (token: string): Promise<SchemaBackup> =>
+    apiFetch<SchemaBackup>(`${BASE}/export`, { token }),
 
   getEventTypeSchema: (token: string, fqn: string): Promise<EventTypeSchema> =>
     apiFetch<EventTypeSchema>(path(fqn), { token }),
