@@ -29,6 +29,11 @@
   flex-direction: column;
   min-height: 0;
 }
+/* La columna ahora lleva dos tarjetas. El backup ocupa lo que necesita y el alto
+   sobrante queda para el listado, que es el que scrollea por dentro. */
+.ws-list { gap: 1.25rem; }
+.ws-list > .bk { flex: 0 0 auto; }
+.ws-list > .et-list { flex: 1 1 auto; }
 /* Scrollea la lista, no la tarjeta: así el encabezado y el contador quedan fijos. */
 .ws-list .et-items {
   overflow-y: auto;

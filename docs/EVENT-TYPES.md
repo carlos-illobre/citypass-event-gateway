@@ -17,7 +17,8 @@ El razonamiento detrás del diseño está en
 4. [Cuando el cambio rompe: migrar](#4-cuando-el-cambio-rompe-migrar)
 5. [Enterarse de que un contrato cambió](#5-enterarse-de-que-un-contrato-cambió)
 6. [Borrar](#6-borrar)
-7. [Preguntas frecuentes](#7-preguntas-frecuentes)
+7. [Backup y restauración](#7-backup-y-restauración)
+8. [Preguntas frecuentes](#8-preguntas-frecuentes)
 
 ---
 
@@ -291,7 +292,70 @@ no vuelve a entregar nada.
 
 ---
 
-## 7. Preguntas frecuentes
+## 7. Backup y restauración
+
+Todos tus event types se pueden bajar en un archivo JSON y volver a crear después desde
+él. En la interfaz son los dos botones del panel **Backup**; por API es un endpoint:
+
+```bash
+curl -s http://localhost:8080/api/v1/event-types/export \
+     -H "Authorization: Bearer $TOKEN" > mis-schemas.json
+```
+
+El namespace sale del token: exportás lo tuyo y nada más.
+
+### Qué guarda el archivo
+
+De cada event type, la **versión vigente** —la que recibe eventos hoy— con sus campos de
+negocio en el mismo formato que acepta el alta. Restaurar es volver a registrarlos, sin
+traducción intermedia.
+
+```json
+{
+  "formatVersion": 1,
+  "namespace": "com.citypass.movilidad",
+  "exportedAt": "2026-08-18T02:06:21.618Z",
+  "eventTypes": [
+    {
+      "name": "BiciDevuelta",
+      "fqn": "com.citypass.movilidad.BiciDevuelta",
+      "fields": [{"name": "biciId", "type": "string"}],
+      "version": 1,
+      "topic": "com.citypass.movilidad.BiciDevuelta",
+      "versions": [{"version": 1, "topic": "…", "schemaId": 7}]
+    }
+  ]
+}
+```
+
+### Qué no restaura, y por qué se dice
+
+**Las versiones mayores no se recrean.** Un event type que se rompió una vez tiene v1 y v2
+con tópicos separados, y esas versiones nacen de un cambio incompatible cuya
+compatibilidad **evalúa el gateway**: replicarlas significaría recrear la v1, aplicarle un
+cambio y esperar que el gateway decida bumpear igual que la primera vez. No es
+determinístico, así que no se intenta. Se restaura la vigente como v1.
+
+Lo que existía queda anotado en `versions`. Es información, no promesa: el archivo dice
+qué había, y así lo que el backup no puede reproducir no desaparece en silencio.
+
+**Los eventos publicados tampoco.** Esto respalda contratos, no datos: los eventos viven
+en Kafka con su retención.
+
+### Restaurar
+
+La interfaz crea los event types **de a uno y en orden**, mostrando el resultado de cada
+uno mientras avanza: creado, omitido porque ya existía, o rechazado con el motivo exacto
+que devolvió el gateway. Los que ya existen se dejan como están —restaurar no pisa nada—,
+así que correrlo sobre un namespace a medio poblar completa lo que falta.
+
+Un backup de **otro** namespace se puede restaurar: el gateway crea los event types
+dentro del namespace de tu token, no del que dice el archivo. La interfaz lo avisa antes
+de empezar, porque es la clase de cosa que conviene saber antes y no después.
+
+---
+
+## 8. Preguntas frecuentes
 
 **¿Puedo cambiarle el schema a un tipo de evento de otro equipo?**  
 No. Devuelve `403`. El namespace sale de tu token.

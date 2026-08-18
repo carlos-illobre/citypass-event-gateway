@@ -516,6 +516,50 @@ class SchemaControllerTest {
         assertEquals(HttpStatus.BAD_GATEWAY, controller.deleteVersion(fqn, 1, autorizado()).statusCode)
     }
 
+    // ── backup ────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `export returns the backup document of my namespace`() {
+        val documento = mapOf<String, Any?>(
+            "formatVersion" to 1,
+            "namespace" to "com.citypass.test",
+            "exportedAt" to "2026-08-18T04:12:33.481Z",
+            "eventTypes" to listOf(mapOf("name" to "TestEvent"))
+        )
+        whenever(schemaRegistryService.exportarNamespace("com.citypass.test")).thenReturn(documento)
+
+        val response = controller.export(jwtWithNamespace("com.citypass.test"))
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertEquals(documento, response.body)
+    }
+
+    /** El namespace sale del token y no de un parámetro: nadie exporta lo ajeno. */
+    @Test
+    fun `export only asks for the namespace in the token`() {
+        whenever(schemaRegistryService.exportarNamespace(any())).thenReturn(emptyMap())
+
+        controller.export(jwtWithNamespace("com.citypass.otro"))
+
+        verify(schemaRegistryService).exportarNamespace("com.citypass.otro")
+    }
+
+    @Test
+    fun `export returns 401 without a token`() {
+        assertEquals(HttpStatus.UNAUTHORIZED, controller.export(null).statusCode)
+    }
+
+    @Test
+    fun `export returns 400 when the token has no namespace`() {
+        val jwt: Jwt = mock()
+        whenever(jwt.claims).thenReturn(emptyMap())
+
+        val response = controller.export(jwt)
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+        assertEquals("Token sin namespace", problemOf(response).title)
+    }
+
     // ── cupo ──────────────────────────────────────────────────────────────────
 
     @Test

@@ -1440,4 +1440,111 @@ class SchemaRegistryServiceTest {
         val reducido = conCupo(maximo = 25, total = 0).apply { loadSchemas() }
         assertEquals(0, reducido.cupoDe("com.citypass.test")["totalRemaining"])
     }
+
+    // ── backup ───────────────────────────────────────────────────────────────
+
+    @Suppress("UNCHECKED_CAST")
+    private fun tiposDe(documento: Map<String, Any?>) =
+        documento["eventTypes"] as List<Map<String, Any?>>
+
+    @Test
+    fun `exportarNamespace describes the document with its format version`() {
+        val documento = schemaRegistryService.exportarNamespace("com.citypass.test")
+
+        assertEquals(1, documento["formatVersion"])
+        assertEquals("com.citypass.test", documento["namespace"])
+        assertNotNull(documento["exportedAt"])
+        assertTrue(tiposDe(documento).isEmpty())
+    }
+
+    /**
+     * La prueba que le da sentido al backup: lo exportado se vuelve a registrar tal cual.
+     *
+     * Si `fields` no saliera en el formato que espera el alta, el archivo se bajaría igual
+     * y el problema recién aparecería al restaurar, que es cuando ya no hay de dónde
+     * sacar los datos.
+     */
+    @Test
+    fun `what exportarNamespace produces can be registered again as is`() {
+        // Las dos expectativas van juntas y antes del primer pedido: MockRestServiceServer
+        // no acepta que se agreguen una vez que el cliente ya empezó a llamar.
+        esperaRegistro("com.citypass.test.Original", 10)
+        esperaRegistro("com.citypass.test.Restaurado", 11)
+        crear("Original", listOf(
+            mapOf("name" to "biciId", "type" to "string"),
+            mapOf("name" to "duracionMin", "type" to "int")
+        ))
+
+        val exportado = tiposDe(schemaRegistryService.exportarNamespace("com.citypass.test")).single()
+
+        @Suppress("UNCHECKED_CAST")
+        val campos = exportado["fields"] as List<Any>
+        val alta = schemaRegistryService.registerNewSchema("com.citypass.test", "Restaurado", campos)
+
+        assertTrue(alta.isSuccess, "los campos exportados tienen que servir para volver a registrar")
+        assertEquals(
+            schemaRegistryService.camposDeNegocio(schemaRegistryService.getSchema("com.citypass.test.Original")!!),
+            schemaRegistryService.camposDeNegocio(schemaRegistryService.getSchema("com.citypass.test.Restaurado")!!)
+        )
+    }
+
+    /** La metadata es del gateway: no se exporta, porque no se declara al restaurar. */
+    @Test
+    fun `exportarNamespace exports the business fields without the envelope`() {
+        esperaRegistro("com.citypass.test.SinSobre", 12)
+        crear("SinSobre")
+
+        val exportado = tiposDe(schemaRegistryService.exportarNamespace("com.citypass.test")).single()
+
+        assertEquals(testFields, exportado["fields"])
+        assertEquals("SinSobre", exportado["name"])
+        assertEquals("com.citypass.test.SinSobre", exportado["fqn"])
+    }
+
+    @Test
+    fun `exportarNamespace leaves out other namespaces`() {
+        esperaRegistro("com.citypass.test.Propio", 13)
+        crear("Propio")
+
+        assertEquals(1, tiposDe(schemaRegistryService.exportarNamespace("com.citypass.test")).size)
+        assertTrue(tiposDe(schemaRegistryService.exportarNamespace("com.citypass.ajeno")).isEmpty())
+    }
+
+    /**
+     * De un event type con dos versiones mayores se exporta la vigente, y las demás
+     * quedan anotadas: es lo que el backup no puede recrear y no se calla.
+     */
+    @Test
+    fun `exportarNamespace exports the current version and records the others`() {
+        crearConDosVersiones("ConHistoria", 14, 15)
+
+        val exportado = tiposDe(schemaRegistryService.exportarNamespace("com.citypass.test")).single()
+
+        assertEquals(2, exportado["version"])
+        assertEquals("com.citypass.test.ConHistoria.v2", exportado["topic"])
+        assertEquals(otrosCampos("nuevo"), exportado["fields"])
+
+        @Suppress("UNCHECKED_CAST")
+        val versiones = exportado["versions"] as List<Map<String, Any?>>
+        assertEquals(listOf(1, 2), versiones.map { it["version"] })
+    }
+
+    /**
+     * Un schema anterior al envelope no tiene record `data`. No se puede separar negocio
+     * de metadata, así que se exporta sin campos en lugar de romper la exportación entera
+     * por un tipo viejo.
+     */
+    @Test
+    fun `camposDeNegocio returns nothing for a schema without the data record`() {
+        val legacy = Schema.Parser().parse("""
+        {
+          "type": "record",
+          "name": "Antiguo",
+          "namespace": "com.citypass.test",
+          "fields": [{"name": "sueltoId", "type": "string"}]
+        }
+        """.trimIndent())
+
+        assertEquals(emptyList<Any>(), schemaRegistryService.camposDeNegocio(legacy))
+    }
 }

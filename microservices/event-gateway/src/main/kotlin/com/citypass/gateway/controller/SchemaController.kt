@@ -175,6 +175,49 @@ Para ver el de una versión anterior se pasa su tópico completo, con el sufijo:
     }
 
     @Operation(
+        summary = "Exportar todos mis event types",
+        description = """Devuelve un documento con todos los event types del namespace de
+quien pregunta, pensado para guardarlo como backup y restaurarlo después.
+
+De cada event type se exporta su **versión vigente** —la que recibe eventos hoy— con sus
+campos de negocio en el mismo formato que acepta `POST /api/v1/event-types`, de modo que
+restaurar es volver a registrarlos sin traducción intermedia.
+
+Las versiones mayores que existían se listan en `versions` a título informativo: nacen de
+un cambio incompatible cuya compatibilidad evalúa el gateway, así que no se pueden
+recrear de forma determinística. Restaurar un backup deja cada event type en su v1.""",
+        responses = [ApiResponse(
+            responseCode = "200", description = "Documento de backup",
+            content = [Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE,
+                examples = [ExampleObject(name = "Backup", value = """{
+  "formatVersion": 1,
+  "namespace": "com.citypass.movilidad",
+  "exportedAt": "2026-08-18T04:12:33.481Z",
+  "eventTypes": [
+    {
+      "name": "BiciDevuelta",
+      "fqn": "com.citypass.movilidad.BiciDevuelta",
+      "fields": [{"name": "biciId", "type": "string"}],
+      "version": 1,
+      "topic": "com.citypass.movilidad.BiciDevuelta",
+      "versions": [{"version": 1, "topic": "com.citypass.movilidad.BiciDevuelta", "schemaId": 7}]
+    }
+  ]
+}""")]
+            )]
+        )],
+        security = [SecurityRequirement(name = "bearerAuth")]
+    )
+    // Ruta literal, como /quota: Spring la resuelve antes que /{fqn}.
+    @GetMapping("/export")
+    fun export(@AuthenticationPrincipal jwt: Jwt?): ResponseEntity<Any> {
+        if (jwt == null) return sinToken()
+        val namespace = jwt.claims["namespace"] as? String ?: return sinNamespace()
+        return ResponseEntity.ok(schemaRegistryService.exportarNamespace(namespace))
+    }
+
+    @Operation(
         summary = "Registrar un nuevo event type",
         description = """Registra un tipo de evento nuevo.
 

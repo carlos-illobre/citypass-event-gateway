@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.io.File
+import java.time.Instant
 
 /**
  * El namespace llegó a su máximo de event types.
@@ -136,6 +137,15 @@ class SchemaRegistryService(
         /** Los dos campos del envelope que envuelve todo schema de evento. */
         const val METADATA_FIELD = "metadata"
         const val DATA_FIELD = "data"
+
+        /**
+         * Versión del formato del archivo de backup.
+         *
+         * Va en el archivo para que una restauración pueda rechazar de entrada un
+         * documento de un formato que no entiende, en vez de fallar a mitad de camino
+         * con la mitad de los event types ya creados.
+         */
+        const val FORMATO_DE_BACKUP = 1
     }
 
     /**
@@ -438,6 +448,49 @@ class SchemaRegistryService(
                     "versions" to versionesDe(fqn)
                 )
             }
+
+    // ─────────────────────────── Backup ───────────────────────────
+
+    /**
+     * Campos de negocio de un event type, tal como los declaró su dueño.
+     *
+     * Se devuelven en el mismo formato que acepta [registerNewSchema], que es lo que
+     * permite que un backup se restaure sin traducción intermedia.
+     *
+     * Los schemas anteriores al envelope no tienen record `data`; para ellos no hay
+     * campos de negocio que separar de la metadata, así que se exportan vacíos y la
+     * restauración los deja como event types sin campos en lugar de fallar.
+     */
+    internal fun camposDeNegocio(schema: Schema): List<Any> {
+        val data = schema.getField(DATA_FIELD) ?: return emptyList()
+        return mapper.readValue(data.schema().toString(), Map::class.java)["fields"] as List<Any>
+    }
+
+    /**
+     * Documento de backup de todos los event types de un namespace.
+     *
+     * Se exporta la versión **vigente** de cada event type: es la que recibe eventos hoy
+     * y la única que se puede recrear de forma determinística, porque las versiones
+     * mayores nacen de un cambio incompatible cuya compatibilidad evalúa el gateway.
+     * Las versiones que existían se listan igual en `versions`, para que lo que el backup
+     * no puede reproducir quede anotado en vez de desaparecer sin dejar rastro.
+     */
+    fun exportarNamespace(namespace: String): Map<String, Any?> = mapOf(
+        "formatVersion" to FORMATO_DE_BACKUP,
+        "namespace" to namespace,
+        "exportedAt" to Instant.now().toString(),
+        "eventTypes" to listEventTypes(namespace).map { resumen ->
+            val topico = resumen["topic"] as String
+            mapOf(
+                "name" to resumen["name"],
+                "fqn" to resumen["fqn"],
+                "fields" to camposDeNegocio(schemas.getValue(topico)),
+                "version" to resumen["version"],
+                "topic" to topico,
+                "versions" to resumen["versions"]
+            )
+        }
+    )
 
     // ─────────────────────────── Alta ───────────────────────────
 

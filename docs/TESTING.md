@@ -135,6 +135,7 @@ configuración haya surtido efecto.
 | `limites-de-la-api.sh` | El cupo de event types, el 413 por tamaño y que el rate limit corte |
 | `retencion-kafka.sh` | Que el segmento sea menor que la retención, y que publicando de más se borren los eventos viejos |
 | `alerta-de-disco.sh` | Que la regla de Grafana esté cargada, apunte al datasource y **evalúe sin error** |
+| `backup-de-schemas.sh` | El viaje redondo del backup: crear, exportar, borrar y recrear desde lo exportado |
 
 Existen porque Docker y Grafana **aceptan configuraciones mal escritas sin quejarse**: un
 `mem_limit` mal ubicado se ignora y el contenedor arranca sin techo; una regla de alerta

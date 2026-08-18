@@ -113,7 +113,7 @@ fi
 # rate limit), que tardan varios minutos.
 RAPIDO="${1:-}"
 
-for script in usuarios techos-de-recursos limites-de-la-api techo-de-topicos webhooks retencion-kafka limites-de-infraestructura alerta-de-disco; do
+for script in usuarios techos-de-recursos limites-de-la-api techo-de-topicos backup-de-schemas webhooks retencion-kafka limites-de-infraestructura alerta-de-disco; do
     echo
     if ! bash "$ROOT_DIR/tests/integration/${script}.sh" $RAPIDO; then
         echo -e "${RED}✗ ${script} — falló${NC}"
