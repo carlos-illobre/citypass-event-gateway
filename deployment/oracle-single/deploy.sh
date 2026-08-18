@@ -19,13 +19,19 @@
 # no pueden traer cosas distintas.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# Todas las rutas de acá abajo son relativas a la raíz del repositorio. Se resuelve con git
+# y no contando `..`: así el script sigue funcionando desde cualquier directorio y, sobre
+# todo, si algún día vuelve a cambiar de carpeta. Un `cd ../..` es correcto exactamente a la
+# profundidad de hoy y falla en silencio a cualquier otra.
+cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)" \
+    || { printf '\n\033[0;31m✗ no encuentro la raíz del repositorio\033[0m\n' >&2; exit 1; }
 
 ok()   { printf '  \033[0;32m✓\033[0m %s\n' "$1"; }
 paso() { printf '\n\033[1m▶ %s\033[0m\n' "$1"; }
 morir() { printf '\n\033[0;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
-[ -f deployment/oracle-single/.env ] || morir "falta deployment/oracle-single/.env — es de donde salen el destino SSH y la ruta remota"
+[ -f deployment/oracle-single/.env ] \
+    || morir "falta $PWD/deployment/oracle-single/.env — es de donde salen el destino SSH y la ruta remota"
 set -a; . deployment/oracle-single/.env; set +a
 : "${SSH:?falta SSH en deployment/oracle-single/.env}"
 : "${CITYPASS_DIR:?falta CITYPASS_DIR en deployment/oracle-single/.env}"
