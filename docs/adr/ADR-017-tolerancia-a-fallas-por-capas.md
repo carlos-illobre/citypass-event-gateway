@@ -1,4 +1,4 @@
-# ADR-016: La tolerancia a fallas se define por capas, no como «alta disponibilidad»
+# ADR-017: La tolerancia a fallas se define por capas, no como «alta disponibilidad»
 
 **Estado:** Propuesto  
 **Fecha:** 2026-08-17
