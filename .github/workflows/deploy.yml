@@ -13,14 +13,14 @@ on:
     # sólo de docs produce imágenes idénticas byte a byte. Reconstruirlas y republicar el
     # sitio por una tilde en un .md es trabajo que no cambia nada.
     #
-    # `site/` queda deliberadamente fuera de esta lista: no es documentación sino la raíz
-    # del sitio publicado, y editarla sí tiene que republicar.
+    # Sólo se ignoran los `.md`, y NO la carpeta `docs/` entera: ahí vive también
+    # `docs/index.html`, que es la raíz del sitio publicado. Ignorar `docs/**` haría
+    # que editar la landing page no republicara nada, y sin ningún aviso.
     #
     # El filtro va sólo en `push`. En los PR se verifica siempre: es barato, y evita que
     # el día que estos checks sean obligatorios un PR de sólo documentación quede
     # esperando para siempre un check que nunca va a correr.
     paths-ignore:
-      - 'docs/**'
       - '**.md'
   pull_request:
     branches: [main]
@@ -67,21 +67,21 @@ jobs:
       # `build` corre unitarios, integración y el umbral de cobertura, que en este
       # repositorio es del 100 %.
       - run: ./gradlew build --no-daemon
-        working-directory: event-gateway
+        working-directory: microservices/event-gateway
 
       # Los números salen de lo que el build ya produjo, así que no pueden diferir de
       # los que evalúa la compuerta. Con `always()` también se ven cuando algo falla,
       # que es cuando más importa saber cuánto faltó.
       - name: Resumen
         if: always()
-        run: python3 scripts/resumen-cobertura.py event-gateway 'event-gateway' >> "$GITHUB_STEP_SUMMARY"
+        run: python3 tests/coverage.py microservices/event-gateway 'event-gateway' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Guardar el reporte
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cobertura-event-gateway
-          path: event-gateway/build/reports/jacoco/test/html
+          path: microservices/event-gateway/build/reports/jacoco/test/html
           retention-days: 7
           # Un re-run completo volvería a subir este mismo nombre y fallaría por
           # conflicto. Con el número de intento en el nombre, en cambio, un «re-run
@@ -99,21 +99,21 @@ jobs:
           distribution: temurin
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew build --no-daemon
-        working-directory: kafka-authorizer
+        working-directory: microservices/kafka-authorizer
 
       # Los números salen de lo que el build ya produjo, así que no pueden diferir de
       # los que evalúa la compuerta. Con `always()` también se ven cuando algo falla,
       # que es cuando más importa saber cuánto faltó.
       - name: Resumen
         if: always()
-        run: python3 scripts/resumen-cobertura.py kafka-authorizer 'kafka-authorizer' >> "$GITHUB_STEP_SUMMARY"
+        run: python3 tests/coverage.py microservices/kafka-authorizer 'kafka-authorizer' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Guardar el reporte
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cobertura-kafka-authorizer
-          path: kafka-authorizer/build/reports/jacoco/test/html
+          path: microservices/kafka-authorizer/build/reports/jacoco/test/html
           retention-days: 7
           overwrite: true
 
@@ -126,28 +126,33 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: event-gateway-ui/package-lock.json
+          cache-dependency-path: microservices/event-gateway-ui/package-lock.json
       - run: npm ci
-        working-directory: event-gateway-ui
+        working-directory: microservices/event-gateway-ui
       - run: npm run build
-        working-directory: event-gateway-ui
+        working-directory: microservices/event-gateway-ui
       - run: npx eslint .
-        working-directory: event-gateway-ui
+        working-directory: microservices/event-gateway-ui
 
   configuracion:
     name: Paridad de ambientes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Una variable definida en un solo ambiente hace que el otro caiga en su default
-      # sin que nada avise. Es el mismo chequeo que hace test-integration.sh.
-      - name: .env.dev y .env.prod declaran lo mismo
+      # Una variable que el compose interpola y ningún .env define cae en su default sin
+      # que nada avise: en el mejor caso el ambiente arranca distinto de lo esperado, y en
+      # el peor —una variable de seguridad— arranca abierto.
+      #
+      # Acá sólo se comprueba .env.example, que es el único que viaja en el repositorio.
+      # La paridad ENTRE ambientes la verifica itest.sh, que ve también los
+      # .env de las carpetas de despliegue por proveedor (están en .gitignore).
+      - name: .env.example define todo lo que el compose usa
         run: |
-          faltan=$(comm -3 \
-            <(grep -oE '^[A-Z_]+=' .env.dev  | tr -d '=' | sort) \
-            <(grep -oE '^[A-Z_]+=' .env.prod | tr -d '=' | sort))
+          faltan=$(comm -23 \
+            <(grep -oE '\$\{[A-Z_]+' docker-compose.yml | sed 's/\${//' | sort -u) \
+            <(grep -oE '^[A-Z_]+=' .env.example | tr -d '=' | sort))
           if [ -n "$faltan" ]; then
-            echo "Variables que no están en los dos archivos:"; echo "$faltan"; exit 1
+            echo "Usadas en docker-compose.yml y ausentes en .env.example:"; echo "$faltan"; exit 1
           fi
           echo "OK"
 
@@ -175,7 +180,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.servicio }}
+          context: ./microservices/${{ matrix.servicio }}
           push: true
           # Sólo el SHA. `latest` se mueve en otro job, recién cuando los tests pasaron:
           # como esta etapa no los espera, publicar `latest` acá dejaría a la etiqueta
@@ -219,10 +224,10 @@ jobs:
         run: |
           mkdir -p sitio/coverage
 
-          # La raíz sale de site/, versionada en el repositorio. El día que haya una
+          # La raíz sale de docs/index.html, versionada en el repositorio. El día que haya una
           # landing del proyecto se edita ese archivo y aparece acá, sin tocar el
           # pipeline.
-          cp -r site/. sitio/
+          cp docs/index.html sitio/
           rm -f sitio/README.md
 
           # La cobertura vive en su propia subruta para dejar la raíz libre.

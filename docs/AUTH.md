@@ -3,7 +3,7 @@
 Este documento es para el **Grupo 2**. Describe exactamente qué tiene que hacer el servicio
 de identidad real para reemplazar al `auth-simulator` sin que haya que tocar nada del bus.
 
-El simulador que está en el repo (`auth-simulator/src/index.js`) es una implementación
+El simulador que está en el repo (`microservices/auth-simulator/src/index.js`) es una implementación
 funcional y mínima del contrato. Sirve como referencia ejecutable: si tu servicio hace lo
 mismo, entra sin cambios.
 
@@ -378,7 +378,7 @@ y el broker para el JWKS.
 
 ## Referencias
 
-- `auth-simulator/src/index.js` — el contrato implementado, como referencia ejecutable
+- `microservices/auth-simulator/src/index.js` — el contrato implementado, como referencia ejecutable
 - [SECURITY.md](SECURITY.md) — qué se apoya en estos tokens
 - [ARCHITECTURE.md](ARCHITECTURE.md) — dónde encaja la identidad en el sistema
 - [ADR-011](adr/ADR-011-autorizacion-derivada-del-token.md) — por qué no hay ACLs y la identidad es la única fuente de verdad

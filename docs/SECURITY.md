@@ -370,14 +370,14 @@ gateway con su sesión.
 | Certificado TLS | Volumen `certbot-conf` | No |
 | Clave de firma de los JWT | En memoria del emisor | No |
 
-`.env.dev` y `.env.prod` **sí** se versionan, porque son plantillas. Por eso `.env.prod`
+`.env.example` **sí** se versiona, porque es una plantilla. Por eso
 lleva `KAFKA_UI_USER=CAMBIAR`: la contraseña real se escribe sólo en el `.env` de la VM.
 
 Un script de verificación comprueba que los dos archivos declaren exactamente las mismas
 variables, para que ninguna quede definida en uno solo:
 
 ```bash
-./test-integration.sh
+./tests/itest.sh
 ```
 
 ---

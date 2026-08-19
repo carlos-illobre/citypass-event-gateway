@@ -47,7 +47,7 @@ docker compose version
 ```bash
 git clone git@github.com:carlos-illobre/citypass-event-gateway.git
 cd citypass-event-gateway
-cp .env.dev .env
+cp .env.example .env
 docker compose up -d --build
 ```
 
@@ -79,9 +79,9 @@ docker compose down            # conserva los datos
 docker compose down -v         # borra también los tópicos y los schemas registrados
 ```
 
-> `.env.dev` trae los valores de desarrollo y explica cada variable. Su gemelo `.env.prod`
-> tiene los valores dummy de producción. Hay **un solo** `docker-compose.yml`: lo que cambia entre
-> ambientes vive en el `.env`.
+> `.env.example` funciona en local sin tocar nada y explica cada variable. Las que hay que
+> cambiar para desplegar en un servidor están marcadas con «EN UN SERVIDOR». Hay **un solo**
+> `docker-compose.yml`: lo que cambia entre ambientes vive en el `.env`.
 
 ---
 
@@ -906,7 +906,7 @@ que tu consumidor commitee al menos una vez por día.
 No los vas a ver desde la API, pero están y son los que sostienen todo lo anterior:
 `NGINX_KAFKA_CONN_LIMIT` (conexiones simultáneas por IP al puerto 9092),
 `KAFKA_OFFSETS_SEGMENT_BYTES`, `KAFKA_SEGMENT_BYTES`, `MEM_LIMIT_*`, `LOG_MAX_SIZE` y
-`LOG_MAX_FILES`. Están comentados uno por uno en `.env.dev` y `.env.prod`.
+`LOG_MAX_FILES`. Están comentados uno por uno en `.env.example`.
 
 ---
 
