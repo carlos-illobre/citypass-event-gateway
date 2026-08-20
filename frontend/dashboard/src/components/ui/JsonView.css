@@ -1,0 +1,38 @@
+.jv {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.75rem;
+  line-height: 1.7;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.625rem 0;
+  overflow-x: auto;
+  max-height: 26rem;
+  overflow-y: auto;
+}
+
+.jv-row { white-space: pre; }
+
+.jv-gutter {
+  display: inline-block;
+  width: 1rem;
+}
+
+.jv-toggle {
+  display: inline-block;
+  width: 1rem;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.jv-toggle:hover { color: var(--text); }
+
+.jv-key     { color: var(--accent); }
+.jv-str     { color: var(--ok); }
+.jv-num     { color: var(--warning); }
+.jv-lit     { color: var(--text-muted); }
+.jv-summary { color: var(--text-muted); font-style: italic; }

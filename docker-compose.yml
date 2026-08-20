@@ -255,6 +255,38 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: ./frontend/dashboard
+      dockerfile: Dockerfile
+      args:
+        # Rutas relativas a propósito, iguales a las de `.env.example`: el bundle no
+        # sabe el dominio final, así que las llamadas salen del mismo origen donde se
+        # sirva este contenedor y dependen de que ese origen las reenvíe a los
+        # servicios de abajo. Ese reenvío todavía no está armado — ver `frontend/docs/tasks.md`.
+        VITE_AUTH_API_URL: '/auth'
+        VITE_GATEWAY_API_URL: '/api/v1'
+        VITE_GATEWAY_HEALTH_URL: '/health'
+        VITE_ANOMALY_API_URL: '/anomaly'
+    container_name: dashboard
+    hostname: dashboard
+    ports:
+      - "${PUBLISH_ADDR:-127.0.0.1}:5175:80"
+    depends_on:
+      event-gateway:
+        condition: service_healthy
+      auth-simulator:
+        condition: service_healthy
+      anomaly-detector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   # ── Observabilidad ──────────────────────────────────────────────────────────
   # El gateway expone sus métricas, pero sin alguien que las consulte sólo se ve el valor
   # instantáneo. Prometheus guarda la serie y Grafana la muestra.
