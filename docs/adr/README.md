@@ -23,3 +23,4 @@ lo supersede.
 | [015](ADR-015-versionado-por-compatibilidad.md) | El Schema Registry decide si un cambio estrena versión | Reemplazar el schema, versionar siempre, un tópico para todo |
 | [016](ADR-016-iaas-oracle-cloud.md) | IaaS sobre PaaS, y Oracle Cloud como proveedor | PaaS gestionado, IaaS en GCP, IaaS en Azure for Students, AWS |
 | [017](ADR-017-tolerancia-a-fallas-por-capas.md) | Tolerancia a fallas por capas, cada una con su prueba | Cluster de Kafka en espera, alta disponibilidad completa |
+| [018](ADR-018-ramificacion-y-versionado.md) | GitHub Flow escrito y versión derivada de los commits | Git Flow, trunk-based puro, tags manuales |
