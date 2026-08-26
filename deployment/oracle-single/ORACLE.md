@@ -364,10 +364,43 @@ marcándolo habría que abrir también el camino de salida a mano.
 > y podría reescribir la route table, o sea cambiar una configuración que funciona. Es el
 > botón que parece la solución y es el que la rompe.
 
-**En la instancia**, y acá está la trampa fina: la regla que bloquea es un `REJECT` general,
-y **todo lo que viene después de ella es inalcanzable**. Como `iptables -A` agrega al final,
-abrir un puerto así deja una regla que se lista, se ve bien y no hace nada. Hay que
-**insertar antes** del `REJECT`.
+**En la instancia.** Acá hay dos cosas que conviene entender antes de ejecutar nada, porque
+la segunda cambia qué está protegiendo qué.
+
+La trampa fina: la regla que bloquea es un `REJECT` general, y **todo lo que viene después
+de ella es inalcanzable**. Como `iptables -A` agrega al final, abrir un puerto así deja una
+regla que se lista, se ve bien y no hace nada. Hay que **insertar antes** del `REJECT`.
+
+> ### Qué filtra de verdad
+>
+> **Estas reglas de `INPUT` no gobiernan los puertos que publica Docker.** Cuando un
+> contenedor publica un puerto, Docker inserta un DNAT en `nat/PREROUTING`: después de eso
+> el destino del paquete es la IP del contenedor, así que se **enruta** en vez de
+> entregarse localmente, y recorre `FORWARD` → `DOCKER`. **Nunca pasa por `INPUT`.**
+>
+> Medido en la instancia, con el sistema sirviendo tráfico:
+>
+> | Puerto | `INPUT` | Cadena `DOCKER` |
+> |---|---:|---:|
+> | 443 | 31 | **13.426** |
+> | 80 | 3 | **10.008** |
+> | 9092 | 0 | **743** |
+>
+> Por el 443 pasaron 433 veces más paquetes por `DOCKER` que por `INPUT`. Los pocos que sí
+> llegaron a `INPUT` son los que entraron **mientras el contenedor del proxy estaba
+> parado**: sin contenedor no hay DNAT que los desvíe.
+>
+> **La capa que filtra es la Security List**, que vive fuera del host y por lo tanto ningún
+> DNAT la esquiva. Las reglas de `iptables` de abajo se mantienen porque sí cubren lo que
+> escuche directamente en el host —no hay nada hoy, pero podría haberlo— y porque son la
+> última línea de los servicios internos: sus DNAT sólo matchean `127.0.0.1`, así que un
+> paquete que llegue a la IP pública en el 8081 no matchea, sigue a `INPUT` y ahí lo corta
+> el `REJECT`.
+>
+> Lo que **no** hay que hacer es instalar `ufw` ni equivalentes creyendo que cierran los
+> contenedores: también trabajan sobre `INPUT`. El punto de filtrado a nivel host para
+> Docker es la cadena `DOCKER-USER`. El razonamiento completo está en
+> [ADR-019](../../docs/adr/ADR-019-firewall-en-la-vcn.md).
 
 Primero, ver en qué línea está:
 

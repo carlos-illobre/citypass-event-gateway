@@ -288,6 +288,36 @@ Prometheus **no tiene autenticación** —no la trae de fábrica— y por eso no
 hacia afuera: en producción queda en loopback y se llega por túnel SSH. Sus datos son
 métricas operativas, no de negocio, pero revelan volumen de tráfico por grupo.
 
+### Qué capa filtra, y cuál no
+
+Un detalle que es fácil suponer al revés, y que cambia dónde poner el esfuerzo: **las reglas
+de `iptables` en la cadena `INPUT` no gobiernan los puertos publicados por Docker.**
+
+Al publicar un puerto, Docker inserta un DNAT en `nat/PREROUTING`. A partir de ahí el
+destino del paquete es la IP del contenedor, así que se enruta en vez de entregarse
+localmente y recorre `FORWARD` → `DOCKER`, sin tocar `INPUT`. Medido en producción, por el
+443 pasaron **13.426 paquetes por la cadena `DOCKER` contra 31 por `INPUT`**.
+
+De modo que la protección se apoya en dos capas, y ninguna de las dos es `iptables`:
+
+| Qué protege | Cómo |
+|---|---|
+| Los tres puertos públicos (80, 443, 9092) | La **Security List de la VCN**, fuera del host: ningún DNAT la esquiva |
+| Los servicios internos (8081, 8083, 8090, 9090, 9091, 3000) | Su DNAT sólo matchea `127.0.0.1`, así que un paquete a la IP pública **no matchea** y termina en el `REJECT` de `INPUT` |
+
+Dos consecuencias prácticas:
+
+- **Instalar `ufw` no cerraría los contenedores.** También trabaja sobre `INPUT`, así que
+  daría una sensación de protección sin darla. El punto de filtrado a nivel host para Docker
+  es la cadena `DOCKER-USER`, la única que Docker recorre antes de sus propias reglas y la
+  única que sobrevive a un `docker compose up`.
+- **Leer la cadena `DOCKER` asusta y no debería.** Lista reglas `ACCEPT` desde `0.0.0.0/0`
+  hacia todos los contenedores, incluidos los internos. La restricción de esos no vive ahí
+  sino en el DNAT de la tabla `nat`: `sudo iptables -t nat -L DOCKER -n` muestra `127.0.0.1`
+  como destino en los internos y `0.0.0.0/0` sólo en el proxy.
+
+→ [ADR-019](adr/ADR-019-firewall-en-la-vcn.md)
+
 ### Puertos que nunca se publican
 
 - **9093** (controller de KRaft) — es el plano de control del cluster. Exponerlo sería una
