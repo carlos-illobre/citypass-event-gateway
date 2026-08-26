@@ -56,13 +56,17 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
    prefirió igual `ESTADO.md`, con el costo de tener que pedirlo a mano en cada sesión
    nueva).
 
-## Pendiente — para poder escribir el código
+## Ya no pendiente — resuelto
 
-1. **Subdominio/dominio exacto** a usar (ej. `citypass.tudominio.com`) — falta que el
-   usuario lo confirme.
-2. **Shape de la VM:** ¿el default en las variables Terraform queda fijo en 2 OCPU / 12 GB
-   (lo que dice el ADR-016) o sin default, a elegir en cada `apply`? Recomendación dada:
-   con default, sigue siendo override-able.
+1. **Dominio confirmado:** `citypass.mrfranco.net.ar`. Es **un solo hostname**, no
+   subdominios por servicio — confirmado leyendo
+   [nginx.conf.template](../../reverse-proxy/nginx.conf.template): el proxy separa por
+   ruta (`/`, `/api/`, `/auth/`) y Kafka reusa el mismo hostname por el puerto 9092
+   (bloque `stream`). Un solo registro `A` en Cloudflare alcanza.
+2. **Shape de la VM:** default fijo según ADR-016 (2 OCPU / 12 GB, `VM.Standard.A1.Flex`,
+   Ubuntu 24.04 arm64, boot volume 200 GB), parametrizado para poder override-earse.
+3. **[ADR-019](../../../docs/adr/ADR-019-terraform-iac-oracle-cloud.md) ya escrita**,
+   documentando todo lo de arriba, y el índice de `docs/adr/README.md` actualizado.
 
 ## Pendiente de proceso (no de contenido)
 
@@ -72,17 +76,41 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
   de su memoria local. Se le preguntó al usuario si proceder y quedó sin confirmar.
   **Primer paso al retomar: preguntar si ya se pusheó, y si no, pushear antes de seguir.**
 
-## Entregables planeados (una vez resueltos los pendientes de contenido)
+## Entregables — YA ESCRITOS, pendientes de que el usuario los revise y commitee
 
-En `infrastructure/terraform/oracle-single/`:
-- `.tf`: `versions.tf`, `providers.tf` (oci + cloudflare), `network.tf`, `compute.tf`,
-  `dns.tf`, `variables.tf`, `outputs.tf`
-- `terraform.tfvars.example` (plantilla sin secretos) + entrada en `.gitignore` del repo
-  para `terraform.tfvars`, `*.tfstate*`, `.terraform/`
-- `README.md` en el estilo del resto del repo (ver `ORACLE.md` como referencia de tono),
-  explicando init/plan/apply desde cero — el usuario nunca usó Terraform
-- **ADR-019** en `docs/adr/`, documentando la decisión, en el tono de los ADRs existentes
-  (ver `docs/adr/README.md` para el índice y el formato)
+Todo en `infrastructure/terraform/oracle-single/`, sin commitear todavía (el usuario hace
+sus propios commits — ver feedback guardada en memoria, "git hands-off"):
+
+- `versions.tf`, `providers.tf`, `variables.tf`, `network.tf`, `compute.tf`, `dns.tf`,
+  `outputs.tf` — módulo completo: VCN + subnet + IGW + route table + security list
+  (22/80/443/9092) + instancia `VM.Standard.A1.Flex` (defaults del ADR-016) + registro
+  `cloudflare_dns_record` en modo DNS-only.
+- `terraform.tfvars.example` — plantilla con marcadores, mismo estilo que `.env.oracle`.
+- `.gitignore` de la raíz del repo actualizado (sección "Terraform").
+- `README.md` de esta carpeta — guía completa desde cero (conseguir credenciales, los
+  tres comandos, qué sigue con ORACLE.md, troubleshooting).
+- **ADR-019** ya escrita y en el índice de `docs/adr/README.md`.
+
+**Detalles técnicos verificados con búsquedas web antes de escribir** (importante si se
+retoma esto y algo no coincide con lo esperado):
+- Provider correcto: `oracle/oci` (NO `hashicorp/oci`, discontinuado).
+- Recurso Cloudflare v5: `cloudflare_dns_record` (no `cloudflare_record`, es de v4).
+- En v5, el atributo `name` del registro DNS pide el **hostname completo**
+  (`citypass.mrfranco.net.ar`), no el subdominio relativo a la zona — cambió entre v4 y
+  v5, es un error fácil de cometer si se copia un ejemplo viejo.
+- Sin Terraform CLI instalado en el entorno de escritura: el HCL se revisó a mano
+  (llaves, heredocs) pero **nunca se corrió `terraform validate` de verdad**. Primer paso
+  recomendado al usuario: `terraform init && terraform validate` antes de `plan`.
+
+## Qué falta (lo único que queda)
+
+1. El usuario revisa el código y lo commitea/pushea a su criterio.
+2. Terminar de crear la cuenta de Oracle (home region ya decidida: São Paulo,
+   `sa-saopaulo-1`, o Santiago como alternativa) y generar la API key.
+3. Crear el token de Cloudflare (Zone → DNS → Edit, acotado a la zona).
+4. `cp terraform.tfvars.example terraform.tfvars`, completar, y correr
+   `init` → `validate` → `plan` → `apply`.
+5. Seguir con `ORACLE.md` desde la sección 4 (el README de esta carpeta lo explica).
 
 ## Requisitos que el usuario va a necesitar para correr `apply` (no para escribir el código)
 

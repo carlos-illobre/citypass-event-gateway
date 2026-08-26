@@ -60,6 +60,23 @@ logs/
 # Docker
 *.pid
 docker-compose.override.yml
+
+### Terraform (infrastructure/terraform/oracle-single/) ###
+#
+# .terraform/ y los .tfplan son artefactos locales, se regeneran con `terraform init`.
+# El .tfstate NUNCA se versiona: guarda en texto plano lo que existe en la nube, IPs
+# incluidas — ver ADR-019. terraform.tfvars tiene las credenciales de Oracle y el token
+# de Cloudflare; sólo se versiona el .example, sin valores.
+#
+# El .terraform.lock.hcl SÍ se versiona (no está acá abajo): fija qué versión exacta de
+# cada provider se usó, igual que un lockfile de cualquier gestor de paquetes.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.tfplan
+crash.log
+crash.*.log
 # Python — producto del intérprete, se regenera solo desde los .py
 __pycache__/
 *.pyc

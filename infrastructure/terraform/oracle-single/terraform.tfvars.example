@@ -1,0 +1,51 @@
+# ===== Terraform — valores para ORACLE CLOUD + CLOUDFLARE =====
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# Es el mismo patrón que deployment/oracle-single/.env.oracle: este archivo SE VERSIONA,
+# con marcadores, sin ningún dato real. terraform.tfvars (sin ".example") va a
+# .gitignore — ahí sí van tus valores.
+#
+# De dónde sale cada cosa: ver README.md de esta carpeta.
+
+
+# ── Oracle Cloud — Cuenta → My profile → API keys ─────────────────────────────
+
+tenancy_ocid      = "ocid1.tenancy.oc1..CAMBIAR"
+user_ocid         = "ocid1.user.oc1..CAMBIAR"
+fingerprint       = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
+private_key_path  = "~/.oci/oci_api_key.pem"
+
+# Tiene que ser tu *home region* — no se puede cambiar después de creada la cuenta.
+# Ver ADR-019 para las candidatas evaluadas (sa-saopaulo-1, sa-santiago-1, sa-vinhedo-1).
+region            = "sa-saopaulo-1"
+
+# Para una cuenta nueva sin compartments propios, es el mismo valor que tenancy_ocid.
+compartment_ocid  = "ocid1.tenancy.oc1..CAMBIAR"
+
+
+# ── Acceso SSH ──────────────────────────────────────────────────────────────
+
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+
+# ── Cloudflare — dashboard → My Profile → API Tokens ──────────────────────────
+# Token con permiso Zone → DNS → Edit, restringido a esta zona.
+
+cloudflare_api_token = "CAMBIAR"
+cloudflare_zone_name = "mrfranco.net.ar"
+dns_subdomain         = "citypass"
+
+
+# ── Shape, red y nombrado ──────────────────────────────────────────────────
+# Sin estas líneas, se usan los defaults de variables.tf (los del ADR-016). Se dejan acá
+# comentadas para que sea obvio que existen y se pueden ajustar sin tocar código.
+
+# instance_shape           = "VM.Standard.A1.Flex"
+# instance_ocpus           = 2
+# instance_memory_in_gbs   = 12
+# boot_volume_size_in_gbs  = 200
+# vcn_cidr                 = "10.0.0.0/16"
+# subnet_cidr              = "10.0.1.0/24"
+# project_name             = "citypass"
+# dns_ttl                  = 300
