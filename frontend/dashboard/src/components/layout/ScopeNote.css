@@ -1,0 +1,15 @@
+.scope-note {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--border);
+  background: var(--surface-raised);
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 1rem;
+  max-width: 90ch;
+}
+
+.scope-note--global    { border-left-color: var(--accent); }
+.scope-note--usuario   { border-left-color: var(--warning); }
+.scope-note--namespace { border-left-color: var(--text-muted); }

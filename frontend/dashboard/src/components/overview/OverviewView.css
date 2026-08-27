@@ -1,0 +1,28 @@
+.overview__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.overview__subtitle {
+  font-size: 0.8125rem;
+  margin-top: 0.125rem;
+}
+
+.overview__error { margin-bottom: 1rem; }
+
+.overview__health {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.overview__cards { margin-bottom: 1rem; }
+
+.overview__chart { max-width: 42rem; }
+
+.overview__chart-note { font-size: 0.75rem; }

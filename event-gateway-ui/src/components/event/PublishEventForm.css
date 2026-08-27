@@ -147,8 +147,8 @@
 /* .error-banner from ui/ErrorBanner.css */
 
 .pef-success {
-  background: var(--success-bg, #f0fdf4);
-  border: 1px solid var(--success-border, #86efac);
+  background: var(--success-bg, #eaf3ef);
+  border: 1px solid var(--success-border, #bcd8cb);
   border-radius: 6px;
   padding: 0.625rem 0.875rem;
   display: flex;
@@ -157,10 +157,10 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .pef-success { background: #052e16; border-color: #166534; }
+  .pef-success { background: #16261f; border-color: #305a49; }
 }
-:root[data-theme="dark"]  .pef-success { background: #052e16; border-color: #166534; }
-:root[data-theme="light"] .pef-success { background: #f0fdf4; border-color: #86efac; }
+:root[data-theme="dark"]  .pef-success { background: #16261f; border-color: #305a49; }
+:root[data-theme="light"] .pef-success { background: #eaf3ef; border-color: #bcd8cb; }
 
 .pef-success-row {
   display: flex;
@@ -171,7 +171,7 @@
 .pef-success-label {
   font-size: 0.8125rem;
   font-weight: 700;
-  color: #16a34a;
+  color: var(--ok);
 }
 
 .pef-success-close {

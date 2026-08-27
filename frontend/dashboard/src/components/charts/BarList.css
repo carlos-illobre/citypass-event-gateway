@@ -1,0 +1,37 @@
+.bar-list {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.bar-list__row + .bar-list__row > * { padding-top: 0.3125rem; }
+
+.bar-list__key {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-align: left;
+  color: var(--text-muted);
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 0.75rem;
+}
+
+.bar-list__track { width: 100%; }
+
+.bar-list__bar {
+  height: 0.625rem;
+  background: var(--accent);
+  border-radius: 3px;
+  min-width: 2px;
+}
+
+.bar-list__count {
+  padding-left: 0.75rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}

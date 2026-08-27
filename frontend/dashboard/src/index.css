@@ -1,3 +1,6 @@
+/* Las variables de tema son las mismas que usa `event-gateway-ui`: los dos frontends del grupo
+ * se ven como uno solo, y quien mire los dos no siente que cambió de producto. */
+
 :root {
   --bg: #ebe6de;
   --surface: #ffffff;
@@ -81,7 +84,14 @@ body {
 button { font-family: inherit; font-size: inherit; }
 input, select, textarea { font-family: inherit; font-size: inherit; }
 
-/* ── Shared utilities ── */
+/* ── Utilidades compartidas ── */
+
+.mono {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.8125rem;
+}
+
+.muted { color: var(--text-muted); }
 
 .card {
   background: var(--surface);
@@ -94,6 +104,11 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
   padding: 0.875rem 1.25rem;
   background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .card-title {
@@ -101,6 +116,8 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
   font-weight: 700;
   letter-spacing: -0.01em;
 }
+
+.card-body { padding: 1.25rem; }
 
 .form-input {
   display: block;
@@ -131,14 +148,37 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 .btn-primary:hover:not(:disabled) { opacity: 0.88; }
 .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
 
+.btn-ghost {
+  padding: 0.3125rem 0.75rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+.btn-ghost:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.view-header { margin-bottom: 1.25rem; }
+
+.view-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
 /* ── Barras de scroll ───────────────────────────────────────────────────────
  *
- * Sin esto el navegador dibuja las suyas, que en modo oscuro salen claras y
- * desentonan con el resto. Se declaran las dos sintaxis: la estándar
- * (`scrollbar-*`, Firefox y Chrome moderno) y la de WebKit, que sigue siendo la
- * única que permite ajustar el detalle fino en Safari y Chrome.
- *
- * Los colores salen de las variables del tema, así que acompañan claro y oscuro.
+ * Sin esto el navegador dibuja las suyas, que en modo oscuro salen claras y desentonan con el
+ * resto. Se declaran las dos sintaxis: la estándar y la de WebKit.
  */
 
 * {
@@ -146,19 +186,12 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
   scrollbar-color: var(--border) transparent;
 }
 
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
 
 *::-webkit-scrollbar-thumb {
   background-color: var(--border);
   border-radius: 999px;
-  /* El borde transparente deja aire alrededor del pulgar sin ocupar más ancho. */
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -168,7 +201,4 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
   background-clip: padding-box;
 }
 
-/* La esquina donde se cruzan las dos barras. */
-*::-webkit-scrollbar-corner {
-  background: transparent;
-}
+*::-webkit-scrollbar-corner { background: transparent; }
