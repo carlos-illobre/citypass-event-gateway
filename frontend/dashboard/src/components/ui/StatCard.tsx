@@ -1,5 +1,5 @@
+import { Group, Paper, Text, type MantineColor } from '@mantine/core'
 import type { ScopeKind } from '@/domain/scope'
-import './StatCard.css'
 
 type Props = {
   label: string
@@ -19,15 +19,25 @@ const SCOPE_LABEL: Record<ScopeKind, string> = {
   usuario:   'sólo vos',
 }
 
+const SCOPE_COLOR: Record<ScopeKind, MantineColor> = {
+  global:    'brand',
+  namespace: 'gray',
+  usuario:   'orange',
+}
+
 export function StatCard({ label, value, scope, note }: Props) {
   return (
-    <div className="stat-card card">
-      <div className="stat-card__head">
-        <span className="stat-card__label">{label}</span>
-        <span className={`stat-card__scope stat-card__scope--${scope}`}>{SCOPE_LABEL[scope]}</span>
-      </div>
-      <p className="stat-card__value">{value}</p>
-      <p className="stat-card__note">{note}</p>
-    </div>
+    <Paper withBorder p="md" radius="md">
+      <Group justify="space-between" align="baseline" gap="xs" wrap="nowrap">
+        <Text size="sm" fw={600} c="dimmed">{label}</Text>
+        <Text size="xs" fw={700} tt="uppercase" c={SCOPE_COLOR[scope]} style={{ whiteSpace: 'nowrap' }}>
+          {SCOPE_LABEL[scope]}
+        </Text>
+      </Group>
+      <Text fz={28} fw={700} lh={1.2} mt={6} mb={2} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </Text>
+      <Text size="xs" c="dimmed">{note}</Text>
+    </Paper>
   )
 }

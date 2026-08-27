@@ -1,8 +1,8 @@
+import { Group, Loader, Text, Title } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { RefreshBar } from '@/components/ui/RefreshBar'
 import type { Poll } from '@/hooks/usePolling'
-import './ViewState.css'
 
 type Props<T> = {
   poll:     Poll<T>
@@ -23,19 +23,24 @@ export function ViewState<T>({ poll, title, children }: Props<T>) {
 
   return (
     <section>
-      <header className="view-state__header">
-        <h2 className="view-title">{title}</h2>
+      <Group justify="space-between" wrap="wrap" mb="md">
+        <Title order={2} fz="lg" lh={1.2}>{title}</Title>
         <RefreshBar
           lastUpdated={lastUpdated}
           refreshing={refreshing}
           paused={paused}
           onRefresh={refresh}
         />
-      </header>
+      </Group>
 
-      {error && <div className="view-state__error"><ErrorBanner message={error} /></div>}
+      {error && <ErrorBanner message={error} />}
 
-      {loading && <p className="view-state__loading">Cargando…</p>}
+      {loading && (
+        <Group justify="center" py="xl" gap="xs">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">Cargando…</Text>
+        </Group>
+      )}
 
       {data !== null && children(data)}
     </section>

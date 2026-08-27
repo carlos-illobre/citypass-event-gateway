@@ -1,4 +1,5 @@
 import { useContext, useMemo, useState } from 'react'
+import { Card, Checkbox, Grid, Group, Select, Text, TextInput } from '@mantine/core'
 import { gateway, type EventTypeSummary } from '@/api/gateway'
 import { POLL_MS } from '@/config'
 import { AuthContext } from '@/contexts/auth-context'
@@ -11,7 +12,6 @@ import { BarList } from '@/components/charts/BarList'
 import { ScopeNote } from '@/components/layout/ScopeNote'
 import { ViewState } from '@/components/layout/ViewState'
 import { SchemaViewer } from './SchemaViewer'
-import './CatalogView.css'
 
 export function CatalogView() {
   const { namespace } = useContext(AuthContext)
@@ -37,9 +37,9 @@ export function CatalogView() {
       key:    'fqn',
       header: 'Tipo de evento',
       render: t => (
-        <span className="catalog__fqn">
-          <span className="mono muted">{t.namespace}.</span>
-          <span className="mono catalog__name">{t.name}</span>
+        <span style={{ wordBreak: 'break-all' }}>
+          <Text span c="dimmed" ff="monospace" size="sm">{t.namespace}.</Text>
+          <Text span fw={600} ff="monospace" size="sm">{t.name}</Text>
         </span>
       ),
     },
@@ -49,7 +49,7 @@ export function CatalogView() {
       width:  '7rem',
       render: t => t.schemaId === null
         ? <Badge tone="warning" title="Todavía no está registrado en el Schema Registry">sin registrar</Badge>
-        : <span className="mono muted">#{t.schemaId}</span>,
+        : <Text ff="monospace" c="dimmed" size="sm">#{t.schemaId}</Text>,
     },
     {
       key:    'status',
@@ -65,7 +65,7 @@ export function CatalogView() {
       width:  '7rem',
       render: t => t.namespace === namespace
         ? <Badge tone="accent">tu grupo</Badge>
-        : <span className="muted">otro grupo</span>,
+        : <Text c="dimmed" size="sm">otro grupo</Text>,
     },
   ]
 
@@ -75,88 +75,95 @@ export function CatalogView() {
         <>
           <ScopeNote scope="catalog" />
 
-          <div className="catalog__layout">
-            <div className="card">
-              <div className="card-header">
-                <span className="card-title">
-                  {filtered.length} de {summary.total} tipos
-                </span>
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 8 }}>
+              <Card withBorder radius="md" padding={0}>
+                <Card.Section withBorder inheritPadding py="xs" px="md">
+                  <Group justify="space-between" wrap="wrap">
+                    <Text fw={700} fz="sm">
+                      {filtered.length} de {summary.total} tipos
+                    </Text>
 
-                <div className="catalog__filters">
-                  <input
-                    className="form-input catalog__search"
-                    type="search"
-                    placeholder="Buscar por FQN…"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    aria-label="Buscar tipos de evento"
-                  />
-
-                  <select
-                    className="form-input catalog__select"
-                    value={ns}
-                    onChange={e => setNs(e.target.value)}
-                    disabled={onlyMine}
-                    aria-label="Filtrar por namespace"
-                  >
-                    <option value="">Todos los namespaces</option>
-                    {namespacesOf(types).map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
-
-                  <select
-                    className="form-input catalog__select"
-                    value={status}
-                    onChange={e => setStatus(e.target.value as typeof status)}
-                    aria-label="Filtrar por estado"
-                  >
-                    <option value="todos">Activos y archivados</option>
-                    <option value="active">Sólo activos</option>
-                    <option value="archived">Sólo archivados</option>
-                  </select>
-
-                  {/* Apagado por defecto: la vista global es la principal y el recorte es una
-                      decisión explícita de quien mira, no el estado inicial. */}
-                  <label className="catalog__toggle">
-                    <input
-                      type="checkbox"
-                      checked={onlyMine}
-                      onChange={e => setOnlyMine(e.target.checked)}
-                    />
-                    Sólo {namespace || 'mi namespace'}
-                  </label>
-                </div>
-              </div>
-
-              <DataTable
-                rows={filtered}
-                columns={columns}
-                rowKey={t => t.fqn}
-                expanded={t => <SchemaViewer fqn={t.fqn} />}
-                empty={
-                  types.length === 0
-                    ? <EmptyState
-                        title="No hay tipos de evento registrados"
-                        detail={<>Ningún grupo registró todavía un tipo. Se crean con <code>POST /api/v1/event-types</code>, o desde la UI del gateway.</>}
+                    <Group gap="xs" wrap="wrap">
+                      <TextInput
+                        placeholder="Buscar por FQN…"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        aria-label="Buscar tipos de evento"
+                        size="xs"
+                        w={224}
                       />
-                    : <EmptyState
-                        title="Ningún tipo coincide con el filtro"
-                        detail="Probá con otro texto, otro namespace o incluyendo los archivados."
-                      />
-                }
-              />
-            </div>
 
-            <aside className="card catalog__aside">
-              <div className="card-header"><span className="card-title">Reparto por grupo</span></div>
-              <div className="card-body">
-                <BarList data={summary.byNamespace} label="Tipos de evento por namespace" />
-                <p className="catalog__aside-note">
-                  {summary.namespaces} namespaces · {summary.active} activos ·{' '}
-                  {summary.archived} archivados · {summary.withoutSchema} sin registrar
-                </p>
-              </div>
-            </aside>
-          </div>
+                      <Select
+                        data={[{ value: '', label: 'Todos los namespaces' }, ...namespacesOf(types).map(n => ({ value: n, label: n }))]}
+                        value={ns}
+                        onChange={v => setNs(v ?? '')}
+                        disabled={onlyMine}
+                        aria-label="Filtrar por namespace"
+                        size="xs"
+                        allowDeselect={false}
+                      />
+
+                      <Select
+                        data={[
+                          { value: 'todos', label: 'Activos y archivados' },
+                          { value: 'active', label: 'Sólo activos' },
+                          { value: 'archived', label: 'Sólo archivados' },
+                        ]}
+                        value={status}
+                        onChange={v => setStatus((v ?? 'todos') as typeof status)}
+                        aria-label="Filtrar por estado"
+                        size="xs"
+                        allowDeselect={false}
+                      />
+
+                      {/* Apagado por defecto: la vista global es la principal y el recorte es una
+                          decisión explícita de quien mira, no el estado inicial. */}
+                      <Checkbox
+                        label={`Sólo ${namespace || 'mi namespace'}`}
+                        checked={onlyMine}
+                        onChange={e => setOnlyMine(e.target.checked)}
+                        size="xs"
+                      />
+                    </Group>
+                  </Group>
+                </Card.Section>
+
+                <DataTable
+                  rows={filtered}
+                  columns={columns}
+                  rowKey={t => t.fqn}
+                  expanded={t => <SchemaViewer fqn={t.fqn} />}
+                  empty={
+                    types.length === 0
+                      ? <EmptyState
+                          title="No hay tipos de evento registrados"
+                          detail={<>Ningún grupo registró todavía un tipo. Se crean con <code>POST /api/v1/event-types</code>, o desde la UI del gateway.</>}
+                        />
+                      : <EmptyState
+                          title="Ningún tipo coincide con el filtro"
+                          detail="Probá con otro texto, otro namespace o incluyendo los archivados."
+                        />
+                  }
+                />
+              </Card>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <Card withBorder radius="md" padding={0} h="100%">
+                <Card.Section withBorder inheritPadding py="xs" px="md">
+                  <Text fw={700} fz="sm">Reparto por grupo</Text>
+                </Card.Section>
+                <Card.Section inheritPadding p="md">
+                  <BarList data={summary.byNamespace} label="Tipos de evento por namespace" />
+                  <Text size="xs" c="dimmed" mt="sm">
+                    {summary.namespaces} namespaces · {summary.active} activos ·{' '}
+                    {summary.archived} archivados · {summary.withoutSchema} sin registrar
+                  </Text>
+                </Card.Section>
+              </Card>
+            </Grid.Col>
+          </Grid>
         </>
       )}
     </ViewState>

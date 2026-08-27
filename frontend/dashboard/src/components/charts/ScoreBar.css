@@ -8,7 +8,7 @@
 .score-bar__track {
   flex: 1;
   height: 0.5rem;
-  background: var(--border);
+  background: var(--mantine-color-default-border);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -18,13 +18,13 @@
   border-radius: 3px;
 }
 
-.score-bar__fill--alta  { background: var(--danger); }
-.score-bar__fill--media { background: var(--warning); }
-.score-bar__fill--baja  { background: var(--text-muted); }
+.score-bar__fill--alta  { background: var(--mantine-color-red-6); }
+.score-bar__fill--media { background: var(--mantine-color-orange-6); }
+.score-bar__fill--baja  { background: var(--mantine-color-dimmed); }
 
 .score-bar__value {
-  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-family: var(--mantine-font-family-monospace);
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+  color: var(--mantine-color-dimmed);
 }

@@ -1,4 +1,4 @@
-import './ErrorBanner.css'
+import { Alert } from '@mantine/core'
 
 type Props = {
   message:    string
@@ -7,12 +7,8 @@ type Props = {
 
 export function ErrorBanner({ message, onDismiss }: Props) {
   return (
-    <p
-      className={`error-banner${onDismiss ? ' error-banner--dismissable' : ''}`}
-      onClick={onDismiss}
-      role="alert"
-    >
-      {message}{onDismiss && ' — clic para cerrar'}
-    </p>
+    <Alert color="red" variant="light" role="alert" withCloseButton={!!onDismiss} onClose={onDismiss}>
+      {message}
+    </Alert>
   )
 }

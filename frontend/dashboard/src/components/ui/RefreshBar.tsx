@@ -1,6 +1,6 @@
+import { Button, Group, Text } from '@mantine/core'
 import { relativeTo } from '@/domain/time'
 import { useNow } from '@/hooks/useNow'
-import './RefreshBar.css'
 
 type Props = {
   lastUpdated: number | null
@@ -21,17 +21,17 @@ export function RefreshBar({ lastUpdated, refreshing, paused, onRefresh }: Props
   const now = useNow()
 
   return (
-    <div className="refresh-bar">
-      <span className="refresh-bar__state">
+    <Group gap="sm" wrap="nowrap">
+      <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
         {refreshing
           ? 'Actualizando…'
           : paused
             ? 'En pausa — la pestaña está en segundo plano'
             : `Actualizado ${relativeTo(lastUpdated, now)}`}
-      </span>
-      <button className="btn-ghost" type="button" onClick={onRefresh} disabled={refreshing}>
+      </Text>
+      <Button variant="subtle" color="gray" size="xs" onClick={onRefresh} disabled={refreshing}>
         Actualizar
-      </button>
-    </div>
+      </Button>
+    </Group>
   )
 }

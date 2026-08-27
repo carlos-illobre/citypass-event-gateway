@@ -1,10 +1,16 @@
 import { useContext } from 'react'
+import { Alert, type MantineColor } from '@mantine/core'
 import { AuthContext } from '@/contexts/auth-context'
 import { SCOPE, scopeText, type ScopeKey } from '@/domain/scope'
-import './ScopeNote.css'
 
 type Props = {
   scope: ScopeKey
+}
+
+const KIND_COLOR: Record<(typeof SCOPE)[ScopeKey]['kind'], MantineColor> = {
+  global:    'brand',
+  namespace: 'gray',
+  usuario:   'orange',
 }
 
 /**
@@ -17,8 +23,8 @@ type Props = {
 export function ScopeNote({ scope }: Props) {
   const { user, namespace } = useContext(AuthContext)
   return (
-    <p className={`scope-note scope-note--${SCOPE[scope].kind}`}>
+    <Alert variant="outline" color={KIND_COLOR[SCOPE[scope].kind]} py={6} px="sm" mb="md" maw="90ch">
       {scopeText(scope, user, namespace)}
-    </p>
+    </Alert>
   )
 }

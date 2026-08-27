@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Card, Group, Stack, Table, Text } from '@mantine/core'
 import { anomaly, type Anomaly } from '@/api/anomalies'
 import { POLL_MS, config } from '@/config'
 import { usePolling } from '@/hooks/usePolling'
@@ -12,7 +13,6 @@ import { ScoreBar } from '@/components/charts/ScoreBar'
 import { ScopeNote } from '@/components/layout/ScopeNote'
 import { ViewState } from '@/components/layout/ViewState'
 import { ModelStatusPanel } from './ModelStatusPanel'
-import './AnomaliesView.css'
 
 const TONE = { alta: 'danger', media: 'warning', baja: 'neutral' } as const
 
@@ -21,7 +21,7 @@ const columns: Column<Anomaly>[] = [
     key:    'timestamp',
     header: 'Detectada',
     width:  '12rem',
-    render: a => <span className="mono muted">{formatDateTime(toMillis(a.timestamp))}</span>,
+    render: a => <Text ff="monospace" c="dimmed" size="sm">{formatDateTime(toMillis(a.timestamp))}</Text>,
   },
   {
     key:    'severity',
@@ -38,13 +38,13 @@ const columns: Column<Anomaly>[] = [
   {
     key:    'topic',
     header: 'Tópico original',
-    render: a => <span className="mono">{a.originalTopic}</span>,
+    render: a => <Text ff="monospace" size="sm">{a.originalTopic}</Text>,
   },
   {
     key:    'source',
     header: 'Publicado por',
     width:  '8rem',
-    render: a => <span className="mono muted">{a.originalSource}</span>,
+    render: a => <Text ff="monospace" c="dimmed" size="sm">{a.originalSource}</Text>,
   },
 ]
 
@@ -66,40 +66,42 @@ export function AnomaliesView() {
   return (
     <ViewState poll={listPoll} title="Anomalías detectadas">
       {data => (
-        <>
+        <Stack gap="md">
           <ScopeNote scope="anomalies" />
 
-          <div className="anomalies__layout">
-            <div className="card">
-              <div className="card-header">
-                <span className="card-title">{data.returned} de {data.total} anomalías</span>
-                <span className="muted anomalies__hint">
-                  el score es negativo: más negativo, más raro
-                </span>
-              </div>
+          <Group align="flex-start" wrap="wrap" gap="md">
+            <Card withBorder radius="md" padding={0} style={{ flex: '2 1 32rem' }}>
+              <Card.Section withBorder inheritPadding py="xs" px="md">
+                <Group justify="space-between" wrap="wrap">
+                  <Text fw={700} fz="sm">{data.returned} de {data.total} anomalías</Text>
+                  <Text c="dimmed" size="sm">
+                    el score es negativo: más negativo, más raro
+                  </Text>
+                </Group>
+              </Card.Section>
 
               <DataTable
                 rows={ordered}
                 columns={columns}
                 rowKey={a => a.eventId}
                 expanded={a => (
-                  <div className="anomalies__detail">
-                    <p className="anomalies__label">Rasgos que evaluó el modelo</p>
-                    <table className="anomalies__features">
-                      <tbody>
+                  <Stack gap="xs">
+                    <Text size="sm" fw={600}>Rasgos que evaluó el modelo</Text>
+                    <Table withRowBorders={false}>
+                      <Table.Tbody>
                         {featureRows(a.features).map(({ key, label, value }) => (
-                          <tr key={key}>
-                            <th scope="row">{label}</th>
-                            <td className="mono">{value}</td>
-                          </tr>
+                          <Table.Tr key={key}>
+                            <Table.Th>{label}</Table.Th>
+                            <Table.Td><Text ff="monospace" size="sm">{value}</Text></Table.Td>
+                          </Table.Tr>
                         ))}
-                      </tbody>
-                    </table>
-                    <p className="anomalies__origin muted">
-                      Evento original <span className="mono">{a.originalEventId}</span>, publicado
-                      por <span className="mono">{a.originalSource}</span>.
-                    </p>
-                  </div>
+                      </Table.Tbody>
+                    </Table>
+                    <Text size="sm" c="dimmed">
+                      Evento original <Text span ff="monospace">{a.originalEventId}</Text>, publicado
+                      por <Text span ff="monospace">{a.originalSource}</Text>.
+                    </Text>
+                  </Stack>
                 )}
                 empty={
                   statusPoll.data && !statusPoll.data.is_trained
@@ -113,22 +115,24 @@ export function AnomaliesView() {
                       />
                 }
               />
-            </div>
+            </Card>
 
-            <aside className="anomalies__aside">
+            <Stack gap="md" style={{ flex: '1 1 18rem' }}>
               {statusPoll.data && <ModelStatusPanel status={statusPoll.data} />}
 
               {byTopic.length > 0 && (
-                <div className="card">
-                  <div className="card-header"><span className="card-title">Por tópico</span></div>
-                  <div className="card-body">
+                <Card withBorder radius="md" padding={0}>
+                  <Card.Section withBorder inheritPadding py="xs" px="md">
+                    <Text fw={700} fz="sm">Por tópico</Text>
+                  </Card.Section>
+                  <Card.Section inheritPadding p="md">
                     <BarList data={byTopic} label="Anomalías por tópico" />
-                  </div>
-                </div>
+                  </Card.Section>
+                </Card>
               )}
-            </aside>
-          </div>
-        </>
+            </Stack>
+          </Group>
+        </Stack>
       )}
     </ViewState>
   )

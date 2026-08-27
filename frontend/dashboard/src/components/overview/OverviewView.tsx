@@ -1,4 +1,5 @@
 import { useContext, useMemo } from 'react'
+import { Box, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core'
 import { anomaly } from '@/api/anomalies'
 import { gateway } from '@/api/gateway'
 import { POLL_MS, config } from '@/config'
@@ -12,7 +13,6 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { RefreshBar } from '@/components/ui/RefreshBar'
 import { BarList } from '@/components/charts/BarList'
 import { HealthPill } from './HealthPill'
-import './OverviewView.css'
 
 /**
  * La primera pantalla: el estado del bus en diez segundos.
@@ -52,13 +52,13 @@ export function OverviewView() {
   const error = catalogPoll.error || modelPoll.error || eventsPoll.error || dlqPoll.error
 
   return (
-    <section>
-      <header className="overview__header">
+    <Stack gap="md">
+      <Group justify="space-between" wrap="wrap">
         <div>
-          <h2 className="view-title">Vista general</h2>
-          <p className="overview__subtitle muted">
+          <Title order={2} fz="lg" lh={1.2}>Vista general</Title>
+          <Text size="sm" c="dimmed">
             Cada tarjeta indica a qué alcanza su número: el bus entero, tu namespace o sólo vos.
-          </p>
+          </Text>
         </div>
         <RefreshBar
           lastUpdated={catalogPoll.lastUpdated}
@@ -69,32 +69,34 @@ export function OverviewView() {
             subsPoll.refresh(); modelPoll.refresh()
           }}
         />
-      </header>
+      </Group>
 
-      {error && <div className="overview__error"><ErrorBanner message={error} /></div>}
+      {error && <ErrorBanner message={error} />}
 
-      <div className="overview__health">
+      <Group gap="xs">
         <HealthPill name="event-gateway" poll={gwHealth} />
         <HealthPill name="anomaly-detector" poll={anHealth} />
-      </div>
+      </Group>
 
-      <div className="grid-cards overview__cards">
+      <SimpleGrid cols={{ base: 1, xs: 2, md: 3, lg: 5 }} spacing="md">
         {kpis.map(kpi => (
           <StatCard key={kpi.id} label={kpi.label} value={kpi.value} scope={kpi.scope} note={kpi.note} />
         ))}
-      </div>
+      </SimpleGrid>
 
       {catalog && catalog.byNamespace.length > 0 && (
-        <div className="card overview__chart">
-          <div className="card-header">
-            <span className="card-title">Tipos de evento por grupo</span>
-            <span className="muted overview__chart-note">todos los namespaces del bus</span>
-          </div>
-          <div className="card-body">
+        <Card withBorder radius="md" padding={0}>
+          <Card.Section withBorder inheritPadding py="xs" px="md">
+            <Group justify="space-between">
+              <Text fw={700} fz="sm">Tipos de evento por grupo</Text>
+              <Text size="sm" c="dimmed">todos los namespaces del bus</Text>
+            </Group>
+          </Card.Section>
+          <Box p="md">
             <BarList data={catalog.byNamespace} limit={10} label="Tipos de evento por namespace" />
-          </div>
-        </div>
+          </Box>
+        </Card>
       )}
-    </section>
+    </Stack>
   )
 }

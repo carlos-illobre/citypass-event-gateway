@@ -1,40 +1,42 @@
 import { useContext, useEffect, useState } from 'react'
+import { Box, Button, Group, SimpleGrid, Stack, Table, Text } from '@mantine/core'
 import { gateway } from '@/api/gateway'
 import { AuthContext } from '@/contexts/auth-context'
 import { flattenSchema, type SchemaField } from '@/domain/avro'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { JsonView } from '@/components/ui/JsonView'
 import { Badge } from '@/components/ui/Badge'
-import './SchemaViewer.css'
 
 type Props = {
   fqn: string
 }
 
 function FieldTable({ fields, caption }: { fields: SchemaField[]; caption: string }) {
-  if (fields.length === 0) return <p className="muted">Sin campos.</p>
+  if (fields.length === 0) return <Text size="sm" c="dimmed">Sin campos.</Text>
   return (
-    <table className="schema-table">
-      <caption className="schema-table__caption">{caption}</caption>
-      <thead>
-        <tr><th>Campo</th><th>Tipo</th><th>Notas</th></tr>
-      </thead>
-      <tbody>
+    <Table>
+      <Table.Caption>{caption}</Table.Caption>
+      <Table.Thead>
+        <Table.Tr><Table.Th>Campo</Table.Th><Table.Th>Tipo</Table.Th><Table.Th>Notas</Table.Th></Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>
         {fields.map(f => (
-          <tr key={f.path}>
-            <td>
-              <span className="mono" style={{ paddingLeft: `${f.depth * 1}rem` }}>{f.name}</span>
-            </td>
-            <td className="mono muted">{f.type}</td>
-            <td className="schema-table__notes">
-              {f.nullable && <Badge tone="neutral">opcional</Badge>}
-              {f.hasDefault && <Badge tone="neutral">con default</Badge>}
-              {f.doc && <span className="schema-table__doc">{f.doc}</span>}
-            </td>
-          </tr>
+          <Table.Tr key={f.path}>
+            <Table.Td>
+              <Text ff="monospace" size="sm" style={{ paddingLeft: `${f.depth}rem` }}>{f.name}</Text>
+            </Table.Td>
+            <Table.Td><Text ff="monospace" size="sm" c="dimmed">{f.type}</Text></Table.Td>
+            <Table.Td>
+              <Group gap={4} wrap="wrap">
+                {f.nullable && <Badge tone="neutral">opcional</Badge>}
+                {f.hasDefault && <Badge tone="neutral">con default</Badge>}
+                {f.doc && <Text size="sm">{f.doc}</Text>}
+              </Group>
+            </Table.Td>
+          </Table.Tr>
         ))}
-      </tbody>
-    </table>
+      </Table.Tbody>
+    </Table>
   )
 }
 
@@ -75,26 +77,26 @@ export function SchemaViewer({ fqn }: Props) {
 
   const copyFqn = () => { void navigator.clipboard?.writeText(fqn) }
 
-  if (loading) return <p className="muted">Cargando el esquema…</p>
+  if (loading) return <Text size="sm" c="dimmed">Cargando el esquema…</Text>
   if (error) return <ErrorBanner message={error} />
 
   return (
-    <div className="schema-viewer">
-      <div className="schema-viewer__head">
-        <span className="mono">{fqn}</span>
-        <button className="btn-ghost" type="button" onClick={copyFqn}>Copiar FQN</button>
-      </div>
+    <Stack gap="md">
+      <Group justify="space-between">
+        <Text ff="monospace" size="sm">{fqn}</Text>
+        <Button variant="default" size="xs" onClick={copyFqn}>Copiar FQN</Button>
+      </Group>
 
-      <div className="schema-viewer__grid">
-        <div>
+      <SimpleGrid cols={{ base: 1, md: 2 }}>
+        <Stack gap="md">
           <FieldTable fields={flattenSchema(schema)} caption="Campos del evento (data)" />
           <FieldTable fields={flattenSchema(metadata)} caption="Campos del sobre (metadata)" />
-        </div>
-        <div>
-          <p className="schema-viewer__label">Esquema Avro sin procesar</p>
+        </Stack>
+        <Box>
+          <Text size="sm" fw={600} mb="xs">Esquema Avro sin procesar</Text>
           <JsonView value={schema} collapsedByDefault={path => path.split('.').length > 2} />
-        </div>
-      </div>
-    </div>
+        </Box>
+      </SimpleGrid>
+    </Stack>
   )
 }

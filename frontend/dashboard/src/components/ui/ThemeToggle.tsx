@@ -1,19 +1,20 @@
-import { useTheme } from '@/hooks/useTheme'
-import './ThemeToggle.css'
+import { ActionIcon, useComputedColorScheme, useMantineColorScheme } from '@mantine/core'
 
 export function ThemeToggle() {
-  const [theme, toggle] = useTheme()
-  const isDark = theme === 'dark'
+  const { setColorScheme } = useMantineColorScheme()
+  const computed = useComputedColorScheme('light')
+  const isDark = computed === 'dark'
 
   return (
-    <button
-      type="button"
-      className="theme-toggle"
-      onClick={toggle}
+    <ActionIcon
+      variant="subtle"
+      color="gray"
+      size="lg"
+      onClick={() => setColorScheme(isDark ? 'light' : 'dark')}
       aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
       title={isDark ? 'Modo claro' : 'Modo oscuro'}
     >
       {isDark ? '☀️' : '🌙'}
-    </button>
+    </ActionIcon>
   )
 }

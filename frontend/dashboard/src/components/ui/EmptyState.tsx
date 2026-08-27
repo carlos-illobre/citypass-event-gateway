@@ -1,5 +1,5 @@
+import { Stack, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
-import './EmptyState.css'
 
 type Props = {
   title:    string
@@ -9,9 +9,9 @@ type Props = {
 
 export function EmptyState({ title, detail }: Props) {
   return (
-    <div className="empty-state">
-      <p className="empty-state__title">{title}</p>
-      {detail && <div className="empty-state__detail">{detail}</div>}
-    </div>
+    <Stack align="center" gap="xs" py="xl" ta="center">
+      <Text fw={600}>{title}</Text>
+      {detail && <Text size="sm" c="dimmed" maw={480}>{detail}</Text>}
+    </Stack>
   )
 }

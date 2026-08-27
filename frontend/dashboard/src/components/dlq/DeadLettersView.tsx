@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Card, Code, Grid, Group, Stack, Text } from '@mantine/core'
 import { gateway, type DeadLetter } from '@/api/gateway'
 import { POLL_MS, config } from '@/config'
 import { useResource } from '@/hooks/useResource'
@@ -12,22 +13,21 @@ import { Badge } from '@/components/ui/Badge'
 import { BarList } from '@/components/charts/BarList'
 import { ScopeNote } from '@/components/layout/ScopeNote'
 import { ViewState } from '@/components/layout/ViewState'
-import './DeadLettersView.css'
 
 function Payload({ base64 }: { base64: string }) {
   const decoded = useMemo(() => decodePayload(base64), [base64])
 
   if (decoded.kind === 'json') return <JsonView value={decoded.value} />
-  if (decoded.kind === 'text') return <pre className="dlq__raw">{decoded.value}</pre>
+  if (decoded.kind === 'text') return <Code block>{decoded.value}</Code>
   if (decoded.kind === 'binary') {
     return (
-      <p className="muted">
+      <Text size="sm" c="dimmed">
         Contenido binario, {formatBytes(decoded.bytes)}. Es lo esperable cuando el evento murió al
         deserializarse: lo que quedó son bytes de Avro, no texto.
-      </p>
+      </Text>
     )
   }
-  return <p className="muted">El payload no es base64 válido.</p>
+  return <Text size="sm" c="dimmed">El payload no es base64 válido.</Text>
 }
 
 const columns: Column<DeadLetter>[] = [
@@ -35,7 +35,7 @@ const columns: Column<DeadLetter>[] = [
     key:    'timestamp',
     header: 'Fecha',
     width:  '12rem',
-    render: m => <span className="mono muted">{formatDateTime(toMillis(m.timestamp))}</span>,
+    render: m => <Text ff="monospace" c="dimmed" size="sm">{formatDateTime(toMillis(m.timestamp))}</Text>,
   },
   {
     key:    'reason',
@@ -46,7 +46,7 @@ const columns: Column<DeadLetter>[] = [
   {
     key:    'topic',
     header: 'Tópico original',
-    render: m => <span className="mono">{m.originalTopic}</span>,
+    render: m => <Text ff="monospace" size="sm">{m.originalTopic}</Text>,
   },
   {
     key:    'retries',
@@ -54,7 +54,7 @@ const columns: Column<DeadLetter>[] = [
     width:  '7rem',
     render: m => m.retryCount >= 3
       ? <Badge tone="danger" title="Agotó los tres intentos">{m.retryCount} · agotado</Badge>
-      : <span className="mono muted">{m.retryCount}</span>,
+      : <Text ff="monospace" c="dimmed" size="sm">{m.retryCount}</Text>,
   },
 ]
 
@@ -72,53 +72,61 @@ export function DeadLettersView() {
   return (
     <ViewState poll={poll} title="Mensajes fallidos">
       {data => (
-        <>
+        <Stack gap="md">
           <ScopeNote scope="deadLetters" />
 
-          <div className="dlq__layout">
-            <div className="card">
-              <div className="card-header">
-                <span className="card-title">{data.returned} mensajes</span>
-                <span className="muted dlq__topic mono">{data.topic}</span>
-              </div>
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 8 }}>
+              <Card withBorder radius="md" padding={0}>
+                <Card.Section withBorder inheritPadding py="xs" px="md">
+                  <Group justify="space-between" wrap="wrap">
+                    <Text fw={700} fz="sm">{data.returned} mensajes</Text>
+                    <Text c="dimmed" ff="monospace" size="sm">{data.topic}</Text>
+                  </Group>
+                </Card.Section>
 
-              <DataTable
-                rows={data.messages}
-                columns={columns}
-                rowKey={m => m.dlqId}
-                expanded={m => (
-                  <div className="dlq__detail">
-                    <p className="dlq__error">{m.errorMessage}</p>
-                    <p className="dlq__label">Payload original</p>
-                    <Payload base64={m.originalPayloadBase64} />
-                  </div>
-                )}
-                empty={
-                  <EmptyState
-                    title="No hay mensajes fallidos"
-                    detail="Nada de tu namespace terminó en la cola de fallidos. Acá caen los eventos que no se pudieron deserializar y los webhooks que agotaron sus tres reintentos."
-                  />
-                }
-              />
-            </div>
+                <DataTable
+                  rows={data.messages}
+                  columns={columns}
+                  rowKey={m => m.dlqId}
+                  expanded={m => (
+                    <Stack gap="xs">
+                      <Text size="sm">{m.errorMessage}</Text>
+                      <Text size="sm" fw={600}>Payload original</Text>
+                      <Payload base64={m.originalPayloadBase64} />
+                    </Stack>
+                  )}
+                  empty={
+                    <EmptyState
+                      title="No hay mensajes fallidos"
+                      detail="Nada de tu namespace terminó en la cola de fallidos. Acá caen los eventos que no se pudieron deserializar y los webhooks que agotaron sus tres reintentos."
+                    />
+                  }
+                />
+              </Card>
+            </Grid.Col>
 
-            <aside className="card dlq__aside">
-              <div className="card-header"><span className="card-title">Por motivo</span></div>
-              <div className="card-body">
-                {summary.total === 0
-                  ? <p className="muted">Sin datos.</p>
-                  : <>
-                      <BarList data={summary.byReason} label="Fallos por motivo" />
-                      <p className="dlq__aside-label">Por tópico</p>
-                      <BarList data={summary.byTopic} label="Fallos por tópico" />
-                      <p className="dlq__aside-note">
-                        {summary.exhausted} de {summary.total} agotaron los reintentos
-                      </p>
-                    </>}
-              </div>
-            </aside>
-          </div>
-        </>
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <Card withBorder radius="md" padding={0} h="100%">
+                <Card.Section withBorder inheritPadding py="xs" px="md">
+                  <Text fw={700} fz="sm">Por motivo</Text>
+                </Card.Section>
+                <Card.Section inheritPadding p="md">
+                  {summary.total === 0
+                    ? <Text size="sm" c="dimmed">Sin datos.</Text>
+                    : <>
+                        <BarList data={summary.byReason} label="Fallos por motivo" />
+                        <Text size="sm" fw={600} mt="md" mb="xs">Por tópico</Text>
+                        <BarList data={summary.byTopic} label="Fallos por tópico" />
+                        <Text size="xs" c="dimmed" mt="sm">
+                          {summary.exhausted} de {summary.total} agotaron los reintentos
+                        </Text>
+                      </>}
+                </Card.Section>
+              </Card>
+            </Grid.Col>
+          </Grid>
+        </Stack>
       )}
     </ViewState>
   )

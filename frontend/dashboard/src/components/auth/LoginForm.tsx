@@ -1,9 +1,9 @@
-import { useContext, useState } from 'react'
+import { useContext, useState, type FormEvent } from 'react'
+import { Box, Button, Center, PasswordInput, Paper, Stack, Text, TextInput, Title } from '@mantine/core'
 import { AuthContext } from '@/contexts/auth-context'
 import { auth } from '@/api/auth'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
-import './LoginForm.css'
 
 export function LoginForm() {
   const { setToken } = useContext(AuthContext)
@@ -12,7 +12,7 @@ export function LoginForm() {
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError('')
     setLoading(true)
@@ -23,51 +23,45 @@ export function LoginForm() {
   }
 
   return (
-    <main className="login-page">
-      <div className="login-card">
-        <div className="login-theme-toggle"><ThemeToggle /></div>
-        <h1 className="login-title">Consola del bus</h1>
-        <p className="login-subtitle">CityPass+ · Event Driven Architecture</p>
+    <Center mih="100vh" p="md">
+      <Paper withBorder shadow="sm" p="xl" radius="md" w={380} pos="relative">
+        <Box pos="absolute" top="0.75rem" right="0.75rem"><ThemeToggle /></Box>
+        <Title order={1} fz="xl" ta="center">Consola del bus</Title>
+        <Text size="sm" c="dimmed" ta="center" mb="lg">CityPass+ · Event Driven Architecture</Text>
 
-        <form onSubmit={handleSubmit} className="login-form">
-          <label className="login-label">
-            Usuario
-            <input
-              className="form-input"
-              type="text"
+        <form onSubmit={handleSubmit}>
+          <Stack gap="sm">
+            <TextInput
+              label="Usuario"
               value={username}
               onChange={e => setUsername(e.target.value)}
               autoComplete="username"
               required
             />
-          </label>
 
-          <label className="login-label">
-            Contraseña
-            <input
-              className="form-input"
-              type="password"
+            <PasswordInput
+              label="Contraseña"
               value={password}
               onChange={e => setPassword(e.target.value)}
               autoComplete="current-password"
               required
             />
-          </label>
 
-          {error && <ErrorBanner message={error} />}
+            {error && <ErrorBanner message={error} />}
 
-          <button className="btn-primary login-submit" type="submit" disabled={loading}>
-            {loading ? 'Ingresando…' : 'Ingresar'}
-          </button>
+            <Button type="submit" loading={loading} fullWidth mt="xs">
+              {loading ? 'Ingresando…' : 'Ingresar'}
+            </Button>
+          </Stack>
         </form>
 
         {/* El grupo 1 todavía no tiene cliente propio en el simulador de identidad: la lista va
             de `grupo2` a `grupo8`. Mientras tanto entramos con el namespace de analítica, que es
             el que mejor le calza a un tablero. */}
-        <p className="login-hint">
+        <Text size="xs" c="dimmed" ta="center" mt="lg">
           El grupo 1 no tiene cliente propio todavía. Usá <code>grupo8</code> / <code>grupo8</code>.
-        </p>
-      </div>
-    </main>
+        </Text>
+      </Paper>
+    </Center>
   )
 }

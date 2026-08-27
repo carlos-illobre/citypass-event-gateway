@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import './DataTable.css'
+import { ActionIcon, Table } from '@mantine/core'
 
 export type Column<T> = {
   key:    string
@@ -30,50 +30,51 @@ export function DataTable<T>({ rows, columns, rowKey, expanded, empty }: Props<T
   if (rows.length === 0) return <>{empty}</>
 
   return (
-    <div className="data-table__wrap">
-      <table className="data-table">
-        <thead>
-          <tr>
-            {expanded && <th className="data-table__toggle-col" />}
+    <Table.ScrollContainer minWidth={480}>
+      <Table verticalSpacing="xs" highlightOnHover={!!expanded}>
+        <Table.Thead>
+          <Table.Tr>
+            {expanded && <Table.Th w={36} />}
             {columns.map(c => (
-              <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.header}</th>
+              <Table.Th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.header}</Table.Th>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
           {rows.map(row => {
             const key = rowKey(row)
             const isOpen = open.has(key)
             return [
-              <tr
+              <Table.Tr
                 key={key}
-                className={expanded ? 'data-table__row--clickable' : undefined}
+                style={expanded ? { cursor: 'pointer' } : undefined}
                 onClick={expanded ? () => toggle(key) : undefined}
               >
                 {expanded && (
-                  <td className="data-table__toggle-col">
-                    <button
-                      type="button"
-                      className="data-table__toggle"
+                  <Table.Td>
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
                       aria-expanded={isOpen}
                       aria-label={isOpen ? 'Colapsar fila' : 'Expandir fila'}
                       onClick={e => { e.stopPropagation(); toggle(key) }}
                     >
                       {isOpen ? '▾' : '▸'}
-                    </button>
-                  </td>
+                    </ActionIcon>
+                  </Table.Td>
                 )}
-                {columns.map(c => <td key={c.key}>{c.render(row)}</td>)}
-              </tr>,
+                {columns.map(c => <Table.Td key={c.key}>{c.render(row)}</Table.Td>)}
+              </Table.Tr>,
               expanded && isOpen && (
-                <tr key={`${key} detalle`} className="data-table__detail">
-                  <td colSpan={columns.length + 1}>{expanded(row)}</td>
-                </tr>
+                <Table.Tr key={`${key} detalle`}>
+                  <Table.Td colSpan={columns.length + 1}>{expanded(row)}</Table.Td>
+                </Table.Tr>
               ),
             ]
           })}
-        </tbody>
-      </table>
-    </div>
+        </Table.Tbody>
+      </Table>
+    </Table.ScrollContainer>
   )
 }

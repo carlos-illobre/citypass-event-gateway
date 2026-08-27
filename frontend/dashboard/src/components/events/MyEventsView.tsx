@@ -1,3 +1,4 @@
+import { Card, Group, SimpleGrid, Stack, Text } from '@mantine/core'
 import { gateway, type BusEvent } from '@/api/gateway'
 import { POLL_MS, config } from '@/config'
 import { useResource } from '@/hooks/useResource'
@@ -9,37 +10,36 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { JsonView } from '@/components/ui/JsonView'
 import { ScopeNote } from '@/components/layout/ScopeNote'
 import { ViewState } from '@/components/layout/ViewState'
-import './MyEventsView.css'
 
 const columns: Column<BusEvent>[] = [
   {
     key:    'receivedAt',
     header: 'Recibido',
     width:  '12rem',
-    render: e => <span className="mono muted">{formatDateTime(toMillis(e.metadata.receivedAt))}</span>,
+    render: e => <Text ff="monospace" c="dimmed" size="sm">{formatDateTime(toMillis(e.metadata.receivedAt))}</Text>,
   },
   {
     key:    'eventType',
     header: 'Tipo',
-    render: e => <span className="mono events__type" title={e.metadata.eventType}>{shortName(e.metadata.eventType)}</span>,
+    render: e => <Text ff="monospace" size="sm" title={e.metadata.eventType}>{shortName(e.metadata.eventType)}</Text>,
   },
   {
     key:    'eventId',
     header: 'ID del evento',
     width:  '11rem',
-    render: e => <span className="mono muted" title={e.metadata.eventId}>{truncateMiddle(e.metadata.eventId)}</span>,
+    render: e => <Text ff="monospace" c="dimmed" size="sm" title={e.metadata.eventId}>{truncateMiddle(e.metadata.eventId)}</Text>,
   },
   {
     key:    'schemaId',
     header: 'Esquema',
     width:  '6rem',
-    render: e => <span className="mono muted">#{e.metadata.schemaId}</span>,
+    render: e => <Text ff="monospace" c="dimmed" size="sm">#{e.metadata.schemaId}</Text>,
   },
   {
     key:    'source',
     header: 'Publicado por',
     width:  '8rem',
-    render: e => <span className="mono">{e.metadata.source}</span>,
+    render: e => <Text ff="monospace" size="sm">{e.metadata.source}</Text>,
   },
 ]
 
@@ -52,35 +52,37 @@ export function MyEventsView() {
   return (
     <ViewState poll={poll} title="Mis eventos publicados">
       {data => (
-        <>
+        <Stack gap="md">
           <ScopeNote scope="events" />
 
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">{data.returned} eventos</span>
-              {/* `topicsScanned` junto al total es lo que distingue «no publiqué nada» de «mi
-                  namespace todavía no tiene tipos registrados»: sin ese número, las dos
-                  situaciones se ven como una tabla vacía. */}
-              <span className="muted events__scanned">
-                {data.topicsScanned} tópicos recorridos en tu namespace
-              </span>
-            </div>
+          <Card withBorder radius="md" padding={0}>
+            <Card.Section withBorder inheritPadding py="xs" px="md">
+              <Group justify="space-between" wrap="wrap">
+                <Text fw={700} fz="sm">{data.returned} eventos</Text>
+                {/* `topicsScanned` junto al total es lo que distingue «no publiqué nada» de «mi
+                    namespace todavía no tiene tipos registrados»: sin ese número, las dos
+                    situaciones se ven como una tabla vacía. */}
+                <Text c="dimmed" size="sm">
+                  {data.topicsScanned} tópicos recorridos en tu namespace
+                </Text>
+              </Group>
+            </Card.Section>
 
             <DataTable
               rows={data.events}
               columns={columns}
               rowKey={e => e.metadata.eventId}
               expanded={e => (
-                <div className="events__detail">
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <div>
-                    <p className="events__label">Sobre (metadata)</p>
+                    <Text size="sm" fw={600} mb={4}>Sobre (metadata)</Text>
                     <JsonView value={e.metadata} />
                   </div>
                   <div>
-                    <p className="events__label">Contenido (data)</p>
+                    <Text size="sm" fw={600} mb={4}>Contenido (data)</Text>
                     <JsonView value={e.data} />
                   </div>
-                </div>
+                </SimpleGrid>
               )}
               empty={
                 data.topicsScanned === 0
@@ -94,8 +96,8 @@ export function MyEventsView() {
                     />
               }
             />
-          </div>
-        </>
+          </Card>
+        </Stack>
       )}
     </ViewState>
   )

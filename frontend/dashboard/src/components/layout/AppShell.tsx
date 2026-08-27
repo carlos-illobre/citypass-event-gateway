@@ -1,8 +1,9 @@
-import { useContext, useState, type ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
+import { AppShell as MantineAppShell, Box, Button, Group, NavLink, Stack, Text, Title } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
 import { AuthContext } from '@/contexts/auth-context'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { TABS, type TabId } from './tabs'
-import './AppShell.css'
 
 type Props = {
   tab:      TabId
@@ -12,54 +13,76 @@ type Props = {
 
 export function AppShell({ tab, onTab, children }: Props) {
   const { user, namespace, logout } = useContext(AuthContext)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, { toggle: toggleCollapsed }] = useDisclosure(false)
+  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false)
 
   return (
-    <div className={`shell${collapsed ? ' shell--collapsed' : ''}`}>
-      <aside className="shell__sidebar">
-        <div className="shell__sidebar-head">
-          <div className="shell__brand">
-            <span className="shell__title">Consola del bus</span>
-            <span className="shell__subtitle">CityPass+ · EDA</span>
-          </div>
-          <button
-            type="button"
-            className="shell__toggle"
-            onClick={() => setCollapsed(c => !c)}
-            aria-label={collapsed ? 'Mostrar barra lateral' : 'Ocultar barra lateral'}
-            title={collapsed ? 'Mostrar barra lateral' : 'Ocultar barra lateral'}
-          >
-            {collapsed ? '»' : '«'}
-          </button>
-        </div>
+    <MantineAppShell
+      header={{ height: 56 }}
+      navbar={{ width: 260, breakpoint: 'sm', collapsed: { desktop: collapsed, mobile: !mobileOpened } }}
+      padding="md"
+    >
+      <MantineAppShell.Header hiddenFrom="sm">
+        <Group h="100%" px="md" justify="space-between">
+          <Text fw={700}>Consola del bus</Text>
+          <Button variant="subtle" size="xs" onClick={toggleMobile}>
+            {mobileOpened ? 'Cerrar menú' : 'Menú'}
+          </Button>
+        </Group>
+      </MantineAppShell.Header>
 
-        <nav className="shell__nav" aria-label="Secciones">
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              className={`shell__tab${tab === id ? ' shell__tab--active' : ''}`}
-              aria-current={tab === id ? 'page' : undefined}
-              onClick={() => onTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+      <MantineAppShell.Navbar p="md">
+        <Stack justify="space-between" h="100%">
+          <Box>
+            <Group justify="space-between" mb="md" wrap="nowrap">
+              <Box>
+                <Title order={1} fz="md" fw={700} lh={1.2}>Consola del bus</Title>
+                <Text size="xs" c="dimmed">CityPass+ · EDA</Text>
+              </Box>
+              <Button
+                variant="subtle"
+                color="gray"
+                size="xs"
+                px={6}
+                visibleFrom="sm"
+                onClick={toggleCollapsed}
+                aria-label={collapsed ? 'Mostrar barra lateral' : 'Ocultar barra lateral'}
+                title={collapsed ? 'Mostrar barra lateral' : 'Ocultar barra lateral'}
+              >
+                {collapsed ? '»' : '«'}
+              </Button>
+            </Group>
 
-        <div className="shell__session">
-          <span className="shell__identity">
-            <strong>{user}</strong>
-            <span className="mono muted">{namespace}</span>
-          </span>
-          <ThemeToggle />
-          <button className="btn-ghost" type="button" onClick={logout}>Salir</button>
-        </div>
-      </aside>
+            <Stack gap={4} aria-label="Secciones" role="navigation">
+              {TABS.map(({ id, label }) => (
+                <NavLink
+                  key={id}
+                  active={tab === id}
+                  label={label}
+                  onClick={() => onTab(id)}
+                  variant="filled"
+                  color="brand"
+                />
+              ))}
+            </Stack>
+          </Box>
+
+          <Stack gap="xs">
+            <Box>
+              <Text fw={600} size="sm">{user}</Text>
+              <Text size="xs" c="dimmed" ff="monospace">{namespace}</Text>
+            </Box>
+            <Group gap="xs">
+              <ThemeToggle />
+              <Button variant="default" size="xs" onClick={logout}>Salir</Button>
+            </Group>
+          </Stack>
+        </Stack>
+      </MantineAppShell.Navbar>
 
       {/* Sólo se monta la vista activa: así sólo consulta la sección que se está mirando, que es
           lo que mantiene el gasto de peticiones dentro de la cuota del namespace. */}
-      <main className="shell__main">{children}</main>
-    </div>
+      <MantineAppShell.Main>{children}</MantineAppShell.Main>
+    </MantineAppShell>
   )
 }
