@@ -1,0 +1,20 @@
+{
+  "name": "AlertaDetectada",
+  "namespace": "com.citypass.security",
+  "fields": [
+    {"name": "alertId", "type": "string"},
+    {"name": "detectedAt", "type": "string"},
+    {"name": "severity", "type": "string"},
+    {"name": "riskScore", "type": "int"},
+    {"name": "alertType", "type": "string"},
+    {"name": "reason", "type": "string"},
+    {"name": "originalEventId", "type": ["null", "string"], "default": null},
+    {"name": "originalTopic", "type": "string"},
+    {"name": "originalSource", "type": ["null", "string"], "default": null},
+    {"name": "cluster", "type": ["null", "int"], "default": null},
+    {"name": "distance", "type": ["null", "double"], "default": null},
+    {"name": "threshold", "type": ["null", "double"], "default": null},
+    {"name": "distanceRatio", "type": ["null", "double"], "default": null},
+    {"name": "signals", "type": {"type": "array", "items": "string"}}
+  ]
+}

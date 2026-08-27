@@ -33,7 +33,9 @@ declare -A esperados=(
     [kafka-ui]=MEM_LIMIT_KAFKA_UI
     [prometheus]=MEM_LIMIT_PROMETHEUS
     [grafana]=MEM_LIMIT_GRAFANA
-    [anomaly-detector]=MEM_LIMIT_ANOMALY_DETECTOR
+    [security-db]=MEM_LIMIT_SECURITY_DB
+    [security]=MEM_LIMIT_SECURITY
+    [security-dashboard]=MEM_LIMIT_SECURITY_DASHBOARD
     [auth-simulator]=MEM_LIMIT_AUTH_SIMULATOR
     [event-gateway-ui]=MEM_LIMIT_EVENT_GATEWAY_UI
 )

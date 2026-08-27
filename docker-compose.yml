@@ -213,6 +213,8 @@ services:
     environment:
       PORT: 8083
       AUTH_CORS_ORIGIN: '${AUTH_CORS_ORIGIN}'
+      SECURITY_CLIENT_ID: ${SECURITY_GATEWAY_CLIENT_ID:-security}
+      SECURITY_CLIENT_SECRET: ${SECURITY_GATEWAY_CLIENT_SECRET:-change-me-local}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
       interval: 10s
@@ -306,15 +308,34 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  anomaly-detector:
-    mem_limit: ${MEM_LIMIT_ANOMALY_DETECTOR:?falta MEM_LIMIT_ANOMALY_DETECTOR en el .env}
+  security-db:
+    mem_limit: ${MEM_LIMIT_SECURITY_DB:-512m}
     logging: *logging
-    image: ${IMAGE_PREFIX:-citypass-eda}/anomaly-detector:${TAG:-latest}
+    image: postgres:17.6-alpine
+    container_name: security-db
+    hostname: security-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-citypass_security}
+      POSTGRES_USER: ${POSTGRES_USER:-citypass_security}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local}
+    volumes:
+      - security-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  security:
+    mem_limit: ${MEM_LIMIT_SECURITY:-768m}
+    logging: *logging
+    image: ${IMAGE_PREFIX:-citypass-eda}/security:${TAG:-latest}
     build:
-      context: ./microservices/anomaly-detector
+      context: ./microservices/security
       dockerfile: Dockerfile
-    container_name: anomaly-detector
-    hostname: anomaly-detector
+    container_name: security
+    hostname: security
     ports:
       - "${PUBLISH_ADDR:-127.0.0.1}:8084:8084"
     depends_on:
@@ -322,20 +343,65 @@ services:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
+      security-db:
+        condition: service_healthy
+      event-gateway:
+        condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      PORT: 8084
-      CONSUMER_GROUP_ID: anomaly-detector-group
-      MIN_SAMPLES_TO_TRAIN: 50
-      RETRAIN_EVERY_N: 100
-      CONTAMINATION: 0.05
+      SECURITY_CONSUMER_GROUP: ${SECURITY_CONSUMER_GROUP:-security-analysis-group}
+      SECURITY_ALERT_FQN: ${SECURITY_ALERT_FQN:-com.citypass.security.AlertaDetectada}
+      EVENT_GATEWAY_URL: http://event-gateway:8080
+      AUTH_SERVICE_URL: http://auth-simulator:8083
+      SECURITY_GATEWAY_CLIENT_ID: ${SECURITY_GATEWAY_CLIENT_ID:-security}
+      SECURITY_GATEWAY_CLIENT_SECRET: ${SECURITY_GATEWAY_CLIENT_SECRET:-change-me-local}
+      GATEWAY_TIMEOUT_SECONDS: ${GATEWAY_TIMEOUT_SECONDS:-5}
+      ALERT_RETRY_INTERVAL_SECONDS: ${ALERT_RETRY_INTERVAL_SECONDS:-30}
+      ALERT_MAX_PUBLICATION_ATTEMPTS: ${ALERT_MAX_PUBLICATION_ATTEMPTS:-10}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-citypass_security}:${POSTGRES_PASSWORD:-change-me-local}@security-db:5432/${POSTGRES_DB:-citypass_security}
+      MIN_TRAINING_SAMPLES: ${MIN_TRAINING_SAMPLES:-50}
+      RETRAIN_EVERY_N_EVENTS: ${RETRAIN_EVERY_N_EVENTS:-100}
+      MODEL_WINDOW_SIZE: ${MODEL_WINDOW_SIZE:-2000}
+      MIN_CLUSTERS: ${MIN_CLUSTERS:-2}
+      MAX_CLUSTERS: ${MAX_CLUSTERS:-6}
+      DISTANCE_PERCENTILE: ${DISTANCE_PERCENTILE:-95}
+      TRAFFIC_SPIKE_ENABLED: ${TRAFFIC_SPIKE_ENABLED:-true}
+      ALERT_COOLDOWN_SECONDS: ${ALERT_COOLDOWN_SECONDS:-300}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8084/health')\" || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
+
+  security-dashboard:
+    mem_limit: ${MEM_LIMIT_SECURITY_DASHBOARD:-384m}
+    logging: *logging
+    image: ${IMAGE_PREFIX:-citypass-eda}/security:${TAG:-latest}
+    build:
+      context: ./microservices/security
+      dockerfile: Dockerfile
+    container_name: security-dashboard
+    hostname: security-dashboard
+    command: ["streamlit", "run", "dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    ports:
+      - "${PUBLISH_ADDR:-127.0.0.1}:8501:8501"
+    depends_on:
+      security-db:
+        condition: service_healthy
+      security:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-citypass_security}:${POSTGRES_PASSWORD:-change-me-local}@security-db:5432/${POSTGRES_DB:-citypass_security}
+      SECURITY_API_URL: http://security:8084
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   # ── Observabilidad ──────────────────────────────────────────────────────────
@@ -447,3 +513,4 @@ volumes:
   certbot-www:
   event-gateway-schemas:
   event-gateway-data:
+  security-postgres-data:

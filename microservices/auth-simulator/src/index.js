@@ -87,6 +87,15 @@ const CLIENTS = {
   grupo8: { secret: 'grupo8', namespace: 'com.citypass.analitica' },
 }
 
+// Credencial de servicio local. En el proveedor de identidad real se provisiona como
+// cualquier cliente OAuth2 y el secret nunca vive en el repositorio.
+if (process.env.SECURITY_CLIENT_ID && process.env.SECURITY_CLIENT_SECRET) {
+  CLIENTS[process.env.SECURITY_CLIENT_ID] = {
+    secret: process.env.SECURITY_CLIENT_SECRET,
+    namespace: 'com.citypass.security',
+  }
+}
+
 /** Segundos de vigencia del token. OAuth2 exige `expires_in` numérico. */
 const TOKEN_TTL_SECONDS = 8 * 60 * 60
 
