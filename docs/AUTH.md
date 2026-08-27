@@ -135,7 +135,10 @@ Y el payload, estos claims. **Todos son obligatorios**:
 |---|---|---|
 | `sub` | Quién pidió el token | El gateway lo estampa en `metadata.source` de cada evento. Es la traza de quién publicó, y no se puede falsificar porque sale de acá |
 | `namespace` | El identificador del grupo | **El más importante.** Delimita en qué tópicos puede publicar (`<namespace>.*`) y es la identidad con la que Kafka autoriza el consumo |
-| `aud` | Tiene que contener `citypass` | Lo verifican el gateway y el broker. Evita que un token emitido para otro sistema sirva acá |
+| `aud` | **Lista** que contiene `citypass` | Lo verifican el gateway y el broker. Evita que un token emitido para otro sistema sirva acá. Llega como lista aunque tenga un solo elemento: se comprueba que la nuestra esté **adentro**, no que sea igual |
+| `iss` | La URL del emisor | El gateway la compara **literalmente**. Es lo que impide que un emisor distinto que llegue a estar en el JWKS pase por el legítimo |
+| `token_use` | `service` | El gateway sólo acepta credenciales de servicio para publicar. Ver abajo |
+| `ver` | `1` | Versión del contrato de identidad. El gateway rechaza lo que no entiende en vez de interpretarlo con reglas de otra versión |
 | `jti` | Único por emisión | El gateway lo estampa en `metadata.tokenId`. Permite trazar un evento hasta la emisión concreta del token |
 | `iat` | Momento de emisión | |
 | `exp` | Vencimiento | Lo verifican los dos validadores |
@@ -144,14 +147,34 @@ Ejemplo de payload:
 
 ```json
 {
+  "iss": "http://auth-simulator:8083",
   "sub": "grupo3",
+  "aud": ["citypass"],
   "namespace": "com.citypass.movilidad",
-  "aud": "citypass",
+  "token_use": "service",
+  "ver": 1,
   "jti": "af2480cc-487f-474f-ac06-f396ad3f403d",
   "iat": 1786547143,
   "exp": 1786548043
 }
 ```
+
+### Por qué el gateway exige `token_use: service`
+
+Publicar en el bus es cosa de un **backend**, no de una persona. Cuando alguien hace algo
+que dispara un evento, tu servicio autoriza a esa persona con el token que le corresponde a
+tu API, y publica el evento con **su propio token de servicio**. La identidad de la persona
+viaja como **dato del evento**, en un campo `actorSub` de tu record `data`
+([CONTRACTS.md](CONTRACTS.md#el-actor-humano-detrás-de-un-evento)).
+
+Nunca reenvíes al bus el token de una persona. Un token es una credencial dirigida a un
+destinatario concreto: pasarla de mano en mano convierte a cada servicio intermedio en
+alguien que puede actuar como esa persona.
+
+El chequeo existe aunque hoy sea redundante —un token de persona tampoco trae `namespace`,
+así que fallaría igual—. Esa redundancia es el punto: el día que el emisor agregue
+`namespace` a los tokens humanos, este control es lo único que sigue separando las dos
+cosas.
 
 ### Sobre `sub` y `namespace`
 

@@ -1,5 +1,7 @@
-import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { setUnauthorizedHandler } from '@/api/client'
+import { auth } from '@/api/auth'
+import type { Credentials } from './auth-context'
 import { AuthContext } from './auth-context'
 
 type JwtPayload = {
@@ -24,10 +26,25 @@ function isExpired(payload: JwtPayload): boolean {
   return typeof payload.exp === 'number' && Date.now() >= payload.exp * 1000
 }
 
+/** Cuánto antes del vencimiento se renueva, para que ninguna petición salga con un token muerto. */
+const MARGEN_DE_RENOVACION_MS = 60_000
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState('')
 
-  const logout = useCallback(() => setTokenState(''), [])
+  /**
+   * Las credenciales viven en un ref y **nunca** en `localStorage`.
+   *
+   * Son un `client_secret`: persistirlas las dejaría legibles para cualquier script de la
+   * página y sobrevivirían a cerrar la pestaña. En memoria desaparecen al recargar, que es
+   * el comportamiento correcto — el precio es volver a ingresar, y es el precio justo.
+   */
+  const credenciales = useRef<Credentials | null>(null)
+
+  const logout = useCallback(() => {
+    credenciales.current = null
+    setTokenState('')
+  }, [])
 
   const setToken = useCallback((t: string) => {
     const payload = decodeJwt(t)
@@ -35,16 +52,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokenState(t)
   }, [logout])
 
-  // Logout automático al expirar el JWT
+  const login = useCallback(async (creds: Credentials) => {
+    const { token: nuevo } = await auth.login(creds)
+    credenciales.current = creds
+    setToken(nuevo)
+  }, [setToken])
+
+  /**
+   * Renueva antes de que venza, y sólo cae en logout si la renovación falla.
+   *
+   * Antes acá había un `setTimeout(logout, …)`: con tokens de ocho horas nadie lo veía,
+   * pero con los quince minutos que emite el servicio real habría echado a la persona en
+   * medio de lo que estuviera haciendo. Que la renovación falle sí es motivo de logout:
+   * significa que las credenciales dejaron de servir.
+   */
   useEffect(() => {
     if (!token) return
     const payload = decodeJwt(token)
     if (typeof payload.exp !== 'number') return
-    // Si ya expiró, el delay negativo dispara en el próximo tick. Programarlo en vez
-    // de llamar a logout() acá evita un setState sincrónico dentro del efecto.
-    const timer = setTimeout(logout, Math.max(0, payload.exp * 1000 - Date.now()))
+
+    const enCuanto = Math.max(0, payload.exp * 1000 - Date.now() - MARGEN_DE_RENOVACION_MS)
+    const timer = setTimeout(() => {
+      const creds = credenciales.current
+      if (!creds) { logout(); return }
+      auth.login(creds)
+        .then(({ token: nuevo }) => setToken(nuevo))
+        .catch(() => logout())
+    }, enCuanto)
+
     return () => clearTimeout(timer)
-  }, [token, logout])
+  }, [token, logout, setToken])
 
   // Registra el handler de 401 en el cliente HTTP
   useEffect(() => {
@@ -61,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   return (
-    <AuthContext.Provider value={{ token, user, namespace, setToken, logout }}>
+    <AuthContext.Provider value={{ token, user, namespace, login, setToken, logout }}>
       {children}
     </AuthContext.Provider>
   )
