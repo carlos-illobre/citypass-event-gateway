@@ -395,6 +395,44 @@ Es la vía más eficiente: te conectás al broker y leés el tópico directament
    librerías estándar funcionan sin cambios.
 4. **Consumer group:** usá un `group.id` que empiece con tu namespace. El broker sólo te
    deja usar grupos con ese prefijo.
+5. **El acuse de recibo es tuyo.** Nadie te "entrega" el evento: lo leés vos, y sos vos
+   quien marca hasta dónde procesaste. Cómo se hace está abajo, y **es la parte que más
+   fácil se hace mal**.
+
+### Cómo confirmás lo que procesaste
+
+Kafka no te manda los eventos: los dejás anotados en un log y vos los vas a buscar. Tu
+posición en ese log es un número —el **offset**— y guardarlo se llama *commitear*. No va al
+gateway: va a un tópico interno del broker, con clave `(group.id, tópico, partición)`. Por
+eso dos equipos leen lo mismo sin pisarse, y por eso al reconectar el broker sabe dónde
+estabas.
+
+**El orden importa más que la técnica:**
+
+```
+leer → procesar → commitear     ✓  si te caés antes del commit, lo volvés a recibir
+leer → commitear → procesar     ✗  si te caés después del commit, lo perdés
+```
+
+Con el primero podés recibir un evento **dos veces**; con el segundo podés **no recibirlo
+nunca**. La entrega es *at-least-once* justamente para que el problema sea el primero: por
+eso cada evento trae `metadata.payloadHash`, para que deduplifiques.
+
+**Y ojo con el default de tu librería**, que casi siempre es el orden equivocado:
+
+| Cliente | Qué hace si no lo configurás | Riesgo |
+|---|---|---|
+| `confluent-kafka` (Python) | Marca el offset **al entregarte el mensaje**, y commitea cada 5 s | **Pérdida** |
+| `kafka-clients` (Java) | Commitea dentro de `poll()` lo que te dio en el `poll()` anterior | **Pérdida** |
+| `kafkajs` (Node) | Commitea **después** de que tu handler termine bien | Duplicados |
+
+Los ejemplos de abajo apagan el automático y commitean a mano. Es unas pocas líneas y es la
+diferencia entre perder eventos y repetirlos.
+
+> **Una trampa más.** Si armás el offset vos mismo, el valor que se commitea es **el próximo
+> a leer**, no el último leído: va `offset + 1`. Sin el `+1` releés el mismo mensaje para
+> siempre, en un bucle que procesa, commitea, no falla y nunca avanza. Pasarle el mensaje
+> directamente a la función de commit te evita el problema.
 
 ### JavaScript / Node.js
 
@@ -442,6 +480,10 @@ await consumer.subscribe({
 })
 
 await consumer.run({
+  // kafkajs commitea recién cuando este handler termina bien: si lanza, el evento se
+  // vuelve a entregar. Es el orden correcto, pero por eso mismo **no atrapes los errores
+  // acá adentro** — un try/catch que se traga la excepción hace que el offset avance
+  // igual, y el evento se pierde.
   eachMessage: async ({ message }) => {
     const evento = await registry.decode(message.value)
     console.log(evento.metadata.eventId, evento.metadata.source, evento.data)
@@ -473,6 +515,10 @@ consumer = Consumer({
     "group.id": f"{NAMESPACE}.dashboard",
     "auto.offset.reset": "earliest",
 
+    # Sin esto, la librería marca el offset al entregarte el mensaje —antes de que lo
+    # proceses— y commitea cada 5 segundos. Un corte en el medio pierde esos eventos.
+    "enable.auto.commit": False,
+
     # El cliente pide y renueva el token solo contra el servicio de identidad.
     "security.protocol": "SASL_PLAINTEXT",   # SASL_SSL en producción
     "sasl.mechanisms": "OAUTHBEARER",
@@ -495,6 +541,9 @@ try:
 
         evento = deserializar(mensaje.value(), None)
         print(evento["metadata"]["eventId"], evento["metadata"]["source"], evento["data"])
+
+        # Después de procesar, nunca antes. `message=` commitea offset+1 por vos.
+        consumer.commit(message=mensaje)
 finally:
     consumer.close()
 ```
@@ -537,6 +586,10 @@ public class ConsumidorCityPass {
         props.put("group.id", NAMESPACE + ".dashboard");
         props.put("auto.offset.reset", "earliest");
 
+        // Sin esto, poll() commitea lo que devolvió el poll anterior dando por hecho que
+        // lo procesaste. Un corte en el medio pierde esos eventos.
+        props.put("enable.auto.commit", "false");
+
         props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         props.put("value.deserializer", KafkaAvroDeserializer.class.getName());
 
@@ -566,6 +619,9 @@ public class ConsumidorCityPass {
 
                     System.out.println(metadata.get("eventId") + " " + metadata.get("source") + " " + data);
                 }
+
+                // Después de procesar el lote, nunca antes.
+                if (!registros.isEmpty()) consumer.commitSync();
             }
         }
     }

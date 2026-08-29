@@ -17,8 +17,9 @@ El razonamiento detrás del diseño está en
 4. [Cuando el cambio rompe: migrar](#4-cuando-el-cambio-rompe-migrar)
 5. [Enterarse de que un contrato cambió](#5-enterarse-de-que-un-contrato-cambió)
 6. [Borrar](#6-borrar)
-7. [Backup y restauración](#7-backup-y-restauración)
-8. [Preguntas frecuentes](#8-preguntas-frecuentes)
+7. [Cuándo se da por entregado un evento](#7-cuándo-se-da-por-entregado-un-evento)
+8. [Backup y restauración](#8-backup-y-restauración)
+9. [Preguntas frecuentes](#9-preguntas-frecuentes)
 
 ---
 
@@ -292,7 +293,41 @@ no vuelve a entregar nada.
 
 ---
 
-## 7. Backup y restauración
+## 7. Cuándo se da por entregado un evento
+
+Depende de cómo consumas, y las dos semánticas son distintas.
+
+### Si consumís directo de Kafka
+
+**El acuse es tuyo.** Confirmás tus propios offsets con tu cliente y el gateway no
+participa: no ve ni puede ver si procesaste bien. Si algo falla, no confirmes y volvés a
+leerlo. Cómo se hace en cada cliente, y cuál es el default peligroso de cada
+uno, está en el [README](../README.md#cómo-confirmás-lo-que-procesaste).
+
+Dos límites que conviene tener presentes:
+
+- La retención está acotada **por tamaño, no por tiempo**: `5 MiB` por tópico. Los 7 días
+  son el default de Kafka, pero el tope de tamaño llega mucho antes en un tópico activo —con
+  eventos de un kilobyte son unos 5.000 eventos—. La ventana real de reproceso se mide en
+  horas, no en días.
+- Un grupo **sin miembros activos pierde su posición a las 24 horas**. Si tu consumidor se
+  apaga el viernes y vuelve el lunes, arranca donde diga tu `auto.offset.reset`, no donde
+  se quedó.
+
+### Si recibís por webhook
+
+**El acuse es tu código HTTP.** Cualquier `2xx` significa recibido; cualquier otra cosa es
+un fallo. Y significa *recibido*, no *procesado*: si respondés `200` y después te caés, para
+el gateway está entregado.
+
+Ante un fallo reintenta tres veces con dos segundos entre cada una —o sea que tolera un
+parpadeo, no una caída— y después deja el evento en la cola de fallidos. El detalle de esa
+ruta está en el [README](../README.md#6-consumir-eventos-desde-kafka), donde también se
+explica por qué el consumo directo es la vía recomendada.
+
+---
+
+## 8. Backup y restauración
 
 Todos tus event types se pueden bajar en un archivo JSON y volver a crear después desde
 él. En la interfaz son los dos botones del panel **Backup**; por API es un endpoint:
@@ -355,7 +390,7 @@ de empezar, porque es la clase de cosa que conviene saber antes y no después.
 
 ---
 
-## 8. Preguntas frecuentes
+## 9. Preguntas frecuentes
 
 **¿Puedo cambiarle el schema a un tipo de evento de otro equipo?**  
 No. Devuelve `403`. El namespace sale de tu token.
