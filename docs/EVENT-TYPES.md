@@ -170,17 +170,21 @@ curl http://localhost:8080/api/v1/event-types/com.citypass.movilidad.BiciDevuelt
   -H "Authorization: Bearer $TOKEN"
 
 # suscribirse a la nueva
-curl -X POST http://localhost:8080/api/v1/subscriptions \
+curl -X POST http://localhost:8085/api/v1/subscriptions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"topic":"com.citypass.movilidad.BiciDevuelta.v2","callbackUrl":"https://mi-app/hook"}'
 
 # y dar de baja la vieja cuando ya no la necesites
-curl -X DELETE http://localhost:8080/api/v1/subscriptions/$ID \
+curl -X DELETE http://localhost:8085/api/v1/subscriptions/$ID \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-El gateway **no** migra tu suscripción solo, a propósito: entregarte una forma que tu
+El sistema **no** migra tu suscripción solo, a propósito: entregarte una forma que tu
 código no espera es exactamente el problema que estamos evitando.
+
+> Las suscripciones están en el puerto 8085 y no en el 8080: las atiende
+> `webhook-dispatcher` ([ADR-020](adr/ADR-020-webhooks-en-su-propio-servicio.md)). En el
+> despliegue desplegado entran por el mismo host, porque el proxy las rutea.
 
 ### Alimentar las dos a la vez
 
@@ -207,7 +211,7 @@ El gateway publica un evento cada vez que alguien cambia un schema. Suscribiénd
 enterás sin tener que preguntar:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/subscriptions \
+curl -X POST http://localhost:8085/api/v1/subscriptions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"topic":"com.citypass.gateway.EsquemaCambiado","callbackUrl":"https://mi-app/schemas"}'
 ```
@@ -288,8 +292,12 @@ Cortarle la entrega a otro equipo sin que se entere no es una decisión que le c
 tomar a un tercero, así que hay que coordinarla. Se nombra a los dueños para que sepas con
 quién hablar.
 
-Tus propias suscripciones sí se dan de baja solas: un webhook a un tópico que ya no existe
-no vuelve a entregar nada.
+Tus propias suscripciones sí se dan de baja solas: el gateway se lo pide al dispatcher, y
+un webhook a un tópico que ya no existe no vuelve a entregar nada.
+
+Si el dispatcher no responde, el borrado se rechaza con **503** en vez de seguir: sin poder
+consultarlo no se sabe si hay equipos ajenos recibiendo, y borrar bajo esa duda es
+justamente lo que el 409 de arriba existe para impedir.
 
 ---
 
@@ -318,7 +326,7 @@ Dos límites que conviene tener presentes:
 
 **El acuse es tu código HTTP.** Cualquier `2xx` significa recibido; cualquier otra cosa es
 un fallo. Y significa *recibido*, no *procesado*: si respondés `200` y después te caés, para
-el gateway está entregado.
+el dispatcher está entregado.
 
 Ante un fallo reintenta tres veces con dos segundos entre cada una —o sea que tolera un
 parpadeo, no una caída— y después deja el evento en la cola de fallidos. El detalle de esa

@@ -41,12 +41,17 @@ sequenceDiagram
 
 ## 2. Entrega de evento via webhook
 
+Este camino entero es del `webhook-dispatcher`, no del gateway
+([ADR-020](../adr/ADR-020-webhooks-en-su-propio-servicio.md)). El gateway no participa: el
+dispatcher lee del listener interno del broker y resuelve los schemas contra el Schema
+Registry por su cuenta, así que la entrega sigue funcionando aunque el gateway esté caído.
+
 ```mermaid
 sequenceDiagram
     actor G4 as Grupo 4 (Reclamos)
-    participant Proxy as Event Gateway
+    participant Proxy as Webhook Dispatcher
     participant Kafka as Apache Kafka
-    participant DLQ as Tópico sistema.dlq
+    participant DLQ as Tópico sistema.webhooks-dlq
     participant Hook as Webhook G4
 
     G4->>Proxy: POST /api/v1/subscriptions<br/>{callbackUrl, eventTypes: ["movilidad.*"]}

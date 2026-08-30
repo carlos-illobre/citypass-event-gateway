@@ -1,9 +1,6 @@
 package com.citypass.gateway.integration
 
-import com.citypass.gateway.controller.DlqController
 import com.citypass.gateway.controller.EventController
-import com.citypass.gateway.controller.SubscriptionController
-import com.citypass.gateway.service.CallbackUrlValidator
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -38,9 +35,10 @@ import org.springframework.test.context.TestPropertySource
         "server.port=0",
         "gateway.schemas-dir=build/tmp/context-test/schemas",
         "gateway.data-dir=build/tmp/context-test/data",
+        "gateway.http-connect-timeout-ms=3000",
+        "gateway.http-read-timeout-ms=5000",
         "gateway.schema-registry-url=http://localhost:1",
         "gateway.auth-service-url=http://localhost:1",
-        "gateway.dlq-topic=sistema.dlq",
         "gateway.cors-origin=http://localhost:5173",
         "spring.kafka.bootstrap-servers=localhost:1",
         "spring.kafka.properties.request.timeout.ms=1000",
@@ -53,14 +51,9 @@ class ApplicationContextTest {
     @Autowired
     private lateinit var context: ApplicationContext
 
-    @Autowired
-    private lateinit var callbackUrlValidator: CallbackUrlValidator
-
     @Test
     fun `el contexto arranca y expone los controllers`() {
         assertNotNull(context.getBean(EventController::class.java))
-        assertNotNull(context.getBean(SubscriptionController::class.java))
-        assertNotNull(context.getBean(DlqController::class.java))
     }
 
     @Test
@@ -70,21 +63,5 @@ class ApplicationContextTest {
         assertNotNull(context.getBean(JwtDecoder::class.java))
     }
 
-    @Test
-    fun `allow-private-callbacks queda en false cuando nadie lo define`() {
-        // El default del `@Value` es lo que protege al despliegue en la nube: ahí la
-        // variable no está seteada, y si el default fuera true el SSRF quedaría abierto
-        // sin que nadie hubiera tocado nada.
-        // Direcciones literales: se parsean sin consultar al DNS, así que el test no
-        // depende de que haya red.
-        assertNotNull(callbackUrlValidator.reject("http://127.0.0.1:8080/hook"))
-        assertNull(callbackUrlValidator.reject("https://93.184.216.34/hook"))
-    }
 
-    @Test
-    fun `el validador que reciben el controller y el servicio de entrega es el mismo bean`() {
-        // Si fueran dos instancias con configuración distinta, el 400 del registro y el
-        // bloqueo de la entrega podrían no coincidir.
-        assertEquals(1, context.getBeanNamesForType(CallbackUrlValidator::class.java).size)
-    }
 }

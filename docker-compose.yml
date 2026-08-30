@@ -253,14 +253,17 @@ services:
         condition: service_healthy
     environment:
       TOKEN_ISSUER: ${TOKEN_ISSUER:?falta TOKEN_ISSUER en el .env}
+      # Con qué dispatcher hablar para saber de suscripciones al borrar un event type.
+      # Vacía = webhooks apagados (ADR-020).
+      DISPATCHER_URL: ${DISPATCHER_URL:-}
+      HTTP_CONNECT_TIMEOUT_MS: ${HTTP_CONNECT_TIMEOUT_MS}
+      HTTP_READ_TIMEOUT_MS: ${HTTP_READ_TIMEOUT_MS}
       TOKEN_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
       SERVER_PORT: 8080
       KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       SCHEMAS_DIR: /app/schemas
-      DATA_DIR: /app/data
       AUTH_SERVICE_URL: http://auth-simulator:8083
-      DLQ_TOPIC: sistema.dlq
       # Multiplicados dan la velocidad máxima a la que un equipo puede llenar el disco.
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:?falta RATE_LIMIT_PER_MINUTE en el .env}
       MAX_PAYLOAD_BYTES: ${MAX_PAYLOAD_BYTES:?falta MAX_PAYLOAD_BYTES en el .env}
@@ -269,9 +272,6 @@ services:
       MAX_EVENT_TYPES_PER_NAMESPACE: ${MAX_EVENT_TYPES_PER_NAMESPACE:?falta MAX_EVENT_TYPES_PER_NAMESPACE en el .env}
       MAX_EVENT_TYPES_TOTAL: ${MAX_EVENT_TYPES_TOTAL:?falta MAX_EVENT_TYPES_TOTAL en el .env}
       MAX_VERSIONS_PER_EVENT_TYPE: ${MAX_VERSIONS_PER_EVENT_TYPE:?falta MAX_VERSIONS_PER_EVENT_TYPE en el .env}
-      MAX_WEBHOOKS_PER_EVENT_TYPE: ${MAX_WEBHOOKS_PER_EVENT_TYPE:?falta MAX_WEBHOOKS_PER_EVENT_TYPE en el .env}
-      WEBHOOK_FAILURES_BEFORE_DISABLE: ${WEBHOOK_FAILURES_BEFORE_DISABLE:?falta WEBHOOK_FAILURES_BEFORE_DISABLE en el .env}
-      WEBHOOK_DISABLE_MINUTES: ${WEBHOOK_DISABLE_MINUTES:?falta WEBHOOK_DISABLE_MINUTES en el .env}
       TOPIC_PARTITIONS: 1
       TOPIC_REPLICATION_FACTOR: 1
       GATEWAY_CORS_ORIGIN: '${GATEWAY_CORS_ORIGIN}'
@@ -281,7 +281,6 @@ services:
       SPRING_PROFILES_ACTIVE: '${SPRING_PROFILES_ACTIVE:-}'
     volumes:
       - event-gateway-schemas:/app/schemas
-      - event-gateway-data:/app/data
     healthcheck:
       # wget viene en el busybox de Alpine; curl habría que instalarlo, lo que agrega
       # una capa y —al construir para ARM desde un runner x86— obliga a emular.
@@ -290,6 +289,65 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+    restart: unless-stopped
+
+  # ── Repartidor de webhooks ──────────────────────────────────────────────────
+  #
+  # Opcional: con el perfil `webhooks` apagado no se levanta, y el bus sigue funcionando
+  # para todos los que consumen directo de Kafka. Es la razón de que viva aparte (ADR-020).
+  webhook-dispatcher:
+    mem_limit: ${MEM_LIMIT_WEBHOOK_DISPATCHER:?falta MEM_LIMIT_WEBHOOK_DISPATCHER en el .env}
+    logging: *logging
+    image: ${IMAGE_PREFIX:-citypass-eda}/webhook-dispatcher:${TAG:-latest}
+    build:
+      context: ./microservices/webhook-dispatcher
+      dockerfile: Dockerfile
+    container_name: webhook-dispatcher
+    hostname: webhook-dispatcher
+    profiles: ["webhooks"]
+    ports:
+      - "${PUBLISH_ADDR:-127.0.0.1}:8085:8085"
+    depends_on:
+      kafka-authorizer:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      auth-simulator:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8085
+      # Mismo perfil que el gateway: es lo que enciende el Swagger y el log en DEBUG.
+      # Sin esta línea el servicio no tenía forma de activar `development`, así que su
+      # propia documentación respondía 401.
+      SPRING_PROFILES_ACTIVE: '${SPRING_PROFILES_ACTIVE:-}'
+      # Listener INTERNO: sin autenticar y sólo alcanzable dentro de esta red.
+      KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      AUTH_SERVICE_URL: http://auth-simulator:8083
+      CORS_ORIGIN: ${GATEWAY_CORS_ORIGIN:?falta GATEWAY_CORS_ORIGIN en el .env}
+      TOKEN_ISSUER: ${TOKEN_ISSUER:?falta TOKEN_ISSUER en el .env}
+      TOKEN_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
+      DATA_DIR: /app/data
+      # Cola propia: la del gateway ya no existe, porque los dos motivos de entrada eran
+      # de este camino.
+      DLQ_TOPIC: sistema.webhooks-dlq
+      DLQ_RESOLVED_TOPIC: sistema.webhooks-dlq-resueltos
+      TOPIC_PARTITIONS: 1
+      TOPIC_REPLICATION_FACTOR: 1
+      MAX_WEBHOOKS_PER_EVENT_TYPE: ${MAX_WEBHOOKS_PER_EVENT_TYPE:?falta MAX_WEBHOOKS_PER_EVENT_TYPE en el .env}
+      WEBHOOK_FAILURES_BEFORE_DISABLE: ${WEBHOOK_FAILURES_BEFORE_DISABLE:?falta WEBHOOK_FAILURES_BEFORE_DISABLE en el .env}
+      WEBHOOK_DISABLE_MINUTES: ${WEBHOOK_DISABLE_MINUTES:?falta WEBHOOK_DISABLE_MINUTES en el .env}
+      WEBHOOK_CONNECT_TIMEOUT_MS: ${WEBHOOK_CONNECT_TIMEOUT_MS:?falta WEBHOOK_CONNECT_TIMEOUT_MS en el .env}
+      WEBHOOK_READ_TIMEOUT_MS: ${WEBHOOK_READ_TIMEOUT_MS:?falta WEBHOOK_READ_TIMEOUT_MS en el .env}
+      ALLOW_PRIVATE_CALLBACKS: ${ALLOW_PRIVATE_CALLBACKS:?falta ALLOW_PRIVATE_CALLBACKS en el .env}
+    volumes:
+      - webhook-dispatcher-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     restart: unless-stopped
 
   event-gateway-ui:
@@ -308,6 +366,7 @@ services:
     environment:
       LOGIN_API_URL: '${LOGIN_API_URL:?falta LOGIN_API_URL}'
       GATEWAY_API_URL: '${GATEWAY_API_URL:?falta GATEWAY_API_URL}'
+      DISPATCHER_API_URL: '${DISPATCHER_API_URL?falta DISPATCHER_API_URL}'
     ports:
       - "${PUBLISH_ADDR:-127.0.0.1}:5173:8080"
     depends_on:
@@ -458,3 +517,4 @@ volumes:
   certbot-www:
   event-gateway-schemas:
   event-gateway-data:
+  webhook-dispatcher-data:

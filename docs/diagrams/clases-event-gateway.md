@@ -2,6 +2,10 @@
 
 Muestra las clases principales del Event Gateway, sus relaciones y responsabilidades.
 
+Las de webhooks se fueron al `webhook-dispatcher`
+([ADR-020](../adr/ADR-020-webhooks-en-su-propio-servicio.md)); están en
+[clases-webhook-dispatcher.md](clases-webhook-dispatcher.md).
+
 ```mermaid
 classDiagram
     class EventController {
@@ -16,13 +20,6 @@ classDiagram
         +registerSchema(request): ResponseEntity
         +deleteSchema(eventType): ResponseEntity
         +health(): ResponseEntity
-    }
-
-    class SubscriptionController {
-        -subscriptionService: SubscriptionService
-        +subscribe(request): ResponseEntity
-        +unsubscribe(id): ResponseEntity
-        +listSubscriptions(): ResponseEntity
     }
 
     class SchemaRegistryService {
@@ -52,22 +49,12 @@ classDiagram
         -recordToMap(record): Map~String, Any~
     }
 
-    class SubscriptionService {
-        -subscriptions: MutableMap~String, Subscription~
-        -kafkaConsumerProps: Map~String, Any~
-        -dataDir: String
-        +register(topic, callbackUrl): Subscription
-        +unregister(id): Boolean
-        +getAll(): List~Subscription~
-        -startConsumer(subscription)
-        -deliverEvent(subscription, event)
-        -persistToDisk()
-        -loadFromDisk()
-    }
-
-    class WebhookDeliveryService {
-        +deliver(callbackUrl, event): Boolean
-        -retry(callbackUrl, event, attempt): Boolean
+    class DispatcherClient {
+        -restClient: RestClient
+        -dispatcherUrl: String
+        +habilitado(): Boolean
+        +suscriptoresA(topicos): List~Suscriptor~?
+        +borrarSuscripcionesDe(topicos): Int?
     }
 
     class TopicAuthorizationService {
@@ -82,11 +69,9 @@ classDiagram
         +jwtDecoder(): JwtDecoder
     }
 
-    class Subscription {
-        +id: String
+    class Suscriptor {
+        +owner: String
         +topic: String
-        +callbackUrl: String
-        +createdAt: Instant
     }
 
     EventController --> SchemaRegistryService : usa
@@ -94,15 +79,12 @@ classDiagram
     EventController --> TopicAuthorizationService : autoriza
     EventController --> KafkaTemplate : publica
 
-    SubscriptionController --> SubscriptionService : gestiona
-
     AvroService --> SchemaRegistryService : obtiene schemas
 
-    SubscriptionService --> WebhookDeliveryService : entrega eventos
-    SubscriptionService --> Subscription : almacena
+    EventController --> DispatcherClient : ¿hay suscriptos?
+    DispatcherClient --> Suscriptor : devuelve
 
     SecurityConfig --> EventController : filtra requests
-    SecurityConfig --> SubscriptionController : filtra requests
 ```
 
 ## Paquetes
@@ -111,15 +93,13 @@ classDiagram
 graph TD
     subgraph controller["com.citypass.gateway.controller"]
         EC[EventController]
-        SC[SubscriptionController]
     end
 
     subgraph service["com.citypass.gateway.service"]
         SRS[SchemaRegistryService]
         AS[AvroService]
         ADS[AvroDeserializerService]
-        SS[SubscriptionService]
-        WDS[WebhookDeliveryService]
+        DC[DispatcherClient]
         TAS[TopicAuthorizationService]
     end
 
@@ -128,12 +108,6 @@ graph TD
         OAC[OpenApiConfig]
     end
 
-    subgraph model["com.citypass.gateway.model"]
-        SUB[Subscription]
-    end
-
     controller --> service
-    controller --> model
-    service --> model
     config --> controller
 ```

@@ -2,7 +2,11 @@
 
 ## 1. Ciclo de vida de un evento
 
-Desde que un cliente envía un evento hasta su entrega final o envío a la DLQ.
+Desde que un cliente envía un evento hasta su entrega final o envío a la cola de fallidos.
+
+Los estados posteriores a «Publicado» son del `webhook-dispatcher`
+([ADR-020](../adr/ADR-020-webhooks-en-su-propio-servicio.md)): si no está desplegado, el
+evento se queda en Kafka y quien consume directo lo lee igual.
 
 ```mermaid
 stateDiagram-v2
