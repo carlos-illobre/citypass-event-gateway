@@ -130,3 +130,95 @@ tasks.jacocoTestCoverageVerification {
         }
     }
 }
+
+// Las clases que PIT no muta: las mismas que JaCoCo no mide, escritas como patrones de
+// nombre de clase en vez de rutas de archivo. Si divergieran, el informe de mutación se
+// llenaría de sobrevivientes en adaptadores que se decidió deliberadamente no probar.
+val PITEST_EXCLUIDAS = listOf(
+    "*DispatcherApplicationKt*",
+    "*DispatcherApplication*",
+    "*DlqReader*",
+    "*SecurityConfig*"
+)
+
+// ── Mutation testing (tarea 'pitest') ────────────────────────────────────────
+//
+// La cobertura mide qué líneas se ejecutaron; el mutation score mide si la aserción
+// importaba. Con el gate al 100 % la cobertura ya está saturada —no puede distinguir un
+// test que verifica de uno decorativo— así que este es el instrumento que queda.
+//
+// Corre en el CI —después del build, reutilizando las clases ya compiladas— y también a
+// mano con `tests/mutation.sh`. **No tiene umbral**: informa, no reprueba. Existen los
+// mutantes equivalentes, que producen código con el mismo comportamiento y que ningún
+// test puede matar; un umbral castigaría código correcto. El informe se publica en la
+// GitHub Page, al lado de la cobertura.
+//
+// Se invoca la CLI en vez del plugin de Gradle porque `gradle-pitest-plugin` quedó en
+// 1.15.0 y usa `reporting.baseDir`, que Gradle 9 eliminó: aplicarlo falla al configurar.
+// La CLI es una interfaz estable y acá se ve exactamente qué se le pasa.
+val pitestClasspath: Configuration by configurations.creating
+
+dependencies {
+    pitestClasspath("org.pitest:pitest-command-line:1.19.6")
+    // Sin excluir sus transitivas, el plugin arrastra una junit-platform vieja que queda
+    // delante de la del proyecto y el minion de cobertura de PIT muere con UNKNOWN_ERROR.
+    pitestClasspath("org.pitest:pitest-junit5-plugin:1.2.3") { isTransitive = false }
+    // No hace falta el `pitest-kotlin-plugin` de arcmutate —que además exige licencia—:
+    // PIT 1.19.6 ya trae la feature `fkotlin` activada por defecto, que filtra el
+    // bytecode sintético del compilador de Kotlin.
+}
+
+tasks.register<JavaExec>("pitest") {
+    group = "verification"
+    description = "Mutation testing con PIT. Informa, no reprueba: no tiene umbral."
+    dependsOn(tasks.named("testClasses"))
+
+    val salida = layout.buildDirectory.dir("reports/pitest").get().asFile
+    val clasesApp = sourceSets.main.get().output.classesDirs
+    val classpathCompleto = sourceSets.test.get().runtimeClasspath
+
+    mainClass = "org.pitest.mutationtest.commandline.MutationCoverageReport"
+    classpath = pitestClasspath + classpathCompleto
+
+    argumentProviders.add(CommandLineArgumentProvider {
+        listOf(
+            "--reportDir", salida.absolutePath,
+            "--sourceDirs", file("src/main/kotlin").absolutePath,
+            // Sólo las clases de la app: el classpath trae cientos de clases de terceros
+            // que no tiene sentido mutar.
+            "--targetClasses", "com.citypass.*",
+            "--targetTests", "com.citypass.*",
+            // Estas listas van separadas por COMA, no por el separador de path del
+            // sistema: con `:` PIT las lee como una sola ruta y no encuentra nada.
+            "--mutableCodePaths", clasesApp.joinToString(","),
+            "--classPath", classpathCompleto.joinToString(","),
+            // Las mismas exclusiones que JaCoCo: son adaptadores de infraestructura que se
+            // decidió no medir, y sin esto el informe se llena de mutantes vivos ahí.
+            "--excludedClasses", PITEST_EXCLUIDAS.joinToString(","),
+            // Los tests de integración no sirven de verdugos: necesitan infraestructura y
+            // PIT los correría una vez por mutante.
+            "--excludedGroups", "integration",
+            // Sin esto, cuatro de cada cinco sobrevivientes son PIT borrando las
+            // comprobaciones de nulidad que **inserta el compilador de Kotlin**
+            // (`Intrinsics.checkNotNull*`). Son mutantes equivalentes: no hay test que
+            // pueda matarlos, y ahogan a los sobrevivientes que sí importan.
+            //
+            // El precio: PIT tampoco muta el resto de la línea donde aparece esa llamada.
+            // Se aceptó porque esas líneas son interop con Java, y perder alguna mutación
+            // real ahí cuesta menos que un informe que nadie lee.
+            // Ojo: esta opción **reemplaza** la lista por defecto, no se suma a ella.
+            // Con sólo `Intrinsics`, la feature `flogcall` de PIT se queda sin las clases
+            // de logging y el informe se llena de "borré tu llamada al logger": 53 de 98
+            // sobrevivientes en la primera medición. Nadie asserta sobre los logs.
+            "--avoidCallsTo",
+            "java.util.logging,org.apache.log4j,org.slf4j,org.apache.commons.logging," +
+                "kotlin.jvm.internal.Intrinsics",
+            "--outputFormats", "HTML,XML",
+            "--threads", Runtime.getRuntime().availableProcessors().coerceAtMost(4).toString(),
+            // Sin marca de tiempo el informe queda siempre en la misma ruta, que es lo que
+            // permite que el script lo enlace y parsee el resultado.
+            "--timestampedReports", "false",
+            "--verbose", "false",
+        )
+    })
+}
