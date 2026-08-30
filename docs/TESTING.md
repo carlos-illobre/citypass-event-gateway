@@ -15,7 +15,7 @@ explicados acá.
 3. [Los tres niveles](#3-los-tres-niveles)
 4. [Por qué el 100%](#4-por-qué-el-100)
 5. [Qué está excluido y por qué](#5-qué-está-excluido-y-por-qué)
-6. [Mutation testing manual](#6-mutation-testing-manual)
+6. [Mutation testing](#6-mutation-testing)
 7. [Qué no está cubierto](#7-qué-no-está-cubierto)
 
 ---
@@ -68,14 +68,14 @@ Sólo los de integración:
 ./gradlew integrationTest
 ```
 
-Y desde la raíz del repo hay dos corredores, separados a propósito:
+Y desde la raíz del repo hay tres corredores, separados a propósito:
 
 ```bash
 ./tests/utest.sh
 ```
 
-Los unitarios de **todos** los microservicios que tienen —hoy `event-gateway` y
-`kafka-authorizer`—. Corren en segundos porque no levantan nada, y **exigen el 100 %**: el
+Los unitarios de **todos** los microservicios que tienen —hoy `event-gateway`,
+`kafka-authorizer` y `webhook-dispatcher`—. Corren en segundos porque no levantan nada, y **exigen el 100 %**: el
 script sale con código 1 si alguno baja, nombrando cuál y en qué métrica.
 
 ```bash
@@ -85,8 +85,17 @@ script sale con código 1 si alguno baja, nombrando cuál y en qué métrica.
 Los de integración, que necesitan el stack arriba y no tienen esa compuerta. Además
 verifican la coherencia de la configuración por ambiente.
 
+```bash
+./tests/mutation.sh
+```
+
+Mutation testing con PIT: rompe el código a propósito y mira si algún test se da cuenta.
+Tarda uno o dos minutos por servicio. Corre también en el CI, que publica el informe en la
+GitHub Page; **no tiene umbral** — es una auditoría para leer con ojos, no una compuerta.
+Está explicado en la [sección 6](#6-mutation-testing).
+
 Los reportes quedan en `microservices/event-gateway/build/reports/`:
-`tests/test/index.html` y `jacoco/test/html/index.html`.
+`tests/test/index.html`, `jacoco/test/html/index.html` y `pitest/index.html`.
 
 ---
 
@@ -213,10 +222,17 @@ exclusión cubre el andamiaje, no las decisiones.
 
 ---
 
-## 6. Mutation testing manual
+## 6. Mutation testing
 
-Un test que pasa no prueba nada si también pasaría con el código roto. En los puntos
-críticos se verificó rompiendo el código a propósito:
+Un test que pasa no prueba nada si también pasaría con el código roto.
+
+Hay dos niveles: **a mano**, en los puntos críticos que se eligieron a dedo, y
+**automatizado con PIT**, que hace lo mismo sobre todo el código sin que nadie tenga que
+sospechar antes dónde mirar.
+
+### 6.1 A mano, en los puntos críticos
+
+Se verificó rompiendo el código a propósito:
 
 | Mutación | ¿Lo detecta? |
 |---|---|
@@ -256,6 +272,61 @@ que faltaba. Es exactamente el error que un equipo va a cometer justo después d
 contrato, y mandaba a investigar el broker por un problema del request. Al arreglarlo
 apareció un segundo defecto latente: `GenericData.Record` no aplica los `default` del
 schema por su cuenta, así que un campo opcional omitido también fallaba al serializar.
+
+
+
+### 6.2 Automatizado, con PIT
+
+```bash
+tests/mutation.sh                  # los tres servicios
+tests/mutation.sh event-gateway    # sólo uno
+```
+
+**Corre en el CI** después del build de cada servicio, y el informe se publica en la
+GitHub Page al lado de la cobertura: [Mutation testing](https://carlos-illobre.github.io/citypass-event-gateway/mutation/).
+El paso está marcado `continue-on-error`, porque el valor de PIT es el informe y un fallo
+suyo no debería tumbar un build cuyos tests y cobertura ya pasaron.
+
+**No hay umbral,** y no es pereza: el número solo engaña. Existen los mutantes
+*equivalentes*, que producen código con el mismo comportamiento y que ningún test puede
+matar. El ejemplo más limpio está en `kafka-authorizer`: `createAcls`, `deleteAcls` y
+`acls` ya devuelven lista vacía —son métodos del SPI de Kafka que este autorizador no
+implementa— y PIT los «muta» a devolver lista vacía. Son 3 de sus 12 mutantes: **el 25 %
+del score que le falta es ruido irreducible**. Un umbral obligaría a pelear con eso en vez
+de leer los sobrevivientes que sí importan.
+
+#### La primera medición
+
+Con 100 % de cobertura de instrucciones y ramas en los tres servicios:
+
+| Servicio | Mutantes | Score | Sobreviven |
+|---|---|---|---|
+| `event-gateway` | 345 | 84 % | 52 |
+| `webhook-dispatcher` | 224 | 80 % | 43 |
+| `kafka-authorizer` | 12 | 75 % | 3 (los tres equivalentes) |
+
+O sea que **alrededor de una de cada cinco mutaciones no la detecta nadie**, en una suite
+que la cobertura declara completa. Es exactamente la brecha que JaCoCo no puede ver.
+
+#### Dos cosas que hubo que resolver para que el informe sirviera
+
+**El plugin de Gradle para PIT no funciona con Gradle 9.** `gradle-pitest-plugin` quedó en
+1.15.0 y usa `reporting.baseDir`, que Gradle 9 eliminó: aplicarlo falla al configurar. Se
+invoca la CLI de PIT desde una tarea `JavaExec` propia, que además deja a la vista qué se
+le pasa.
+
+**Cuatro de cada cinco sobrevivientes eran ruido de Kotlin.** En la primera corrida, 76 de
+los 94 sobrevivientes del gateway eran PIT borrando las comprobaciones de nulidad que
+*inserta el compilador* (`Intrinsics.checkNotNull*`). No hay test que pueda matarlas. La
+feature `fkotlin` que PIT trae de fábrica no las cubre; `--avoidCallsTo
+kotlin.jvm.internal.Intrinsics` sí, y con eso el gateway pasó de 77 % a 84 % sin escribir
+un solo test. El precio, anotado en el `build.gradle.kts`: PIT tampoco muta el resto de la
+línea donde aparece esa llamada.
+
+Existe un `pitest-kotlin-plugin` que filtraría esto con más precisión, pero **exige
+licencia comercial de arcmutate** y falla con «No licence found».
+
+### 6.3 Un caso donde el test detectaba pero colgaba
 
 También hubo un caso donde el test detectaba la regresión pero **colgaba** en vez de fallar
 —el del timeout, que sin timeout no vuelve nunca—. Se le agregó `@Timeout(20)` para que

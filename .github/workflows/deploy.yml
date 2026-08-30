@@ -76,6 +76,24 @@ jobs:
         if: always()
         run: python3 tests/coverage.py microservices/event-gateway 'event-gateway' >> "$GITHUB_STEP_SUMMARY"
 
+      # Mutation testing. Va después del build porque reutiliza las clases ya
+      # compiladas, y **no tiene umbral**: informa, no reprueba. El motivo está en
+      # tests/mutation.py — los mutantes equivalentes harían que un umbral castigara
+      # código correcto.
+      #
+      # `continue-on-error` porque el valor de PIT es el informe, y un fallo suyo
+      # —un timeout, un mutante que cuelga la JVM— no debería tumbar un build cuyos
+      # tests y cobertura ya pasaron.
+      - name: Mutation testing
+        id: pitest
+        continue-on-error: true
+        run: ./gradlew pitest --no-daemon
+        working-directory: microservices/event-gateway
+
+      - name: Resumen de mutación
+        if: always()
+        run: python3 tests/mutation.py microservices/event-gateway 'event-gateway' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Guardar el reporte
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,6 +105,21 @@ jobs:
           # conflicto. Con el número de intento en el nombre, en cambio, un «re-run
           # failed jobs» dejaría de encontrarlo: los jobs que pasaron no se reejecutan.
           overwrite: true
+
+      # El informe de PIT: el fuente anotado línea por línea, verde donde el mutante
+      # murió y rojo donde sobrevivió. Se publica en el sitio junto a la cobertura.
+      - name: Guardar el reporte de mutación
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutacion-event-gateway
+          path: microservices/event-gateway/build/reports/pitest
+          retention-days: 7
+          overwrite: true
+          # PIT puede no haber dejado nada si falló antes de escribir. Sin esto el job
+          # se pondría rojo por un artefacto ausente, que es lo que `continue-on-error`
+          # del paso anterior quiso evitar.
+          if-no-files-found: ignore
 
   authorizer:
     name: Tests · kafka-authorizer
@@ -108,6 +141,24 @@ jobs:
         if: always()
         run: python3 tests/coverage.py microservices/kafka-authorizer 'kafka-authorizer' >> "$GITHUB_STEP_SUMMARY"
 
+      # Mutation testing. Va después del build porque reutiliza las clases ya
+      # compiladas, y **no tiene umbral**: informa, no reprueba. El motivo está en
+      # tests/mutation.py — los mutantes equivalentes harían que un umbral castigara
+      # código correcto.
+      #
+      # `continue-on-error` porque el valor de PIT es el informe, y un fallo suyo
+      # —un timeout, un mutante que cuelga la JVM— no debería tumbar un build cuyos
+      # tests y cobertura ya pasaron.
+      - name: Mutation testing
+        id: pitest
+        continue-on-error: true
+        run: ./gradlew pitest --no-daemon
+        working-directory: microservices/kafka-authorizer
+
+      - name: Resumen de mutación
+        if: always()
+        run: python3 tests/mutation.py microservices/kafka-authorizer 'kafka-authorizer' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Guardar el reporte
         if: always()
         uses: actions/upload-artifact@v4
@@ -116,6 +167,21 @@ jobs:
           path: microservices/kafka-authorizer/build/reports/jacoco/test/html
           retention-days: 7
           overwrite: true
+
+      # El informe de PIT: el fuente anotado línea por línea, verde donde el mutante
+      # murió y rojo donde sobrevivió. Se publica en el sitio junto a la cobertura.
+      - name: Guardar el reporte de mutación
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutacion-kafka-authorizer
+          path: microservices/kafka-authorizer/build/reports/pitest
+          retention-days: 7
+          overwrite: true
+          # PIT puede no haber dejado nada si falló antes de escribir. Sin esto el job
+          # se pondría rojo por un artefacto ausente, que es lo que `continue-on-error`
+          # del paso anterior quiso evitar.
+          if-no-files-found: ignore
 
   dispatcher:
     name: Tests · webhook-dispatcher
@@ -137,6 +203,24 @@ jobs:
         if: always()
         run: python3 tests/coverage.py microservices/webhook-dispatcher 'webhook-dispatcher' >> "$GITHUB_STEP_SUMMARY"
 
+      # Mutation testing. Va después del build porque reutiliza las clases ya
+      # compiladas, y **no tiene umbral**: informa, no reprueba. El motivo está en
+      # tests/mutation.py — los mutantes equivalentes harían que un umbral castigara
+      # código correcto.
+      #
+      # `continue-on-error` porque el valor de PIT es el informe, y un fallo suyo
+      # —un timeout, un mutante que cuelga la JVM— no debería tumbar un build cuyos
+      # tests y cobertura ya pasaron.
+      - name: Mutation testing
+        id: pitest
+        continue-on-error: true
+        run: ./gradlew pitest --no-daemon
+        working-directory: microservices/webhook-dispatcher
+
+      - name: Resumen de mutación
+        if: always()
+        run: python3 tests/mutation.py microservices/webhook-dispatcher 'webhook-dispatcher' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Guardar el reporte
         if: always()
         uses: actions/upload-artifact@v4
@@ -145,6 +229,21 @@ jobs:
           path: microservices/webhook-dispatcher/build/reports/jacoco/test/html
           retention-days: 7
           overwrite: true
+
+      # El informe de PIT: el fuente anotado línea por línea, verde donde el mutante
+      # murió y rojo donde sobrevivió. Se publica en el sitio junto a la cobertura.
+      - name: Guardar el reporte de mutación
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutacion-webhook-dispatcher
+          path: microservices/webhook-dispatcher/build/reports/pitest
+          retention-days: 7
+          overwrite: true
+          # PIT puede no haber dejado nada si falló antes de escribir. Sin esto el job
+          # se pondría rojo por un artefacto ausente, que es lo que `continue-on-error`
+          # del paso anterior quiso evitar.
+          if-no-files-found: ignore
 
   ui:
     name: Build · event-gateway-ui
@@ -249,6 +348,11 @@ jobs:
           pattern: cobertura-*
           path: descargas
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutacion-*
+          path: descargas
+
       - name: Armar el sitio
         run: |
           mkdir -p sitio/coverage
@@ -260,9 +364,24 @@ jobs:
           rm -f sitio/README.md
 
           # La cobertura vive en su propia subruta para dejar la raíz libre.
-          mv descargas/cobertura-event-gateway    sitio/coverage/event-gateway
-          mv descargas/cobertura-kafka-authorizer sitio/coverage/kafka-authorizer
+          mv descargas/cobertura-event-gateway      sitio/coverage/event-gateway
+          mv descargas/cobertura-kafka-authorizer   sitio/coverage/kafka-authorizer
           mv descargas/cobertura-webhook-dispatcher sitio/coverage/webhook-dispatcher
+
+          # La mutación va en su propia subruta, al lado de la cobertura. Los informes de
+          # PIT también son autosuficientes y con enlaces relativos.
+          #
+          # Se mueve sólo lo que existe: el paso de PIT es `continue-on-error`, así que un
+          # servicio puede no haber dejado informe y eso no debe impedir publicar el sitio
+          # con los que sí están.
+          mkdir -p sitio/mutation
+          for s in event-gateway kafka-authorizer webhook-dispatcher; do
+            if [ -d "descargas/mutacion-$s" ]; then
+              mv "descargas/mutacion-$s" "sitio/mutation/$s"
+            else
+              echo "::warning::sin informe de mutación para $s; el sitio se publica sin él"
+            fi
+          done
 
           # Índice de la sección. Los reportes de JaCoCo son autosuficientes y usan
           # enlaces relativos, así que alcanza con una página que lleve a cada uno.
@@ -296,7 +415,58 @@ jobs:
               <li><a class="rep" href="kafka-authorizer/index.html">kafka-authorizer</a></li>
               <li><a class="rep" href="webhook-dispatcher/index.html">webhook-dispatcher</a></li>
             </ul>
+            <p>¿La aserción importaba? Eso lo mide el
+               <a href="../mutation/">mutation testing</a>.</p>
             <p><a href="../">Volver</a> · generado desde <code>${{ github.sha }}</code>.</p>
+          </body>
+          </html>
+          HTML
+
+          # Índice de mutación. Mismo estilo que el de cobertura a propósito: son dos
+          # vistas del mismo asunto y quien salta de una a otra no debería sentir que
+          # cambió de sitio.
+          cat > sitio/mutation/index.html <<HTML
+          <!doctype html>
+          <html lang="es">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Mutation testing · CityPass+ Event Gateway</title>
+            <style>
+              :root { color-scheme: light dark; }
+              body { font: 16px/1.6 system-ui, sans-serif; max-width: 42rem;
+                     margin: 4rem auto; padding: 0 1.5rem; }
+              h1 { font-size: 1.5rem; margin-bottom: .25rem; }
+              p  { color: GrayText; }
+              ul { list-style: none; padding: 0; }
+              a.rep { display: block; padding: 1rem; margin: .75rem 0;
+                      border: 1px solid GrayText; border-radius: .5rem;
+                      text-decoration: none; }
+              a.rep:hover { border-color: LinkText; }
+              code { font-size: .85em; }
+              .aviso { border-left: 3px solid GrayText; padding-left: 1rem; }
+            </style>
+          </head>
+          <body>
+            <h1>Mutation testing</h1>
+            <p>La cobertura dice qué líneas se ejecutaron. Esto dice si la aserción
+               <strong>importaba</strong>: PIT rompe el código a propósito y mira si algún
+               test se da cuenta. Un mutante que <em>sobrevive</em> es una línea que se
+               puede romper sin que la suite proteste.</p>
+            <ul>
+              <li><a class="rep" href="event-gateway/index.html">event-gateway</a></li>
+              <li><a class="rep" href="kafka-authorizer/index.html">kafka-authorizer</a></li>
+              <li><a class="rep" href="webhook-dispatcher/index.html">webhook-dispatcher</a></li>
+            </ul>
+            <p class="aviso">Esta medición <strong>no es una compuerta</strong>, a
+               diferencia del 100&nbsp;% de cobertura. Existen los mutantes
+               <em>equivalentes</em>, que producen código con el mismo comportamiento y que
+               ningún test puede matar: los tres de <code>kafka-authorizer</code> son
+               métodos del SPI de Kafka que ya devuelven lista vacía. Un umbral obligaría a
+               pelear con eso en vez de leer los sobrevivientes que sí importan.</p>
+            <p>Se corre a mano con <code>tests/mutation.sh</code>.</p>
+            <p><a href="../">Volver</a> · <a href="../coverage/">Cobertura</a> · generado
+               desde <code>${{ github.sha }}</code>.</p>
           </body>
           </html>
           HTML
