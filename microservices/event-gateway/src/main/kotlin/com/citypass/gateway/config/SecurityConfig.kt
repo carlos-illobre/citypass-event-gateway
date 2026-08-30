@@ -102,7 +102,11 @@ class SecurityConfig(
     fun corsConfigurationSource(): CorsConfigurationSource {
         val config = CorsConfiguration()
         config.allowedOrigins = corsOrigin.split(",")
-        config.allowedMethods = listOf("GET", "POST", "DELETE", "OPTIONS")
+        // PUT faltaba a pesar de que PUT /api/v1/event-types/{fqn} existe: un preflight para
+        // editar un event type desde un frontend de otro origen se rechazaba antes de llegar
+        // al controlador. Detrás del reverse-proxy es indistinto —UI y API comparten origen—
+        // pero en desarrollo, con la UI en :5173/:5174 y la API en :8080, rompía la edición.
+        config.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
         config.allowedHeaders = listOf("Content-Type", "Authorization")
         val source = UrlBasedCorsConfigurationSource()
         source.registerCorsConfiguration("/**", config)

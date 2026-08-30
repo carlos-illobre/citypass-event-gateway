@@ -1,0 +1,65 @@
+server {
+    # 8080 y no 80: el contenedor corre sin privilegios y no puede ligar puertos bajos.
+    listen 8080;
+    root /usr/share/nginx/html;
+
+    # DNS interno de Docker, y con los destinos en VARIABLES y no en el `proxy_pass`
+    # literal: sin esto nginx resuelve el nombre UNA VEZ, al arrancar, y si en ese
+    # instante el contenedor destino todavía no tiene una entrada en la red —el
+    # `depends_on: condition: service_healthy` ayuda, pero no lo garantiza en cualquier
+    # orquestador— nginx ni siquiera levanta («host not found in upstream»). Con la
+    # variable, la resolución se pospone al momento de cada petición y respeta el
+    # `valid=10s` de acá, así que una recreación del contenedor destino se absorbe sola.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # `${GATEWAY_UPSTREAM}` etc. los resuelve `envsubst` al arrancar el contenedor —la
+    # imagen oficial de nginx corre las plantillas de `/etc/nginx/templates/*.template`
+    # sola, sin que haga falta un script de entrypoint propio.
+    set $gateway  ${GATEWAY_UPSTREAM};
+    set $auth     ${AUTH_UPSTREAM};
+    set $anomaly  ${ANOMALY_UPSTREAM};
+
+    # El bundle lleva hash en el nombre, así que puede cachearse indefinidamente.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    # El navegador nunca habla con los servicios: habla con este nginx, y este reenvía. Son
+    # los mismos tres prefijos que usa Vite en desarrollo y `reverse-proxy` en producción,
+    # así que el bundle compila una sola URL relativa que sirve en los tres lados.
+    location /api/v1/ {
+        proxy_pass http://$gateway;
+        proxy_set_header Host $host;
+        # Un POST del mismo origen igual lleva `Origin`, y Spring 403ea antes del
+        # controlador si no está en su lista — de ahí que se lo borre acá.
+        proxy_set_header Origin "";
+    }
+
+    location = /health {
+        proxy_pass http://$gateway/health;
+        proxy_set_header Host $host;
+        proxy_set_header Origin "";
+    }
+
+    location /auth/ {
+        rewrite ^/auth/(.*)$ /$1 break;
+        proxy_pass http://$auth;
+        proxy_set_header Host $host;
+        proxy_set_header Origin "";
+    }
+
+    # El detector no tiene CORS configurado en absoluto: este proxy es la única forma de
+    # que un navegador lo alcance, en cualquier ambiente.
+    location /anomaly/ {
+        rewrite ^/anomaly/(.*)$ /$1 break;
+        proxy_pass http://$anomaly;
+        proxy_set_header Host $host;
+        proxy_set_header Origin "";
+    }
+
+    # SPA: cualquier ruta que no sea un archivo ni uno de los prefijos de arriba se
+    # resuelve con el index.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

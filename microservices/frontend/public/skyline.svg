@@ -1,0 +1,5 @@
+<!-- Silueta de ciudad para el pie del riel de navegación, como en el diseño de referencia. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 90" width="300" height="90" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35">
+  <circle cx="60" cy="20" r="14"/>
+  <path d="M0 88 L0 60 L18 60 L18 45 L34 45 L34 55 L50 55 L50 30 L68 30 L68 50 L84 50 L84 40 L100 40 L100 60 L118 60 L118 25 L136 25 L136 55 L152 55 L152 45 L168 45 L168 65 L186 65 L186 35 L204 35 L204 55 L220 55 L220 42 L236 42 L236 60 L252 60 L252 48 L268 48 L268 62 L284 62 L284 50 L300 50 L300 88 Z"/>
+</svg>

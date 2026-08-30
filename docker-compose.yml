@@ -306,6 +306,29 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Consola del Grupo 1 (EDA): catálogo, publicar, suscripciones, DLQ, anomalías, respaldos
+  # y salud. A diferencia de `event-gateway-ui`, no lee ninguna URL de ambiente: el bundle
+  # pide rutas relativas y es este mismo nginx el que reenvía a los tres servicios, con el
+  # header `Origin` borrado para que un POST del mismo origen no dispare el 403 de Spring.
+  # Por eso no hace falta agregar nada a `GATEWAY_CORS_ORIGIN` ni a `AUTH_CORS_ORIGIN`.
+  frontend:
+    mem_limit: ${MEM_LIMIT_FRONTEND:?falta MEM_LIMIT_FRONTEND en el .env}
+    logging: *logging
+    image: ${IMAGE_PREFIX:-citypass-eda}/frontend:${TAG:-latest}
+    build:
+      context: ./microservices/frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    hostname: frontend
+    ports:
+      - "${PUBLISH_ADDR:-127.0.0.1}:5176:8080"
+    depends_on:
+      event-gateway:
+        condition: service_healthy
+      auth-simulator:
+        condition: service_healthy
+    restart: unless-stopped
+
   anomaly-detector:
     mem_limit: ${MEM_LIMIT_ANOMALY_DETECTOR:?falta MEM_LIMIT_ANOMALY_DETECTOR en el .env}
     logging: *logging
