@@ -117,6 +117,35 @@ jobs:
           retention-days: 7
           overwrite: true
 
+  dispatcher:
+    name: Tests · webhook-dispatcher
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew build --no-daemon
+        working-directory: microservices/webhook-dispatcher
+
+      # Los números salen de lo que el build ya produjo, así que no pueden diferir de
+      # los que evalúa la compuerta. Con `always()` también se ven cuando algo falla,
+      # que es cuando más importa saber cuánto faltó.
+      - name: Resumen
+        if: always()
+        run: python3 tests/coverage.py microservices/webhook-dispatcher 'webhook-dispatcher' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-webhook-dispatcher
+          path: microservices/webhook-dispatcher/build/reports/jacoco/test/html
+          retention-days: 7
+          overwrite: true
+
   ui:
     name: Build · event-gateway-ui
     runs-on: ubuntu-24.04-arm
@@ -169,7 +198,7 @@ jobs:
       # arreglar, en vez de descubrirlo de a una.
       fail-fast: false
       matrix:
-        servicio: [event-gateway, event-gateway-ui, auth-simulator, anomaly-detector, kafka-authorizer]
+        servicio: [event-gateway, event-gateway-ui, auth-simulator, anomaly-detector, kafka-authorizer, webhook-dispatcher]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -193,7 +222,7 @@ jobs:
 
   cobertura:
     name: Publicar el sitio
-    needs: [gateway, authorizer]
+    needs: [gateway, authorizer, dispatcher]
     # Sólo desde main: en un PR sobreescribiría el sitio publicado con código que
     # todavía no se mergeó.
     if: github.event_name != 'pull_request'
@@ -233,6 +262,7 @@ jobs:
           # La cobertura vive en su propia subruta para dejar la raíz libre.
           mv descargas/cobertura-event-gateway    sitio/coverage/event-gateway
           mv descargas/cobertura-kafka-authorizer sitio/coverage/kafka-authorizer
+          mv descargas/cobertura-webhook-dispatcher sitio/coverage/webhook-dispatcher
 
           # Índice de la sección. Los reportes de JaCoCo son autosuficientes y usan
           # enlaces relativos, así que alcanza con una página que lleve a cada uno.
@@ -264,6 +294,7 @@ jobs:
             <ul>
               <li><a class="rep" href="event-gateway/index.html">event-gateway</a></li>
               <li><a class="rep" href="kafka-authorizer/index.html">kafka-authorizer</a></li>
+              <li><a class="rep" href="webhook-dispatcher/index.html">webhook-dispatcher</a></li>
             </ul>
             <p><a href="../">Volver</a> · generado desde <code>${{ github.sha }}</code>.</p>
           </body>
@@ -286,7 +317,7 @@ jobs:
 
   etiquetar:
     name: Mover latest
-    needs: [gateway, authorizer, ui, configuracion, construir]
+    needs: [gateway, authorizer, dispatcher, ui, configuracion, construir]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:

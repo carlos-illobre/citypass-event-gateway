@@ -58,13 +58,11 @@ springBoot {
 
 // ── Clases excluidas de cobertura (adaptadores de infraestructura) ────────────
 // GatewayApplicationKt : función main de Spring Boot — no tiene lógica propia.
-// DlqController        : crea un KafkaConsumer directamente, requiere broker real.
 // EventsController     : ídem. Su lógica de selección vive en EventSelection, que sí se mide.
 // SecurityConfig       : configura el builder de Spring Security, requiere contexto.
 // KafkaTopicAdmin      : una llamada al AdminClient de Kafka, que es un cliente real.
 val jacocoExclusions = listOf(
     "**/GatewayApplicationKt*",
-    "**/DlqController*",
     "**/EventsController*",
     "**/SecurityConfig*",
     "**/KafkaTopicAdmin*"

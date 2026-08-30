@@ -11,6 +11,9 @@ los grupos 2 al 8 publican y consumen los eventos de sus dominios.
 Publicar es por **HTTP**, consumir es por **Kafka** o por **webhook**. La asimetría es
 deliberada y está explicada en [ARCHITECTURE.md](docs/ARCHITECTURE.md#por-qué-publicar-por-http-y-consumir-por-kafka).
 
+Los webhooks los atiende un servicio aparte, `webhook-dispatcher`, que puede no estar
+desplegado: quien consume por Kafka no depende de él ([ADR-020](docs/adr/ADR-020-webhooks-en-su-propio-servicio.md)).
+
 ---
 
 ## Contenido
@@ -94,7 +97,9 @@ Con el stack levantado localmente:
 | **UI del gateway** | http://localhost:5173 | Frontend que permite definir y enviar eventos desde el navegador |
 | **API del gateway** | http://localhost:8080 | La API REST que se utilizará para definir y enviar eventos |
 | **Swagger UI** | http://localhost:8080/doc | Documentación interactiva, con ejemplos de request y response |
+| **Swagger de webhooks** | http://localhost:8085/doc | Suscripciones y cola de fallidos. Es **otro servicio**, así que tiene su propia doc |
 | **OpenAPI (JSON)** | http://localhost:8080/v3/api-docs | Documentación de la API REST en formato JSON |
+| **API de webhooks** | http://localhost:8085 | Suscripciones y cola de fallidos. Es **otro servicio** (ver más abajo) |
 | **Simulador de Autenticación** | http://localhost:8083 | API REST para genera tokens de autenticación |
 | **Kafka (externo)** | `localhost:9092` | Para conectar tu consumidor. `SASL_PLAINTEXT` + `OAUTHBEARER` |
 | **Métricas (crudas)** | http://localhost:9090/actuator/prometheus | Métricas de los eventos enviados en formato Prometheus |
@@ -766,10 +771,15 @@ agregan campos que ayudan: si te equivocás en el nombre del event type, el `404
 ### Acto 3 — Recibirlo por webhook (Simple, facil, pero No Recomendado, pueden perderse eventos o haber duplicados)
 
 Ya viste [cómo consumir directo de Kafka](#6-consumir-eventos-desde-kafka), que es la vía
-eficiente. El webhook es la alternativa simple: creas un endpoint público en tu backend, le pasas la URL al siguiente endpoint y el gateway te hace un `POST` cada vez que ocurre un evento de un tipo en especifico, sin librerias de Kafka ni complicaciones:
+eficiente. El webhook es la alternativa simple: creas un endpoint público en tu backend, le pasas la URL al siguiente endpoint y el sistema te hace un `POST` cada vez que ocurre un evento de un tipo en especifico, sin librerias de Kafka ni complicaciones:
+
+> **Ojo con el puerto.** Las suscripciones y la cola de fallidos las atiende
+> `webhook-dispatcher`, que en tu máquina escucha en el **8085** y no en el 8080. En el
+> despliegue desplegado no cambia nada: el proxy rutea `/api/v1/subscriptions` y
+> `/api/v1/dead-letters` a ese servicio, así que ahí las URLs son las de siempre.
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/subscriptions \
+curl -X POST http://localhost:8085/api/v1/subscriptions \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -799,8 +809,8 @@ La url puede tener cualquier nombre o formato, solo tiene que aceptar POST y ser
 
 #### Cuatro cosas que conviene saber antes de escribir el receptor
 
-**La URL tiene que ser pública.** El gateway corre en otra máquina, así que `localhost` no
-apunta a tu servicio sino al contenedor del gateway. Las URLs que resuelven a direcciones de
+**La URL tiene que ser pública.** El dispatcher corre en otra máquina, así que `localhost`
+no apunta a tu servicio sino a su propio contenedor. Las URLs que resuelven a direcciones de
 red interna se rechazan con `400`, y no sólo al registrarlas: se vuelven a verificar en cada
 entrega, porque un dominio puede devolver una IP pública al registro y una privada después.
 
@@ -813,8 +823,8 @@ receptor lee exactamente `Content-Length` bytes, va a recibir un cuerpo **vacío
 error — la mayoría de los frameworks lo manejan solos, pero si armás el servidor a mano es
 la trampa más fácil de pisar.
 
-**Vas a recibir duplicados.** La entrega es *at-least-once*: el gateway confirma su posición
-en Kafka recién cuando tu endpoint respondió, así que si se reinicia en el medio, el evento
+**Vas a recibir duplicados.** La entrega es *at-least-once*: el dispatcher confirma su
+posición en Kafka recién cuando tu endpoint respondió, así que si se reinicia en el medio, el evento
 se vuelve a mandar. Podes deduplicar por `metadata.eventId`, que se mantiene estable entre reintentos.
 
 **Si tu endpoint no responde, el evento no se pierde.** Reintenta tres veces con dos
@@ -822,13 +832,13 @@ segundos de espera, y si igual falla lo deja en la Dead Letter Queue con el payl
 error. Podés consultarla —sólo ves las entradas de tu grupo— y ahí está el porqué:
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/v1/dead-letters?limit=10'
+curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8085/api/v1/dead-letters?limit=10'
 ```
 
 Y para darte de baja:
 
 ```bash
-curl -X DELETE http://localhost:8080/api/v1/subscriptions/2501ae02-89dc-48b8-a008-d0ffaec0545d \
+curl -X DELETE http://localhost:8085/api/v1/subscriptions/2501ae02-89dc-48b8-a008-d0ffaec0545d \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -913,7 +923,7 @@ timeouts por mensaje y alcanza uno solo para frenar el tópico de todos.
 Que una suscripción tuya esté silenciada lo ves en el listado:
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/subscriptions
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8085/api/v1/subscriptions
 ```
 
 Cada suscripción trae `status` (`active` o `silenced`) y, si está silenciada,

@@ -327,7 +327,7 @@ Ese mismo procedimiento es el **rollback**: se apunta `TAG` al SHA anterior. Com
 despliegue etiqueta las imágenes con el SHA del commit, volver atrás es determinístico y
 no depende de reconstruir nada.
 
-Las suscripciones y los schemas viven en volúmenes, así que sobreviven. Los tópicos
+Los schemas y las suscripciones viven en volúmenes, así que sobreviven. Los tópicos
 también.
 
 ### Backup
@@ -338,9 +338,11 @@ El estado que importa está en tres volúmenes:
 docker run --rm -v citypass-eda_kafka-data:/d -v $PWD:/b alpine tar czf /b/kafka-data.tgz -C /d .
 docker run --rm -v citypass-eda_event-gateway-data:/d -v $PWD:/b alpine tar czf /b/gateway-data.tgz -C /d .
 docker run --rm -v citypass-eda_event-gateway-schemas:/d -v $PWD:/b alpine tar czf /b/schemas.tgz -C /d .
+docker run --rm -v citypass-eda_webhook-dispatcher-data:/d -v $PWD:/b alpine tar czf /b/webhooks.tgz -C /d .
 ```
 
-Perder `event-gateway-data` borra las suscripciones webhook, que hoy no están replicadas en
+El cuarto sólo existe si se levantó el perfil `webhooks`. Perder
+`webhook-dispatcher-data` borra las suscripciones, que hoy no están replicadas en
 ningún lado. Es la limitación descrita en [ARCHITECTURE.md](ARCHITECTURE.md#6-limitaciones-conocidas).
 
 ---

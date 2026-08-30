@@ -187,14 +187,20 @@ motivo de cada una:
 | Clase | Motivo |
 |---|---|
 | `GatewayApplicationKt` | La función `main` de Spring Boot. No tiene lógica propia |
-| `DlqController` | Crea un `KafkaConsumer` directamente contra el broker |
-| `EventsController` | Ídem |
+| `EventsController` | Crea un `KafkaConsumer` directamente contra el broker |
+| `DlqReader` | Ídem, del lado del `webhook-dispatcher` |
 | `KafkaTopicAdmin` | Una llamada al `AdminClient` de Kafka, que es un cliente real |
 | `SecurityConfig` | Configura el builder de Spring Security; necesita el contexto |
 
-Los dos controllers son adaptadores de infraestructura: casi todo su cuerpo es configuración
-de un consumer y un bucle de `poll`. Probarlos exigiría un broker real por test.
-`KafkaTopicAdmin` existe justamente para aislar ese problema: se lo separó de
+Son adaptadores de infraestructura: casi todo su cuerpo es configuración de un consumer y un
+bucle de `poll`. Probarlos exigiría un broker real por test.
+
+`DlqReader` nació de ese criterio aplicado a un caso donde no se estaba cumpliendo: el
+`DeadLetterController` leía Kafka él mismo, así que estaba excluido entero, y con él quedaban
+sin medir el 404 de una entrada inexistente y los tres desenlaces de un reintento. Separando
+la lectura, el controller volvió a la medición y afuera quedó sólo el `poll`.
+
+`KafkaTopicAdmin` existe por lo mismo: se lo separó de
 `SchemaRegistryService` para que la lógica que decide **qué** tópicos borrar, y en qué
 orden respecto del Schema Registry, quede del lado medido, y afuera sólo la llamada al
 broker. El comportamiento de `SecurityConfig` se verifica indirectamente desde los
@@ -216,8 +222,20 @@ críticos se verificó rompiendo el código a propósito:
 |---|---|
 | `enable.auto.commit` a `true` y quitar `ackMode=RECORD` | Sí: falla el unitario y el de broker embebido |
 | Quitar el read timeout del cliente de webhooks | Sí |
+| Quitar el read timeout del cliente HTTP del gateway | Sí: el test mide que corte, no que el bean exista |
 | Quitar `@Service` de `CallbackUrlValidator` | Sí: los cuatro tests de contexto fallan con `NoSuchBeanDefinitionException` |
 | Borrar una variable de un `.env.*` | Sí: `tests/itest.sh` la nombra y sale con código 1 |
+| Decodificar el bus con otra implementación de Avro | Sí, pero **sólo con una referencia al lado**: ver abajo |
+
+La última fila merece una aclaración, porque es la única que no tiene test permanente.
+Al evaluar reescribir el `webhook-dispatcher` en TypeScript se decodificaron bytes reales
+del bus con `avsc` en vez de con Avro de Java: un `long` mayor a 2^53 dejaba el evento
+entero ilegible y un `decimal` volvía como bytes crudos. Al escribir la conversión a mano,
+el primer intento devolvió `0.1234567` donde Java devuelve `12345.67` —**sin lanzar nada**—,
+y se detectó únicamente porque había una salida de Java para comparar. Es el argumento por
+el que ese servicio se queda en la JVM
+([ADR-020](adr/ADR-020-webhooks-en-su-propio-servicio.md#por-qué-este-servicio-se-queda-en-la-jvm))
+y, si algún día se migra, por el que hace falta un corpus de conformidad antes.
 
 Ese ejercicio encontró **dos tests decorativos** que había que arreglar:
 

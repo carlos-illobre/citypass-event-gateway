@@ -1,0 +1,98 @@
+server:
+  port: ${SERVER_PORT}
+
+spring:
+  application:
+    name: webhook-dispatcher
+  kafka:
+    # Entra por el listener INTERNO del broker: sin autenticar y sólo alcanzable dentro de
+    # la red de Docker. El dispatcher es parte de la plataforma, no un cliente de ella
+    # (ADR-020).
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    consumer:
+      group-id: webhook-dispatcher
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        # El broker ya niega la creación automática de tópicos; se cierra también acá para
+        # no depender de una sola configuración.
+        allow.auto.create.topics: false
+    producer:
+      # Sólo para escribir en la cola de fallidos y sus marcas de resolución.
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      properties:
+        acks: all
+        retries: 3
+
+dispatcher:
+  # Dónde se guardan las suscripciones. Volumen propio: ya no lo comparte con el gateway.
+  data-dir: ${DATA_DIR}
+
+  # Cola de fallidos propia. Guarda dos cosas: eventos que no se pudieron interpretar y
+  # eventos que no se pudieron entregar. Las dos son de este servicio (ADR-020).
+  dlq-topic: ${DLQ_TOPIC}
+  # Compactado, con las entradas ya reentregadas, por clave `dlqId`.
+  dlq-resolved-topic: ${DLQ_RESOLVED_TOPIC}
+  topic-partitions: ${TOPIC_PARTITIONS}
+  topic-replication-factor: ${TOPIC_REPLICATION_FACTOR}
+
+  # De acá saca los schemas por id para interpretar lo que consume. Va al Schema Registry
+  # y no al gateway: si el gateway se cayera, la entrega no tiene por qué detenerse.
+  schema-registry-url: ${SCHEMA_REGISTRY_URL}
+
+  # ── Identidad ───────────────────────────────────────────────────────────────
+  auth-service-url: ${AUTH_SERVICE_URL}
+  token-audience: ${TOKEN_AUDIENCE:citypass}
+  token-issuer: ${TOKEN_ISSUER:}
+  token-contract-version: ${TOKEN_CONTRACT_VERSION:1}
+  cors-origin: ${CORS_ORIGIN}
+
+  # ── Límites de la entrega ───────────────────────────────────────────────────
+  max-webhooks-per-event-type: ${MAX_WEBHOOKS_PER_EVENT_TYPE}
+  webhook-failures-before-disable: ${WEBHOOK_FAILURES_BEFORE_DISABLE}
+  webhook-disable-minutes: ${WEBHOOK_DISABLE_MINUTES}
+  webhook-connect-timeout-ms: ${WEBHOOK_CONNECT_TIMEOUT_MS}
+  webhook-read-timeout-ms: ${WEBHOOK_READ_TIMEOUT_MS}
+
+  # Permitir callbacks hacia direcciones privadas. En producción va en false: es lo que
+  # impide que una suscripción apunte al endpoint de metadata del proveedor de nube y
+  # convierta a este servicio en un intermediario para leerlo.
+  allow-private-callbacks: ${ALLOW_PRIVATE_CALLBACKS}
+
+management:
+  server:
+    port: 9090
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+    tags:
+      instance: ${HOSTNAME:local}
+
+logging:
+  level:
+    com.citypass: INFO
+
+# La documentación OpenAPI: no hay forma de protegerla con Bearer —el navegador no lo
+# manda al cargar la página— así que en vez de dejarla pública o devolver un 401 que
+# parece un bug, directamente no existe. SecurityConfig lee esta misma propiedad para
+# decidir si abre las rutas, así que las dos cosas se mueven juntas.
+#
+# Es el mismo mecanismo que el gateway, a propósito: son dos servicios del mismo bus y
+# quien busca la documentación no tiene por qué aprender dos convenciones.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+    # La UI se sirve en /doc en vez de la ruta larga por defecto.
+    path: /doc

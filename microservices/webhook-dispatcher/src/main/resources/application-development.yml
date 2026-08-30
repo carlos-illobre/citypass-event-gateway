@@ -1,0 +1,21 @@
+# Ajustes de DESARROLLO LOCAL del webhook-dispatcher.
+#
+# Se carga sólo con SPRING_PROFILES_ACTIVE=development y pisa los valores de
+# application.yml, que son los de producción.
+#
+# Igual que en el gateway, este archivo es la lista completa de lo que separa a un
+# dispatcher local de uno expuesto.
+
+# Swagger UI en /doc. SecurityConfig lee esta misma propiedad y por eso abre las rutas
+# cuando está en true: sin las dos cosas, la página cargaría pero respondería 401 —que es
+# exactamente lo que pasaba antes de que existiera este archivo.
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+logging:
+  level:
+    # Muestra cada intento de entrega, que es lo que se quiere ver desarrollando.
+    com.citypass: DEBUG

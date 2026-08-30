@@ -215,9 +215,9 @@ otros si no se filtraran. Cada uno tiene su regla:
 
 | Endpoint | Regla | Por qué |
 |---|---|---|
-| `GET /api/v1/subscriptions` | Sólo las del namespace del token | Listar las ajenas expondría las URLs internas de otros equipos y los ids con los que darlas de baja |
-| `DELETE /api/v1/subscriptions/{id}` | Sólo las propias, y una ajena responde **404** y no 403 | Un 403 confirmaría que ese id existe |
-| `GET /api/v1/dead-letters` | Sólo las entradas cuyo `owner` coincide | Una entrada lleva el payload del evento y el mensaje de error |
+| `GET /api/v1/subscriptions` (dispatcher) | Sólo las del namespace del token | Listar las ajenas expondría las URLs internas de otros equipos y los ids con los que darlas de baja |
+| `DELETE /api/v1/subscriptions/{id}` (dispatcher) | Sólo las propias, y una ajena responde **404** y no 403 | Un 403 confirmaría que ese id existe |
+| `GET /api/v1/dead-letters` (dispatcher) | Sólo las entradas cuyo `owner` coincide | Una entrada lleva el payload del evento y el mensaje de error |
 | `GET /api/v1/events` | Sólo tópicos del namespace, y dentro sólo los del `sub` | Aislamiento entre grupos y entre usuarios del mismo grupo |
 
 El `owner` de una entrada de la DLQ merece una aclaración: para un fallo de deserialización
@@ -339,10 +339,14 @@ silencio en vez de fallar.
 
 ### SSRF por webhooks
 
-El gateway hace un `POST` a la `callbackUrl` de cada suscripción. Sin validar, cualquier
-grupo autenticado podría hacer que el gateway golpee direcciones que sólo son alcanzables
-desde adentro: el endpoint de metadata del proveedor cloud (`169.254.169.254`), el Schema
-Registry, el broker o el propio gateway.
+El dispatcher hace un `POST` a la `callbackUrl` de cada suscripción. Sin validar, cualquier
+grupo autenticado podría hacer que golpee direcciones que sólo son alcanzables desde
+adentro: el endpoint de metadata del proveedor cloud (`169.254.169.254`), el Schema
+Registry, el broker o el gateway.
+
+Sacar los webhooks del gateway **no** reduce esta superficie —el dispatcher está en la misma
+red— pero sí la acota: el proceso que hace peticiones salientes a servidores ajenos ya no es
+el mismo que recibe las publicaciones de todos los grupos.
 
 `CallbackUrlValidator` resuelve el host y rechaza loopback, link-local, rangos privados,
 wildcard, multicast, unique-local IPv6 y CGNAT.
@@ -355,8 +359,10 @@ Queda una limitación conocida: entre esa resolución y la que hace el cliente H
 conectar hay una ventana en la que un registro con TTL 0 podría cambiar. Cerrarla exige un
 cliente HTTP con resolver propio, que el del JDK no expone.
 
-En desarrollo la validación se desactiva con `SPRING_PROFILES_ACTIVE=development`, porque
-los consumidores del compose son contenedores con IP privada.
+En desarrollo la validación se desactiva con `ALLOW_PRIVATE_CALLBACKS=true`, porque los
+consumidores del compose son contenedores con IP privada. En producción tiene que quedar en
+`false`: es lo único que separa al dispatcher de ser un escáner de la red interna a pedido
+de cualquier grupo autenticado.
 
 ### Límites
 

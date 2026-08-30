@@ -2,5 +2,7 @@
 // No editar a mano: los valores viven en el .env del ambiente.
 window.__CITYPASS__ = {
   loginApiUrl:   "${LOGIN_API_URL}",
-  gatewayApiUrl: "${GATEWAY_API_URL}"
+  gatewayApiUrl: "${GATEWAY_API_URL}",
+  // Vacío = webhooks apagados en este despliegue: la pestaña no aparece.
+  dispatcherApiUrl: "${DISPATCHER_API_URL}"
 }
