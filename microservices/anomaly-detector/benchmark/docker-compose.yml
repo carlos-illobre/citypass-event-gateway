@@ -1,0 +1,50 @@
+name: anomaly-persistence-benchmark
+
+services:
+  mongodb:
+    image: mongo:8.0
+    ports:
+      - "127.0.0.1:27027:27017"
+    volumes:
+      - mongodb-benchmark-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  couchdb:
+    image: couchdb:3.4
+    environment:
+      COUCHDB_USER: benchmark
+      COUCHDB_PASSWORD: benchmark-only-password
+    ports:
+      - "127.0.0.1:5985:5984"
+    volumes:
+      - couchdb-benchmark-data:/opt/couchdb/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://benchmark:benchmark-only-password@localhost:5984/_up"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  postgresql:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: anomaly_benchmark
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: benchmark-only-password
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgresql-benchmark-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark -d anomaly_benchmark"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  mongodb-benchmark-data:
+  couchdb-benchmark-data:
+  postgresql-benchmark-data:
