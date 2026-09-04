@@ -27,7 +27,7 @@ def create_fastapi_application(detector: AnomalyDetectorApplication) -> FastAPI:
         detector.stop()
 
     api = FastAPI(
-        title="CityPass+ Anomaly Detector",
+        title="CityPass+ Event Anomaly Analysis",
         description=(
             "Detecta anomalías en el flujo de eventos de Kafka usando Isolation Forest. "
             f"El modelo se entrena automáticamente al acumular "
@@ -40,7 +40,7 @@ def create_fastapi_application(detector: AnomalyDetectorApplication) -> FastAPI:
 
     @api.get("/health")
     def health():
-        return {"status": "UP", "service": "anomaly-detector"}
+        return {"status": "UP", "service": "event-anomaly-analysis"}
 
     @api.get("/api/v1/anomalies")
     def anomalies(limit: int = 50):

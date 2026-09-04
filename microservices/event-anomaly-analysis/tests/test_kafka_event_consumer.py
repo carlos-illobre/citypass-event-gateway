@@ -2,7 +2,7 @@ import threading
 from collections import deque
 from unittest.mock import Mock
 
-from anomaly_detector.kafka_event_consumer import KafkaEventConsumer
+from event_anomaly_analysis.kafka_event_consumer import KafkaEventConsumer
 
 
 def make_consumer(messages):

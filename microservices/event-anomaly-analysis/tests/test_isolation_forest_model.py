@@ -2,7 +2,7 @@ from unittest.mock import Mock
 
 import numpy as np
 
-from anomaly_detector.isolation_forest_model import IsolationForestModel
+from event_anomaly_analysis.isolation_forest_model import IsolationForestModel
 
 
 def test_model_waits_for_minimum_samples_and_exposes_status():

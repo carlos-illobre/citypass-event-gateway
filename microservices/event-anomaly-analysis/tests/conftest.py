@@ -3,8 +3,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from anomaly_detector.application import AnomalyDetectorApplication
-from anomaly_detector.settings import AnomalyDetectorSettings
+from event_anomaly_analysis.application import AnomalyDetectorApplication
+from event_anomaly_analysis.settings import AnomalyDetectorSettings
 
 
 @pytest.fixture

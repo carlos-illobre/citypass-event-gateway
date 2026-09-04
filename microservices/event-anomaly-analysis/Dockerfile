@@ -17,6 +17,4 @@ WORKDIR /app/src
 RUN useradd --system --uid 1001 --no-create-home detector
 USER detector
 
-EXPOSE 8084
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8084"]
+CMD ["sh", "-c", "exec uvicorn event_anomaly_analysis.main:app --host 0.0.0.0 --port \"$PORT\""]

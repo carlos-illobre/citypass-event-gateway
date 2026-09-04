@@ -1,7 +1,7 @@
 import json
 from unittest.mock import Mock
 
-from anomaly_detector.kafka_anomaly_publisher import KafkaAnomalyPublisher
+from event_anomaly_analysis.kafka_anomaly_publisher import KafkaAnomalyPublisher
 
 
 def test_publisher_creates_topic_and_preserves_event_shape(monkeypatch):
@@ -9,8 +9,8 @@ def test_publisher_creates_topic_and_preserves_event_shape(monkeypatch):
     administrator = Mock()
     administrator.create_topics.return_value = {"topic": creation}
     producer = Mock()
-    monkeypatch.setattr("anomaly_detector.kafka_anomaly_publisher.AdminClient", Mock(return_value=administrator))
-    monkeypatch.setattr("anomaly_detector.kafka_anomaly_publisher.Producer", Mock(return_value=producer))
+    monkeypatch.setattr("event_anomaly_analysis.kafka_anomaly_publisher.AdminClient", Mock(return_value=administrator))
+    monkeypatch.setattr("event_anomaly_analysis.kafka_anomaly_publisher.Producer", Mock(return_value=producer))
     publisher = KafkaAnomalyPublisher("kafka:29092", "sistema.anomalia.detectada")
 
     anomaly = publisher.publish(
@@ -38,7 +38,7 @@ def test_publisher_reports_topic_creation_failure_and_close_without_producer(mon
     creation.result.side_effect = RuntimeError("already exists")
     administrator = Mock()
     administrator.create_topics.return_value = {"topic": creation}
-    monkeypatch.setattr("anomaly_detector.kafka_anomaly_publisher.AdminClient", Mock(return_value=administrator))
+    monkeypatch.setattr("event_anomaly_analysis.kafka_anomaly_publisher.AdminClient", Mock(return_value=administrator))
     publisher = KafkaAnomalyPublisher("kafka", "topic")
 
     publisher._ensure_topic_exists()

@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import fastavro
 
-from anomaly_detector.avro_event_deserializer import AvroEventDeserializer
+from event_anomaly_analysis.avro_event_deserializer import AvroEventDeserializer
 
 
 def encoded_event(schema, value):
@@ -19,7 +19,7 @@ def test_deserializer_downloads_and_caches_schema(monkeypatch):
     response = Mock()
     response.json.return_value = {"schema": json.dumps(schema)}
     get = Mock(return_value=response)
-    monkeypatch.setattr("anomaly_detector.avro_event_deserializer.requests.get", get)
+    monkeypatch.setattr("event_anomaly_analysis.avro_event_deserializer.requests.get", get)
     deserializer = AvroEventDeserializer("http://registry/")
     raw_event = encoded_event(schema, {"value": 4})
 

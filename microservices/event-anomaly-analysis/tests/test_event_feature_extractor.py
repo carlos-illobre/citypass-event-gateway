@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from anomaly_detector.event_feature_extractor import (
+from event_anomaly_analysis.event_feature_extractor import (
     EventFeatureExtractor,
     business_payload,
     numeric_values,
