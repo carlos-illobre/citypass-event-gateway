@@ -1,4 +1,4 @@
-# Benchmark aislado de persistencia para `anomaly-detector`
+# Benchmark aislado de persistencia para `event-anomaly-analysis`
 
 Este directorio no cambia el consumidor, el modelo ni el flujo productivo. Compara una
 proyección **neutral** de anomalías para decidir una persistencia futura, no para introducirla
