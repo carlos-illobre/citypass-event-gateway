@@ -120,40 +120,24 @@ variable "project_name" {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DNS (Cloudflare)
+# Dominio público
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Sin defaults a propósito, igual que las variables de OCI: el dominio es tuyo, no algo
-# que el proyecto deba asumir. Quedan separados en zona y subdominio porque así lo pide
-# el data source que busca la zona en Cloudflare (busca por el nombre exacto de la zona
-# registrada, no por el hostname completo).
+# Terraform NO administra el DNS (ver ADR-019, "Opción 4"): el registro A se crea a mano
+# en Cloudflare, una vez por entorno. Esta variable existe igual porque el hostname sí es
+# dato de infraestructura — es lo que hay que apuntar a la IP de la instancia, y lo que
+# después va en el .env de la VM. El output `next_steps` lo usa para recordar el paso.
 
-variable "cloudflare_api_token" {
+variable "public_domain" {
   description = <<-EOT
-    API token de Cloudflare con permiso Zone → DNS → Edit sobre la zona del dominio.
-    Se crea en el dashboard de Cloudflare → My Profile → API Tokens.
+    Hostname público completo de este entorno (ej. "citypass.tudominio.com").
+    Es el registro A que hay que crear a mano en Cloudflare apuntando a la IP de la
+    instancia, en modo DNS-only (nube gris). Es también el valor que después va en
+    PUBLIC_DOMAIN y KAFKA_ADVERTISED_HOST del .env de la instancia
+    (ver deployment/oracle-single/.env.oracle).
+
+    Sin default a propósito, igual que las variables de OCI: el dominio es tuyo, no algo
+    que el proyecto deba asumir.
   EOT
   type        = string
-  sensitive   = true
-}
-
-variable "cloudflare_zone_name" {
-  description = "Nombre exacto de la zona en Cloudflare (el dominio raíz, ej. \"mrfranco.net.ar\")."
-  type        = string
-}
-
-variable "dns_subdomain" {
-  description = <<-EOT
-    Subdominio a crear dentro de la zona (ej. "citypass" para citypass.mrfranco.net.ar).
-    Es el mismo hostname que después va en PUBLIC_DOMAIN y KAFKA_ADVERTISED_HOST del
-    .env de la instancia (ver deployment/oracle-single/.env.oracle).
-  EOT
-  type        = string
-  default     = "citypass"
-}
-
-variable "dns_ttl" {
-  description = "TTL del registro A, en segundos."
-  type        = number
-  default     = 300
 }

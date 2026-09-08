@@ -33,14 +33,16 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
    El bootstrap del SO (Docker, growfs, iptables) y el despliegue de la app **siguen
    manuales**, con los scripts existentes. Nada de cloud-init ni end-to-end.
 2. **State de Terraform:** local, en `.gitignore`. Sin backend remoto.
-3. **DNS:** el dominio del usuario está en **Cloudflare**. Terraform usa también el
-   provider `cloudflare` para el registro `A`, leyendo la IP pública de la instancia OCI
-   como output. **Siempre en modo DNS-only (nube gris), nunca proxy naranja** — el proxy
-   de Cloudflare rompería la validación HTTP-01 de certbot y no puede proxiar Kafka (TCP
-   crudo) en el puerto 9092.
-4. **IP pública:** efímera, no reservada. Si cambiara al recrear la VM, Terraform reajusta
-   el registro de Cloudflare solo. La IP reservada queda documentada como mejora opcional,
-   no implementada.
+3. **DNS: FUERA del alcance de Terraform (revisado el 2026-09-07).** Originalmente se
+   implementó con el provider `cloudflare` (`dns.tf`), y se dio marcha atrás después de
+   probarlo — ver "Por qué se sacó el DNS" más abajo. El registro `A` se carga a mano en
+   el dashboard, **siempre en modo DNS-only (nube gris), nunca proxy naranja** (el proxy
+   rompería la validación HTTP-01 de certbot y no puede proxiar Kafka, que es TCP crudo,
+   en el 9092).
+4. **IP pública:** efímera, no reservada. Sobrevive a reinicios y stop/start; sólo cambia
+   si se destruye y recrea la instancia, y en ese caso hay que editar el registro `A` a
+   mano con la IP que imprime el output. La IP reservada queda documentada como mejora
+   opcional, no implementada.
 5. **El reverse-proxy (nginx) dentro de la VM no cambia.** Sigue siendo el único punto de
    entrada real: TLS con Let's Encrypt, ruteo HTTP, stream de Kafka en 9092. Cloudflare
    sólo resuelve DNS, no toca el tráfico — esto se lo confirmé explícitamente al usuario
@@ -62,11 +64,13 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
 
 ## Ya no pendiente — resuelto
 
-1. **Dominio confirmado:** `citypass.mrfranco.net.ar`. Es **un solo hostname**, no
-   subdominios por servicio — confirmado leyendo
+1. **Dominio confirmado.** Es **un solo hostname** por entorno, no subdominios por
+   servicio — confirmado leyendo
    [nginx.conf.template](../../reverse-proxy/nginx.conf.template): el proxy separa por
    ruta (`/`, `/api/`, `/auth/`) y Kafka reusa el mismo hostname por el puerto 9092
-   (bloque `stream`). Un solo registro `A` en Cloudflare alcanza.
+   (bloque `stream`). Un solo registro `A` en Cloudflare alcanza. El valor concreto va en
+   `terraform.tfvars` (local, gitignoreado): en la documentación se usan placeholders
+   tipo `tudominio.com`, no el dominio real.
 2. **Shape de la VM:** default fijo según ADR-016 (2 OCPU / 12 GB, `VM.Standard.A1.Flex`,
    Ubuntu 24.04 arm64, boot volume 200 GB), parametrizado para poder override-earse.
 3. **[ADR-019](../../../docs/adr/ADR-019-terraform-iac-oracle-cloud.md) ya escrita**,
@@ -94,43 +98,137 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
    slashes). Si aparece un `Invalid escape sequence` en cualquier otra variable de ruta
    (ej. si el usuario toca `ssh_public_key_path` a mano con backslashes), es lo mismo.
 
-## Estado actual de `terraform plan` — EN CURSO, 2 errores pendientes
+## Por qué se sacó el DNS de Terraform (2026-09-07)
 
-Corrido por el usuario, sin `-backend=false` (plan real, con auth contra OCI y
-Cloudflare). La parte de OCI **no tiró error** (auth con la API key funcionando). Quedan
-dos errores sueltos, ninguno de red/compute:
+Se llegó a implementar y probar `dns.tf`. El `terraform plan` real contra OCI **pasó sin
+problemas** (la auth con la API key de Oracle funciona), pero Cloudflare falló dos veces
+seguidas:
 
-1. **SSH key faltante.** `compute.tf` línea 55 (`file(pathexpand(var.ssh_public_key_path))`)
-   no encontró archivo en `~/.ssh/id_rsa.pub`. Se le explicó al usuario que esto es
-   independiente de las credenciales de OCI/Cloudflare — es el par de claves para que
-   *él* se loguee por SSH a la VM una vez creada; Terraform sólo lee el contenido de la
-   pública para inyectarla como `authorized_keys`. Se le indicó generar uno con
-   `ssh-keygen -t ed25519` si no tenía, y ajustar `ssh_public_key_path` en el `.tfvars`
-   si el nombre de archivo no es `id_rsa.pub`. **No confirmado si ya lo resolvió.**
-2. **Cloudflare `403 Invalid access token`** (`data.cloudflare_zone.this` en `dns.tf`).
-   El token en sí es rechazado por Cloudflare, antes de evaluar permisos. Causas más
-   probables, a chequear en la próxima sesión:
-   - Que haya creado una **Global API Key** (dashboard → *API Keys*) en vez de un
-     **API Token** (dashboard → *API Tokens → Create Token*) — son mecanismos distintos,
-     el provider de Terraform espera un Token tipo Bearer.
-   - Espacio/salto de línea de más al pegar el token en `terraform.tfvars`.
-   - Permisos del token no incluyen *Zone → DNS → Edit* sobre la zona correcta, o expiró.
-   Se le pasó al usuario un `curl` contra
-   `https://api.cloudflare.com/client/v4/user/tokens/verify` con el token en el header
-   `Authorization: Bearer` para aislar el problema sin pasar por Terraform. **Sin
-   respuesta todavía — retomar por acá.**
+1. Primero un `401 Invalid API Token` — token inválido, se regeneró.
+2. Con el token nuevo (verificado como válido y activo contra
+   `/user/tokens/verify`), el `plan` volvió a fallar: `403 Forbidden`, code 9109, en
+   `GET /zones?name=...`. Causa: al token le faltaba **Zone → Zone → Read**. Tenía sólo
+   *DNS → Edit*, que alcanza para escribir el registro pero no para *buscar la zona por
+   nombre*, que es lo que hace `data.cloudflare_zone`.
+
+En ese punto el usuario decidió cambiar de estrategia y dejar el DNS manual. El
+razonamiento (ahora documentado en el ADR-019, "Opción 4"): un registro `A` por entorno,
+dos entornos, sobre VMs que no se apagan ni se recrean — la automatización no se amortiza,
+cuesta un secreto más, y sobre todo **acopla el DNS al aprovisionamiento**: el
+`data.cloudflare_zone` se evalúa en el `plan`, así que un problema de Cloudflare abortaba
+el plan entero y dejaba sin crear la red y la VM, que no dependen del DNS.
+
+## BLOQUEANTE: no hay capacidad A1 en Oracle (2026-09-08)
+
+**El módulo funciona.** El `apply` crea la red entera sin problemas (VCN, internet gateway,
+route table, subnet, security list — todo en el state) y falla **sólo** en
+`oci_core_instance`:
+
+```
+Error: 500-InternalError, Out of host capacity.
+POST https://iaas.sa-saopaulo-1.oraclecloud.com/20160918/instances
+```
+
+Lo verificado hasta ahora:
+
+- **No es el provider.** La línea "This provider is 2 Update(s) behind" que agrega el
+  mensaje es ruido: el provider de OCI la pone en todos sus errores. La respuesta viene
+  del servidor de Oracle (trae `OPC request ID`), o sea que el request llegó, autenticó y
+  se rechazó del lado de ellos. Un request mal armado daría 400, no este 500.
+- **No es el availability domain.** `sa-saopaulo-1` tiene **un solo AD**, confirmado con
+  `terraform console` sobre `data.oci_identity_availability_domains.ads`. No hay a dónde
+  moverse; `compute.tf` toma `[0]` y es el único.
+- **No es cuota en cero.** En *Limits, Quotas and Usage* → Compute →
+  `standard-a1-core-count` figura **Usage 0, Service limit "Dynamic"**. "Dynamic" =
+  Oracle no asigna un cupo fijo, lo decide por request según el tipo de cuenta. Un límite
+  duro en 0 habría dado `LimitExceeded`, no `Out of host capacity`.
+- **No es transitorio.** Se dejó un loop de `terraform apply` corriendo toda una noche.
+  Cero éxitos.
+
+**Diagnóstico:** la cuenta es **Free Trial**, y las cuentas de trial/Always Free se sirven
+sólo de la capacidad que sobra después de las cuentas de pago. Con un único AD en la
+región, no hay reintento que lo resuelva. (La priorización por tipo de cuenta es
+comportamiento observado y muy reportado, no política documentada por Oracle — a
+diferencia de los cupos del Always Free, que sí están documentados.)
+
+**Esto golpea una premisa del ADR-016**, que eligió Oracle justamente por las A1
+gratuitas: el cupo existe en el papel pero no se puede materializar con una cuenta de
+trial. Queda como riesgo abierto.
+
+Opciones sobre la mesa, sin decidir todavía:
+
+1. **Upgrade a Pay As You Go.** Los límites "dynamic" aflojan con medio de pago activo, y
+   las A1 dentro de 4 OCPU / 24 GB siguen sin facturar. Ojo: el boot volume de 200 GB es
+   **todo** el cupo gratuito de block storage — un volumen de más ya cobra. Configurar
+   budget alert ANTES de crear nada.
+2. **Pedir aumento de límite** (Consola → Limits → *Request a service limit increase*).
+   Gratis, tarda días, baja probabilidad en cuentas gratuitas. Se puede disparar en
+   paralelo.
+3. **Replantear el proveedor** para la entrega del TP, si la fecha aprieta.
+
+Lo que ya se descartó por inviable: bajar a 1 OCPU (en A1 la memoria va atada a los cores,
+6 GB por OCPU, y los techos de `.env.oracle` suman 6,5 GiB — el stack no entra),
+`VM.Standard.E2.1.Micro` (1 GB de RAM), y cambiar de región (los recursos Always Free
+viven sólo en la home region, que es irreversible).
+
+## Estado actual del código
+
+- **`dns.tf` eliminado**; el provider `cloudflare` sacado de `versions.tf` y
+  `providers.tf`; las variables `cloudflare_*`, `dns_subdomain` y `dns_ttl` reemplazadas
+  por una sola `public_domain` (sin default). `outputs.tf` ahora imprime el paso manual de
+  DNS como paso 0 de `next_steps`, con hostname e IP ya resueltos.
+- **ADR-019 actualizado en el lugar** (título, contexto, opción 4 dada vuelta, decisión y
+  consecuencias) + fila del índice `docs/adr/README.md`. Ojo: el README de ADRs dice que
+  un ADR no se edita sino que se supersede — se editó igual porque el ADR-019 **todavía no
+  está mergeado a `main`**, vive sólo en `feat/iac`. **Pendiente de confirmar con el
+  equipo** si prefieren un ADR-020 que lo supersede.
+- **README del módulo reescrito** en la parte de Cloudflare: sin credenciales, con una
+  sección 6 nueva ("El DNS, a mano") y renumeración de las que seguían.
+- **Documentación sin datos concretos:** pedido explícito del usuario — en la doc va
+  `tudominio.com` / `citypass.tudominio.com`, no el dominio real. El valor real vive sólo
+  en `terraform.tfvars`, que es local y gitignoreado.
+- **SSH key: resuelta.** El usuario corre todo desde **WSL (distro `Ubuntu`, usuario
+  `franco`)**, no desde Windows. Las claves están en `/home/franco/.ssh/id_ed25519(.pub)`,
+  con permisos correctos. El `.tfvars` usa `~/...` en las dos rutas y resuelve contra
+  `/home/franco`, así que la nota del "gotcha de Windows" de más arriba ya no aplica
+  mientras se trabaje desde WSL. Desde Windows ese filesystem se ve en
+  `\\wsl.localhost\Ubuntu\home\franco\`.
 
 ## Qué falta
 
-1. **Resolver el error de Cloudflare** (ver arriba) — primer paso al retomar.
-2. Confirmar que el SSH key también quedó resuelto (o resolverlo si no).
-3. Volver a correr `terraform plan` hasta que dé limpio (0 errores, review del `Plan: N to
-   add, 0 to change, 0 to destroy.`).
-4. `terraform apply`.
-5. Seguir con `ORACLE.md` desde la sección 4 (el README de esta carpeta lo explica).
-6. **Commitear `.terraform.lock.hcl`** (nuevo, generado por `terraform init`, sí se
-   versiona) y este `ESTADO.md` actualizado — pedido explícito del usuario en esta
-   sesión, pusheando a `origin/feat/iac`.
+**Todo esto está detrás del bloqueante de capacidad de arriba** — el `apply` no puede
+completarse hasta resolverlo. El resto del flujo ya está listo y probado:
+
+1. **Decidir cómo se destraba la capacidad A1** (PAYG / pedido de límite / otro
+   proveedor). Es lo único que importa ahora.
+2. `terraform apply` — la red ya está creada, sólo falta la instancia.
+3. **Crear el registro `A` a mano** en Cloudflare (DNS-only) con la IP del output.
+4. Seguir con `ORACLE.md` desde la sección 4 (el README de esta carpeta lo explica).
+5. Commitear todo esto y pushear a `origin/feat/iac`.
+
+Ya hechos (no repetir): limpieza de las líneas `cloudflare_*` del `terraform.tfvars`
+local, `terraform init` con el lock file podado, y `terraform plan` limpio.
+
+## Backup: qué guardar para poder administrar el server
+
+Se repasó con el usuario (no tiene bucket, la idea es un Drive personal **cifrado** —
+`.7z` con AES-256, `age` o `gpg`; las contraseñas chicas mejor en un gestor):
+
+- **Tier 1, sin copia no hay vuelta:** la clave privada SSH (`/home/franco/.ssh/id_ed25519`
+  — perderla deja la VM viva pero inaccesible salvo por consola serie o desprendiendo el
+  boot volume); el `terraform.tfstate` (+ `.backup`) —que **es un secreto**, guarda OCIDs
+  y la clave pública en claro, y sin él el próximo `plan` propone recrear todo—; el `.env`
+  de la VM (las passwords de kafka-ui y Grafana se generan al azar en el envío y no quedan
+  en ningún otro lado); y los tres volúmenes de datos (`docs/DEPLOYMENT.md#backup`).
+- **Tier 2, regenerable pero cómodo:** `terraform.tfvars` y la clave de API de OCI
+  (`/home/franco/.oci/oci_api_key.pem`).
+- **No guardar:** certificados de Let's Encrypt (se re-emiten solos), `.terraform/`,
+  imágenes Docker (están en GHCR).
+- La copia del `tfstate` sólo sirve si se re-sube **después de cada `apply`**.
+- Pendiente evaluado y postergado: la cuenta Always Free incluye Object Storage, así que
+  un backend remoto es posible sin costo. No se hizo para no meter un cambio más en el
+  aire; el ADR-019 justifica el state local por concurrencia, que es un problema distinto
+  del de la copia de resguardo.
 
 ## Conceptos ya explicados al usuario (no volver a explicar desde cero, sólo repasar si pregunta)
 

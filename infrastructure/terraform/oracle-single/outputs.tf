@@ -1,5 +1,8 @@
 output "instance_public_ip" {
-  description = "IP pública de la instancia. Es la que va en el registro DNS (ya gestionado acá) y la que usás para SSH."
+  description = <<-EOT
+    IP pública de la instancia. Es la que hay que cargar A MANO en el registro A de
+    Cloudflare (Terraform no administra el DNS, ver ADR-019) y la que usás para SSH.
+  EOT
   value       = oci_core_instance.vm.public_ip
 }
 
@@ -15,17 +18,22 @@ output "ssh_command" {
 
 output "public_domain" {
   description = <<-EOT
-    El hostname completo (citypass.mrfranco.net.ar por defecto). Es el mismo valor que
-    después va en PUBLIC_DOMAIN y KAFKA_ADVERTISED_HOST del .env de la instancia —
-    ver deployment/oracle-single/.env.oracle y ORACLE.md, paso 6.
+    El hostname completo de este entorno, tal como lo pusiste en terraform.tfvars. Es el
+    mismo valor que después va en PUBLIC_DOMAIN y KAFKA_ADVERTISED_HOST del .env de la
+    instancia — ver deployment/oracle-single/.env.oracle y ORACLE.md, paso 6.
   EOT
-  value       = local.dns_fqdn
+  value       = var.public_domain
 }
 
 output "next_steps" {
   description = "Qué sigue después del apply — Terraform no hace nada de esto."
   value       = <<-EOT
-    La VM y el DNS ya existen. Lo que sigue es manual, con ORACLE.md desde la sección 4:
+    La VM ya existe. El DNS NO: Terraform no lo administra (ADR-019). Lo que sigue es
+    manual, empezando por el registro DNS y siguiendo con ORACLE.md desde la sección 4:
+      0. Crear/actualizar en Cloudflare el registro A de ${var.public_domain}
+         apuntando a ${oci_core_instance.vm.public_ip}, en modo DNS-ONLY (nube gris,
+         nunca proxy naranja). Va primero: certbot valida por HTTP-01 y necesita que el
+         dominio ya resuelva a esta IP.
       1. Verificar la máquina (preflight.sh) e instalar Docker.
       2. Clonar el repo y mandar el .env (sección 6).
       3. Abrir los puertos EN IPTABLES dentro de la VM (sección 7 — la Security List de

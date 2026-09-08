@@ -1,4 +1,4 @@
-# ===== Terraform — valores para ORACLE CLOUD + CLOUDFLARE =====
+# ===== Terraform — valores para ORACLE CLOUD =====
 #
 #   cp terraform.tfvars.example terraform.tfvars
 #
@@ -29,12 +29,12 @@ compartment_ocid  = "ocid1.tenancy.oc1..CAMBIAR"
 ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
 
-# ── Cloudflare — dashboard → My Profile → API Tokens ──────────────────────────
-# Token con permiso Zone → DNS → Edit, restringido a esta zona.
+# ── Dominio público ──────────────────────────────────────────────────────────
+# Terraform NO crea el registro DNS (ADR-019): el A se carga a mano en Cloudflare,
+# en modo DNS-only, apuntando a la IP que devuelve el output instance_public_ip.
+# Este valor es sólo el hostname del entorno — el mismo que después va en el .env.
 
-cloudflare_api_token = "CAMBIAR"
-cloudflare_zone_name = "mrfranco.net.ar"
-dns_subdomain         = "citypass"
+public_domain = "citypass.tudominio.com"
 
 
 # ── Shape, red y nombrado ──────────────────────────────────────────────────
@@ -48,4 +48,3 @@ dns_subdomain         = "citypass"
 # vcn_cidr                 = "10.0.0.0/16"
 # subnet_cidr              = "10.0.1.0/24"
 # project_name             = "citypass"
-# dns_ttl                  = 300

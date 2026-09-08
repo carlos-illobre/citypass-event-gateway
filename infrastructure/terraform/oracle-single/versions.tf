@@ -1,13 +1,11 @@
 # Versiones de Terraform y de los providers.
 #
-# Dos providers porque son dos nubes distintas: la VM vive en Oracle (`oracle/oci`, el
-# oficial de Oracle — el viejo `hashicorp/oci` quedó discontinuado) y el DNS vive en
-# Cloudflare (`cloudflare/cloudflare`). Ver ADR-019 para el porqué de cada uno.
+# Un solo provider: `oracle/oci`, el oficial de Oracle — el viejo `hashicorp/oci` quedó
+# discontinuado. El DNS NO se administra desde acá; es un paso manual, ver ADR-019
+# ("Opción 4") y el README de esta carpeta.
 #
-# Los dos van fijados en la MAYOR (`>= 5.0.0`, sin techo) y no en un patch exacto: la v5 de
-# Cloudflare trajo cambios que rompen contra la v4 (el recurso pasó de `cloudflare_record` a
-# `cloudflare_dns_record`, y `name` pasó a pedir el dominio completo en vez del subdominio
-# relativo a la zona) — este módulo ya está escrito para v5, así que exige esa mayor.
+# Va fijado en la MAYOR (`>= 5.0.0`, sin techo) y no en un patch exacto: alcanza para
+# protegerse de un cambio incompatible, sin quedar clavado a una versión puntual.
 
 terraform {
   required_version = ">= 1.8.0"
@@ -15,10 +13,6 @@ terraform {
   required_providers {
     oci = {
       source  = "oracle/oci"
-      version = ">= 5.0.0"
-    }
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
       version = ">= 5.0.0"
     }
   }
