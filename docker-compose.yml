@@ -457,7 +457,17 @@ services:
   # .env. En desarrollo no se levantan y cada servicio se habla directo por su puerto.
   reverse-proxy:
     logging: *logging
-    image: nginx:1.27-alpine
+    # 1.30 y no 1.27: la rama 1.27 está fuera de soporte, y todas sus versiones están
+    # dentro del rango afectado por CVE-2026-42533 —desbordamiento de heap en el manejo de
+    # regex de `map`, explotable pre-autenticación—. El arreglo entró en 1.30.4.
+    #
+    # El tag es la rama menor y no una versión exacta a propósito: cada build del CI toma
+    # el último parche de la rama, así que las correcciones de seguridad llegan con el
+    # desarrollo normal en vez de esperar a que alguien se acuerde de subir un número.
+    #
+    # Lo que evita que eso sea suerte es el test de `tests/itest.sh` que exige una versión
+    # mínima: si el tag dejara de actualizarse, o alguien lo fijara a una vieja, falla.
+    image: nginx:1.30-alpine
     profiles: ["prod"]
     container_name: reverse-proxy
     hostname: reverse-proxy
