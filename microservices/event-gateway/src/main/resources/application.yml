@@ -58,6 +58,14 @@ gateway:
   topic-replication-factor: ${TOPIC_REPLICATION_FACTOR:1}
   # Audiencia que debe declarar el JWT para ser aceptado.
   token-audience: ${TOKEN_AUDIENCE:citypass}
+
+  # Emisor esperado de los tokens. Vacío desactiva el chequeo, para no romper un
+  # despliegue cuyo servicio de identidad todavía no emita `iss`. Debería estar siempre
+  # configurado: es lo que impide que un emisor distinto pase por el legítimo.
+  token-issuer: ${TOKEN_ISSUER:}
+
+  # Versión del contrato de identidad que este gateway entiende (claim `ver`).
+  token-contract-version: ${TOKEN_CONTRACT_VERSION:1}
   # Tope de espera por la confirmación de Kafka al publicar.
   publish-timeout-ms: ${PUBLISH_TIMEOUT_MS:10000}
   # ── Ajustes que dependen del ambiente ──────────────────────────────────────

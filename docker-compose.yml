@@ -53,7 +53,13 @@ services:
       KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required;'
       KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_SERVER_CALLBACK_HANDLER_CLASS: 'org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerValidatorCallbackHandler'
       KAFKA_SASL_OAUTHBEARER_JWKS_ENDPOINT_URL: 'http://auth-simulator:8083/.well-known/jwks.json'
-      KAFKA_SASL_OAUTHBEARER_EXPECTED_AUDIENCE: 'citypass'
+      KAFKA_SASL_OAUTHBEARER_EXPECTED_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
+
+      # Cada cuánto releer el JWKS. El validador de Kafka lo recarga **por intervalo**, no
+      # ante un `kid` desconocido como hacen las librerías HTTP: con el default de una hora,
+      # una rotación de la clave de firma dejaría al broker rechazando conexiones nuevas
+      # todo ese tiempo, y sin ningún error que explique por qué.
+      KAFKA_SASL_OAUTHBEARER_JWKS_ENDPOINT_REFRESH_MS: ${KAFKA_JWKS_REFRESH_MS:?falta KAFKA_JWKS_REFRESH_MS en el .env}
       # El principal es el namespace y no el `sub`: identifica al grupo, y un consumer
       # group es por aplicación. Con el usuario individual, dos instancias del mismo
       # grupo corriendo con credenciales distintas no podrían compartir el group.id.
@@ -211,6 +217,9 @@ services:
     ports:
       - "${PUBLISH_ADDR:-127.0.0.1}:8083:8083"
     environment:
+      TOKEN_ISSUER: ${TOKEN_ISSUER:?falta TOKEN_ISSUER en el .env}
+      TOKEN_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:?falta TOKEN_TTL_SECONDS en el .env}
       PORT: 8083
       AUTH_CORS_ORIGIN: '${AUTH_CORS_ORIGIN}'
     healthcheck:
@@ -243,6 +252,8 @@ services:
       auth-simulator:
         condition: service_healthy
     environment:
+      TOKEN_ISSUER: ${TOKEN_ISSUER:?falta TOKEN_ISSUER en el .env}
+      TOKEN_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
       SERVER_PORT: 8080
       KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081

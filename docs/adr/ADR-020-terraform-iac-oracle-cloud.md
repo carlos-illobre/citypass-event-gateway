@@ -1,7 +1,12 @@
-# ADR-019: Terraform como IaC para la VM de Oracle Cloud
+# ADR-020: Terraform como IaC para la VM de Oracle Cloud
 
 **Estado:** Aceptado
 **Fecha:** 2026-08-26 (revisado 2026-09-07: el DNS queda fuera del alcance, ver "Opción 4")
+
+> Se escribió con el número 019 y se renumeró a 020 al integrarlo con `main`: el
+> [ADR-019](ADR-019-firewall-en-la-vcn.md) sobre el firewall se mergeó en paralelo y ya
+> tenía ese número. Son decisiones complementarias, no en conflicto — ver "Relación con el
+> ADR-019" más abajo.
 
 ---
 
@@ -115,23 +120,51 @@ Adoptar **Terraform** para provisionar la capa de nube de la VM de Oracle —red
 instancia—, y nada más:
 
 - **Red:** VCN, internet gateway, route table, subnet pública.
-- **Firewall:** una security list con ingreso sólo en 22, 80, 443 y 9092 —los mismos cuatro
-  puertos que documenta `ORACLE.md`, ahora declarados en vez de clickeados—.
+- **Firewall:** la security list de la VCN, con ingreso sólo en 22, 80, 443 y 9092 —los
+  mismos cuatro puertos que documenta `ORACLE.md`, ahora declarados en vez de clickeados—.
+  Es la capa que el [ADR-019](ADR-019-firewall-en-la-vcn.md) eligió como mecanismo de
+  control de acceso.
 - **Cómputo:** una instancia `VM.Standard.A1.Flex`, con el shape que fija el
   [ADR-016](ADR-016-iaas-oracle-cloud.md) como valor por defecto —2 OCPU, 12 GB de
   memoria, imagen Ubuntu 24.04 `aarch64`, boot volume de 200 GB— parametrizado para poder
   ajustarse sin tocar código si el cupo gratuito de la cuenta cambiara.
+
 **El DNS queda explícitamente afuera.** El registro `A` del entorno, en modo DNS-only, se
 carga a mano en el dashboard de Cloudflare apuntando a la IP que Terraform imprime como
 output. El módulo no declara el provider de Cloudflare ni necesita credenciales suyas.
 
-Todo lo que hoy empieza en el paso 4 de `ORACLE.md` —preparar el sistema operativo, abrir
-puertos en `iptables` dentro de la VM, emitir el certificado, levantar el `docker
+Todo lo que hoy empieza en el paso 4 de `ORACLE.md` —preparar el sistema operativo, aplicar
+las reglas de `iptables` dentro de la VM, emitir el certificado, levantar el `docker
 compose`— **sigue a cargo de los scripts existentes**. Terraform no los reemplaza ni los
 orquesta; entrega una VM lista para que esos scripts corran, con la red y el firewall ya
 declarados.
 
 El estado se guarda **local, en `.gitignore`**. Sin backend remoto.
+
+## Relación con el ADR-019
+
+El [ADR-019](ADR-019-firewall-en-la-vcn.md) decide **dónde** vive el control de acceso a la
+red: en la security list de la VCN, porque es la única capa que filtra de verdad los
+puertos publicados por Docker —el DNAT los saca de la cadena `INPUT` antes de que
+`iptables` pueda opinar—. Este ADR decide **cómo se expresa** esa security list: declarada
+en `network.tf` en vez de clickeada en la consola. No hay conflicto entre los dos; el
+segundo implementa la decisión del primero.
+
+Eso deja sin efecto una de las consecuencias negativas que el ADR-019 asumía:
+
+> *"La configuración vive fuera del repositorio. Es estado en la consola de Oracle, no un
+> archivo versionado, así que no hay historial ni revisión por PR."*
+
+Con el módulo de Terraform, los cuatro puertos abiertos se leen en un archivo versionado,
+cambiarlos deja diff y pasa por PR, y `terraform plan` muestra la diferencia contra lo que
+hay realmente en la nube antes de aplicarla. El ADR-019 no se edita —la convención de este
+repositorio es que un ADR no se retoca cuando cambia el contexto—; queda anotado acá.
+
+Lo que **no** cambia: las reglas de `iptables` dentro de la VM siguen a cargo de
+`preflight.sh` y `ORACLE.md`, y siguen valiendo por lo que el ADR-019 dice que hacen —
+cubrir un eventual proceso que escuche en el host, como `sshd` en el 22, y actuar de última
+línea para los servicios internos cuyo DNAT sólo matchea `127.0.0.1`—. No son el mecanismo
+de control de los puertos de los contenedores, y este módulo no las administra.
 
 ## Consecuencias
 
@@ -148,7 +181,8 @@ El estado se guarda **local, en `.gitignore`**. Sin backend remoto.
   con la comprobación manual del paso 10.4.
 - El aprovisionamiento no depende de ningún servicio de terceros más allá de Oracle: un
   problema de DNS no puede bloquear la creación de la red ni de la VM.
-- Un solo secreto nuevo (las credenciales de API de Oracle) en vez de dos.
+- La security list que el [ADR-019](ADR-019-firewall-en-la-vcn.md) eligió como mecanismo de
+  control deja de ser estado en la consola: pasa a tener historial y revisión por PR.
 
 ### Negativas
 
@@ -174,8 +208,10 @@ El estado se guarda **local, en `.gitignore`**. Sin backend remoto.
 ## Referencias
 
 - [ADR-016](ADR-016-iaas-oracle-cloud.md) — IaaS sobre PaaS, y Oracle Cloud como proveedor
+- [ADR-019](ADR-019-firewall-en-la-vcn.md) — por qué el control de acceso vive en la
+  security list y no en `iptables`; este módulo la declara en código
 - [deployment/oracle-single/ORACLE.md](../../deployment/oracle-single/ORACLE.md) — la guía
   manual que esta decisión reemplaza en su parte de red, firewall y VM
 - [infrastructure/reverse-proxy/nginx.conf.template](../../infrastructure/reverse-proxy/nginx.conf.template) —
   por qué el DNS es un solo hostname y no un subdominio por servicio
-- `infrastructure/terraform/oracle-single/README.md` — cómo se usa (una vez agregado)
+- `infrastructure/terraform/oracle-single/README.md` — cómo se usa

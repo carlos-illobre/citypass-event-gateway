@@ -4,11 +4,13 @@ Qué son estos archivos, qué hacen exactamente y qué dejan afuera a propósito
 alguien que nunca usó Terraform.
 
 > **Esto reemplaza sólo una parte de [ORACLE.md](../../../deployment/oracle-single/ORACLE.md):**
-> la creación de la VM, la red y el firewall (secciones 2 y 7 de esa guía). Todo lo demás
-> —el registro DNS, instalar Docker, abrir puertos dentro de la VM, emitir el certificado,
-> levantar el compose— sigue siendo esa misma guía, corrida a mano después de que la VM
-> exista. El porqué de esta frontera está en
-> [ADR-019](../../../docs/adr/ADR-019-terraform-iac-oracle-cloud.md).
+> la creación de la VM y la red, y la security list que abre los cuatro puertos (secciones
+> 2 y la mitad "consola de Oracle" de la 7). Todo lo demás —el registro DNS, instalar
+> Docker, las reglas de `iptables`, emitir el certificado, levantar el compose— sigue
+> siendo esa misma guía, corrida a mano después de que la VM exista. El porqué de esta
+> frontera está en [ADR-020](../../../docs/adr/ADR-020-terraform-iac-oracle-cloud.md), y
+> por qué la security list *es* el firewall en
+> [ADR-019](../../../docs/adr/ADR-019-firewall-en-la-vcn.md).
 
 ---
 
@@ -33,7 +35,7 @@ alguien que nunca usó Terraform.
   [instrucciones oficiales](https://developer.hashicorp.com/terraform/install) — es un
   solo binario, sin dependencias.
 - **Una cuenta de Oracle Cloud**, con su *home region* ya elegida (esa decisión es
-  irreversible — si todavía no la creaste, ver ADR-019 para las candidatas).
+  irreversible — si todavía no la creaste, ver ADR-020 para las candidatas).
 - **Tu dominio en Cloudflare**, con la zona (`tudominio.com`) ya dada de alta ahí.
   Terraform no lo toca: el registro `A` se carga a mano al final (sección 6).
 - **Un par de claves SSH.** Si no tenés una: `ssh-keygen -t ed25519`.
@@ -64,7 +66,7 @@ Para `fingerprint` y `private_key_path` hace falta generar una API key:
 
 Ninguna. Terraform no habla con Cloudflare — el registro DNS se carga a mano desde el
 dashboard (sección 6), así que no hace falta ningún API token. El porqué está en el
-[ADR-019](../../../docs/adr/ADR-019-terraform-iac-oracle-cloud.md), "Opción 4".
+[ADR-020](../../../docs/adr/ADR-020-terraform-iac-oracle-cloud.md), "Opción 4".
 
 Si tenías un token creado para esto de antes, borralo: ya no lo usa nadie.
 
@@ -115,7 +117,7 @@ de este código, es Oracle sin capacidad A1 disponible en tu región en ese mome
 | Recurso | Qué es |
 |---|---|
 | Una VCN, un internet gateway, una route table, una subnet | La red de la instancia |
-| Una security list | Ingreso sólo en 22, 80, 443 y 9092 — igual que ORACLE.md, sección 7 |
+| Una security list | Ingreso sólo en 22, 80, 443 y 9092. **Es el firewall** — la capa que decide quién entra ([ADR-019](../../../docs/adr/ADR-019-firewall-en-la-vcn.md)) |
 | Una instancia `VM.Standard.A1.Flex` | Ubuntu 24.04 arm64, pelada — sin Docker, sin nada del stack |
 
 El registro DNS **no** está en esa lista: es manual, sección 6.
@@ -154,8 +156,11 @@ la práctica esto se toca una vez por entorno.
 
 La VM existe pero está pelada. De acá en adelante es
 [ORACLE.md](../../../deployment/oracle-single/ORACLE.md), **arrancando en la sección 4**
-("Verificar que la máquina esté lista") — las secciones 2 y 7 de esa guía ya las hizo
-Terraform, saltealas.
+("Verificar que la máquina esté lista"). La sección 2 ya la hizo Terraform entera,
+salteala. De la sección 7 ya está hecha la parte de la consola de Oracle —la security
+list, que es la que decide quién entra ([ADR-019](../../../docs/adr/ADR-019-firewall-en-la-vcn.md))—;
+las reglas de `iptables` de esa misma sección **sí** hay que aplicarlas, porque cubren
+`sshd` y los servicios internos, que la security list no alcanza.
 
 Un par de cosas cambian respecto a la guía original, porque ahí asumía DuckDNS:
 
@@ -201,6 +206,6 @@ existe. Si no vas a recrear el entorno, borralo a mano en Cloudflare.
 
 ## Referencias
 
-- [ADR-019](../../../docs/adr/ADR-019-terraform-iac-oracle-cloud.md) — por qué Terraform, y por qué este alcance
+- [ADR-020](../../../docs/adr/ADR-020-terraform-iac-oracle-cloud.md) — por qué Terraform, y por qué este alcance
 - [ADR-016](../../../docs/adr/ADR-016-iaas-oracle-cloud.md) — por qué Oracle, y los valores del shape
 - [ORACLE.md](../../../deployment/oracle-single/ORACLE.md) — todo lo que sigue después de la VM

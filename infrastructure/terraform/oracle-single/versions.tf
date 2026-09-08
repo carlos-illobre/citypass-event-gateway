@@ -1,7 +1,7 @@
 # Versiones de Terraform y de los providers.
 #
 # Un solo provider: `oracle/oci`, el oficial de Oracle — el viejo `hashicorp/oci` quedó
-# discontinuado. El DNS NO se administra desde acá; es un paso manual, ver ADR-019
+# discontinuado. El DNS NO se administra desde acá; es un paso manual, ver ADR-020
 # ("Opción 4") y el README de esta carpeta.
 #
 # Va fijado en la MAYOR (`>= 5.0.0`, sin techo) y no en un patch exacto: alcanza para

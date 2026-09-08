@@ -17,7 +17,7 @@ fingerprint       = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
 private_key_path  = "~/.oci/oci_api_key.pem"
 
 # Tiene que ser tu *home region* — no se puede cambiar después de creada la cuenta.
-# Ver ADR-019 para las candidatas evaluadas (sa-saopaulo-1, sa-santiago-1, sa-vinhedo-1).
+# Ver ADR-020 para las candidatas evaluadas (sa-saopaulo-1, sa-santiago-1, sa-vinhedo-1).
 region            = "sa-saopaulo-1"
 
 # Para una cuenta nueva sin compartments propios, es el mismo valor que tenancy_ocid.
@@ -30,7 +30,7 @@ ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
 
 # ── Dominio público ──────────────────────────────────────────────────────────
-# Terraform NO crea el registro DNS (ADR-019): el A se carga a mano en Cloudflare,
+# Terraform NO crea el registro DNS (ADR-020): el A se carga a mano en Cloudflare,
 # en modo DNS-only, apuntando a la IP que devuelve el output instance_public_ip.
 # Este valor es sólo el hostname del entorno — el mismo que después va en el .env.
 

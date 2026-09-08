@@ -38,9 +38,15 @@ resource "oci_core_route_table" "this" {
 # que documentan ORACLE.md (sección 7) y docs/DEPLOYMENT.md (sección 4), y ningún otro.
 # 8080, 8081, 8083, 8084, 8090, 9090 y 9091 (Schema Registry, kafka-ui, Prometheus,
 # Grafana, etc.) NO se abren acá: quedan alcanzables sólo desde dentro de la VM, tal como
-# exige SECURITY.md. Esto resuelve la mitad "consola de Oracle" del paso 7 — la otra
-# mitad, las reglas de iptables DENTRO de la instancia, sigue a cargo de preflight.sh /
-# ORACLE.md, porque vive en el sistema operativo, no en la nube.
+# exige SECURITY.md.
+#
+# ESTE ES EL FIREWALL, no una mitad de uno. El ADR-019 lo mide: cuando un contenedor
+# publica un puerto, el DNAT de Docker saca al paquete de la cadena INPUT, así que las
+# reglas de iptables no filtran nada para 80/443/9092. La security list es la única capa
+# que decide quién entra. Las reglas de iptables de ORACLE.md siguen aplicándose y siguen
+# a cargo de preflight.sh —viven en el sistema operativo, no en la nube— pero cubren otra
+# cosa: un proceso que escuche en el host (sshd en el 22) y la última línea de los
+# servicios internos, cuyo DNAT sólo matchea 127.0.0.1.
 resource "oci_core_security_list" "this" {
   compartment_id = var.compartment_ocid
   vcn_id         = oci_core_vcn.this.id
