@@ -25,3 +25,5 @@ lo supersede.
 | [017](ADR-017-tolerancia-a-fallas-por-capas.md) | Tolerancia a fallas por capas, cada una con su prueba | Cluster de Kafka en espera, alta disponibilidad completa |
 | [018](ADR-018-ramificacion-y-versionado.md) | GitHub Flow escrito y versión derivada de los commits | Git Flow, trunk-based puro, tags manuales |
 | [019](ADR-019-firewall-en-la-vcn.md) | El firewall vive en la VCN, no en el host | iptables en INPUT, ufw/firewalld, la cadena DOCKER-USER |
+| [020](ADR-020-tecnologias-frontend.md) | React + TypeScript + Vite + Mantine para la consola del Grupo 1 | Angular, Vue, JavaScript puro, Webpack/CRA, Next.js, Material UI, Bootstrap, Tailwind, Redux/Zustand, React Router, Axios, `@mantine/form`, Zod/Yup, token en `localStorage` |
+| [021](ADR-021-arquitectura-frontend.md) | Estructura por features sobre capas transversales de API y dominio | Estructura plana por tipo de archivo (`pages/`, `services/`, `utils/`), feature-folders sin capas compartidas |
