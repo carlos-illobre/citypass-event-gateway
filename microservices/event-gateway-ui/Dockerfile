@@ -16,7 +16,9 @@ RUN npm run build
 # mantener un runtime de Node para eso costaba 260 MB de imagen contra ~50. Además el
 # reverse-proxy del perfil `prod` ya usa esta misma imagen, así que la instancia
 # comparte sus capas y el costo real de traerla es casi nulo.
-FROM nginx:1.27-alpine
+# Misma rama que el reverse-proxy: sirve estáticos, pero comparte la base y por lo tanto
+# sus CVE. Ver el comentario del compose.
+FROM nginx:1.30-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

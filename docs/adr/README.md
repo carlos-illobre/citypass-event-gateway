@@ -25,4 +25,5 @@ lo supersede.
 | [017](ADR-017-tolerancia-a-fallas-por-capas.md) | Tolerancia a fallas por capas, cada una con su prueba | Cluster de Kafka en espera, alta disponibilidad completa |
 | [018](ADR-018-ramificacion-y-versionado.md) | GitHub Flow escrito y versión derivada de los commits | Git Flow, trunk-based puro, tags manuales |
 | [019](ADR-019-firewall-en-la-vcn.md) | El firewall vive en la VCN, no en el host | iptables en INPUT, ufw/firewalld, la cadena DOCKER-USER |
+| [020](ADR-020-webhooks-en-su-propio-servicio.md) | La entrega por webhook vive en su propio servicio | Dejarlo como estaba, eliminar los webhooks, extraer también publicación y tipos |
 | [021](ADR-021-terraform-iac-oracle-cloud.md) | Terraform declara la red, la security list y la VM de Oracle; el DNS sigue manual | Seguir todo manual, Terraform end-to-end, cloud-init, state remoto, DNS por Terraform |

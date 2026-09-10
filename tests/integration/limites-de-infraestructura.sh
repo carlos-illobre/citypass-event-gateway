@@ -16,6 +16,25 @@ source tests/integration/comun.sh
 
 echo "▶ límites de infraestructura"
 
+# ── La versión de nginx ───────────────────────────────────────────────────────
+#
+# La imagen sale del compose y no se escribe acá: una segunda copia del número se
+# desincroniza, y entonces el test valida una versión que no es la que corre.
+IMAGEN_NGINX=$(grep -oE "image: nginx:[^ ]+" docker-compose.yml | head -1 | cut -d" " -f2)
+
+# El piso no es estético: por debajo de 1.30.4 la imagen está dentro del rango afectado
+# por CVE-2026-42533 (desbordamiento de heap en el manejo de regex de `map`, explotable
+# pre-autenticacion, corregido en 1.30.4).
+#
+# El tag del compose es la rama menor, asi que cada build toma el ultimo parche solo. Este
+# test es lo que impide que eso dependa de la suerte: si el tag dejara de actualizarse, o
+# alguien lo fijara a una version vieja, acá se ve.
+NGINX_MINIMO=1.30.4
+
+version_nginx=$(docker run --rm "$IMAGEN_NGINX" nginx -v 2>&1 | grep -oE "nginx/[0-9.]+" | cut -d/ -f2)
+afirmar_que "nginx $version_nginx >= $NGINX_MINIMO (CVE-2026-42533)" \
+    "[ \"$(printf '%s\n' "$NGINX_MINIMO" "$version_nginx" | sort -V | head -1)\" = \"$NGINX_MINIMO\" ]"
+
 leer_env() { grep -E "^$1=" "${2:-.env}" 2>/dev/null | cut -d= -f2- | tr -d '"'; }
 
 # ── las variables existen en los dos ambientes ──
@@ -61,7 +80,7 @@ else
         -e NGINX_KAFKA_CONN_LIMIT \
         -v "$PWD/infrastructure/reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro" \
         -v "$TMP:/etc/letsencrypt:ro" \
-        --entrypoint sh nginx:1.27-alpine -c '
+        --entrypoint sh "$IMAGEN_NGINX" -c '
             envsubst "\${NGINX_MAX_BODY} \${NGINX_RATE_LIMIT} \${NGINX_RATE_BURST} \${NGINX_CONN_LIMIT} \${NGINX_KAFKA_CONN_LIMIT}" \
               < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
             nginx -t 2>&1 | tail -1

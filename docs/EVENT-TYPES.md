@@ -17,8 +17,9 @@ El razonamiento detrás del diseño está en
 4. [Cuando el cambio rompe: migrar](#4-cuando-el-cambio-rompe-migrar)
 5. [Enterarse de que un contrato cambió](#5-enterarse-de-que-un-contrato-cambió)
 6. [Borrar](#6-borrar)
-7. [Backup y restauración](#7-backup-y-restauración)
-8. [Preguntas frecuentes](#8-preguntas-frecuentes)
+7. [Cuándo se da por entregado un evento](#7-cuándo-se-da-por-entregado-un-evento)
+8. [Backup y restauración](#8-backup-y-restauración)
+9. [Preguntas frecuentes](#9-preguntas-frecuentes)
 
 ---
 
@@ -169,17 +170,21 @@ curl http://localhost:8080/api/v1/event-types/com.citypass.movilidad.BiciDevuelt
   -H "Authorization: Bearer $TOKEN"
 
 # suscribirse a la nueva
-curl -X POST http://localhost:8080/api/v1/subscriptions \
+curl -X POST http://localhost:8085/api/v1/subscriptions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"topic":"com.citypass.movilidad.BiciDevuelta.v2","callbackUrl":"https://mi-app/hook"}'
 
 # y dar de baja la vieja cuando ya no la necesites
-curl -X DELETE http://localhost:8080/api/v1/subscriptions/$ID \
+curl -X DELETE http://localhost:8085/api/v1/subscriptions/$ID \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-El gateway **no** migra tu suscripción solo, a propósito: entregarte una forma que tu
+El sistema **no** migra tu suscripción solo, a propósito: entregarte una forma que tu
 código no espera es exactamente el problema que estamos evitando.
+
+> Las suscripciones están en el puerto 8085 y no en el 8080: las atiende
+> `webhook-dispatcher` ([ADR-020](adr/ADR-020-webhooks-en-su-propio-servicio.md)). En el
+> despliegue desplegado entran por el mismo host, porque el proxy las rutea.
 
 ### Alimentar las dos a la vez
 
@@ -206,7 +211,7 @@ El gateway publica un evento cada vez que alguien cambia un schema. Suscribiénd
 enterás sin tener que preguntar:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/subscriptions \
+curl -X POST http://localhost:8085/api/v1/subscriptions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"topic":"com.citypass.gateway.EsquemaCambiado","callbackUrl":"https://mi-app/schemas"}'
 ```
@@ -287,12 +292,50 @@ Cortarle la entrega a otro equipo sin que se entere no es una decisión que le c
 tomar a un tercero, así que hay que coordinarla. Se nombra a los dueños para que sepas con
 quién hablar.
 
-Tus propias suscripciones sí se dan de baja solas: un webhook a un tópico que ya no existe
-no vuelve a entregar nada.
+Tus propias suscripciones sí se dan de baja solas: el gateway se lo pide al dispatcher, y
+un webhook a un tópico que ya no existe no vuelve a entregar nada.
+
+Si el dispatcher no responde, el borrado se rechaza con **503** en vez de seguir: sin poder
+consultarlo no se sabe si hay equipos ajenos recibiendo, y borrar bajo esa duda es
+justamente lo que el 409 de arriba existe para impedir.
 
 ---
 
-## 7. Backup y restauración
+## 7. Cuándo se da por entregado un evento
+
+Depende de cómo consumas, y las dos semánticas son distintas.
+
+### Si consumís directo de Kafka
+
+**El acuse es tuyo.** Confirmás tus propios offsets con tu cliente y el gateway no
+participa: no ve ni puede ver si procesaste bien. Si algo falla, no confirmes y volvés a
+leerlo. Cómo se hace en cada cliente, y cuál es el default peligroso de cada
+uno, está en el [README](../README.md#cómo-confirmás-lo-que-procesaste).
+
+Dos límites que conviene tener presentes:
+
+- La retención está acotada **por tamaño, no por tiempo**: `5 MiB` por tópico. Los 7 días
+  son el default de Kafka, pero el tope de tamaño llega mucho antes en un tópico activo —con
+  eventos de un kilobyte son unos 5.000 eventos—. La ventana real de reproceso se mide en
+  horas, no en días.
+- Un grupo **sin miembros activos pierde su posición a las 24 horas**. Si tu consumidor se
+  apaga el viernes y vuelve el lunes, arranca donde diga tu `auto.offset.reset`, no donde
+  se quedó.
+
+### Si recibís por webhook
+
+**El acuse es tu código HTTP.** Cualquier `2xx` significa recibido; cualquier otra cosa es
+un fallo. Y significa *recibido*, no *procesado*: si respondés `200` y después te caés, para
+el dispatcher está entregado.
+
+Ante un fallo reintenta tres veces con dos segundos entre cada una —o sea que tolera un
+parpadeo, no una caída— y después deja el evento en la cola de fallidos. El detalle de esa
+ruta está en el [README](../README.md#6-consumir-eventos-desde-kafka), donde también se
+explica por qué el consumo directo es la vía recomendada.
+
+---
+
+## 8. Backup y restauración
 
 Todos tus event types se pueden bajar en un archivo JSON y volver a crear después desde
 él. En la interfaz son los dos botones del panel **Backup**; por API es un endpoint:
@@ -355,7 +398,7 @@ de empezar, porque es la clase de cosa que conviene saber antes y no después.
 
 ---
 
-## 8. Preguntas frecuentes
+## 9. Preguntas frecuentes
 
 **¿Puedo cambiarle el schema a un tipo de evento de otro equipo?**  
 No. Devuelve `403`. El namespace sale de tu token.
