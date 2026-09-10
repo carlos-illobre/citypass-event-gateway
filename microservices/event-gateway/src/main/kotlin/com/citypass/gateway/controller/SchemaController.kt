@@ -4,7 +4,7 @@ import com.citypass.gateway.service.CambioDeEsquema
 import com.citypass.gateway.service.CupoAgotadoException
 import com.citypass.gateway.service.SchemaChangeNotifier
 import com.citypass.gateway.service.SchemaRegistryService
-import com.citypass.gateway.service.SubscriptionService
+import com.citypass.gateway.service.DispatcherClient
 import com.citypass.gateway.service.TopicAuthorizationService
 import com.citypass.gateway.web.problem
 import io.swagger.v3.oas.annotations.Operation
@@ -48,7 +48,7 @@ import tools.jackson.module.kotlin.jacksonObjectMapper
 @Tag(name = "Event types", description = "Registro y consulta de los tipos de evento del bus")
 class SchemaController(
     private val schemaRegistryService: SchemaRegistryService,
-    private val subscriptionService: SubscriptionService,
+    private val dispatcherClient: DispatcherClient,
     private val topicAuthorizationService: TopicAuthorizationService,
     private val schemaChangeNotifier: SchemaChangeNotifier
 ) {
@@ -412,8 +412,11 @@ al que cualquier equipo puede suscribirse para enterarse sin preguntar.""",
         "breaking" to cambio.breaking,
         "unchanged" to cambio.unchanged,
         "previousTopic" to cambio.previousTopic,
+        // Cuántos quedaron escuchando la versión vieja tras una ruptura. Es informativo:
+        // si el dispatcher no responde va `null`, que se lee como «no se sabe» y no como
+        // «ninguno».
         "subscriptionsOnPreviousVersion" to
-            cambio.previousTopic?.let { subscriptionService.suscriptoresA(listOf(it)).size }
+            cambio.previousTopic?.let { dispatcherClient.suscriptoresA(listOf(it))?.size }
     )
 
     @Operation(
@@ -473,7 +476,7 @@ Para retirar sólo una versión vieja está `DELETE /api/v1/event-types/{fqn}/ve
                 ResponseEntity.ok(mapOf(
                     "fqn" to fqn,
                     "deletedTopics" to borrados,
-                    "subscriptionsRemoved" to subscriptionService.unregisterTopics(borrados)
+                    "subscriptionsRemoved" to dispatcherClient.borrarSuscripcionesDe(borrados)
                 ))
             },
             onFailure = { error -> errorDeBorrado(error) }
@@ -530,7 +533,7 @@ event type completo.""",
                 ResponseEntity.ok(mapOf(
                     "fqn" to fqn,
                     "deletedTopics" to listOf(borrado),
-                    "subscriptionsRemoved" to subscriptionService.unregisterTopics(listOf(borrado))
+                    "subscriptionsRemoved" to dispatcherClient.borrarSuscripcionesDe(listOf(borrado))
                 ))
             },
             onFailure = { error -> errorDeBorrado(error) }
@@ -548,7 +551,18 @@ event type completo.""",
      * @return El problem detail a devolver, o null si se puede borrar.
      */
     private fun ajenosSuscriptos(topicos: List<String>, namespace: String): ResponseEntity<Any>? {
-        val ajenos = subscriptionService.suscriptoresA(topicos).filter { it.owner != namespace }
+        val suscriptores = dispatcherClient.suscriptoresA(topicos)
+            // No poder consultar no es lo mismo que no haber suscriptores. Ante la duda se
+            // rechaza: borrar un event type es irreversible, y hacerlo sin poder verificar
+            // que nadie ajeno lo está recibiendo es la única de las dos opciones que no
+            // tiene vuelta atrás.
+            ?: return problem(
+                HttpStatus.SERVICE_UNAVAILABLE, "No se pudo verificar las suscripciones",
+                "El servicio de webhooks no responde, así que no se puede saber si hay " +
+                    "equipos recibiendo estos eventos. Reintentá en unos minutos."
+            )
+
+        val ajenos = suscriptores.filter { it.owner != namespace }
         if (ajenos.isEmpty()) return null
         return problem(
             HttpStatus.CONFLICT, "Hay equipos suscriptos",

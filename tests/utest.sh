@@ -21,7 +21,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Microservicios con tests unitarios, en orden de ejecución.
-PROYECTOS=(event-gateway kafka-authorizer)
+PROYECTOS=(event-gateway kafka-authorizer webhook-dispatcher)
 
 # La cobertura mínima que se exige a todos. Es la misma compuerta que aplica el build de
 # Gradle; acá se vuelve a comprobar para que el fallo se vea en la tabla y no sólo en un
@@ -46,7 +46,10 @@ for proyecto in "${PROYECTOS[@]}"; do
     fi
 
     if (cd "$dir" && ./gradlew test jacocoTestReport --no-daemon -q 2>&1); then
-        count=$(find "$dir/build/test-results" -name "TEST-*.xml" \
+        # Sólo `test-results/test`, no `test-results` entero: ahí abajo también está
+        # `integrationTest`, y contarlo hacía que el número cambiara según si alguien había
+        # corrido itest.sh antes — con la etiqueta diciendo "unitarios" en los dos casos.
+        count=$(find "$dir/build/test-results/test" -name "TEST-*.xml" \
             -exec grep -hoP 'tests="\K[0-9]+' {} \; 2>/dev/null | awk '{s+=$1} END {print s+0}')
         echo -e "${GREEN}✓ $proyecto — ${count} tests unitarios pasaron${NC}"
     else

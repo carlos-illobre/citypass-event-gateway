@@ -50,9 +50,11 @@ flowchart TB
     subgraph plataforma["Plataforma del bus"]
         proxy["reverse-proxy<br/>TLS · único puerto expuesto"]
 
-        subgraph gateway_box["event-gateway"]
-            gateway["API REST<br/>valida · sella · publica"]
+        gateway["event-gateway<br/>API REST · valida · sella · publica"]
+
+        subgraph dispatcher_box["webhook-dispatcher (opcional)"]
             webhook["Entrega por webhook<br/>at-least-once"]
+            suscripciones["Suscripciones<br/>alta · baja · silenciado"]
         end
 
         ui["event-gateway-ui<br/>registrar tipos y publicar"]
@@ -64,7 +66,7 @@ flowchart TB
         end
 
         registry["Schema Registry<br/>contratos Avro"]
-        dlq[("sistema.dlq")]
+        dlq[("sistema.webhooks-dlq")]
     end
 
     subgraph observabilidad["Observabilidad"]
@@ -80,9 +82,13 @@ flowchart TB
 
     gateway -->|"valida contra el schema"| registry
     gateway -->|"publica Avro"| broker
-    gateway --> webhook
+
+    %% El dispatcher lee del bus, no del gateway: son dos servicios que no se necesitan
+    %% para trabajar. Lo único que los une es la consulta de /internal, y va al revés.
+    broker -->|"listener interno"| webhook
     webhook -->|"POST"| consumidor
     webhook -.->|"tras agotar reintentos"| dlq
+    gateway -.->|"¿hay suscriptos?<br/>/internal"| suscripciones
 
     consumidor -->|"SASL_SSL + OAUTHBEARER<br/>consume directo"| proxy
     proxy -.->|"TLS terminado"| broker
@@ -98,7 +104,7 @@ flowchart TB
 
     classDef propio fill:#1f4e79,stroke:#0d2d47,color:#fff
     classDef externo fill:#4a5568,stroke:#2d3748,color:#fff
-    class gateway,webhook,ui,authz,anomalias propio
+    class gateway,webhook,suscripciones,ui,authz,anomalias propio
     class broker,registry,kafkaui,auth,prometheus,grafana externo
 ```
 
@@ -107,7 +113,11 @@ grupos.
 
 **Dos caminos de entrada y dos de salida.** Se publica siempre por HTTP contra el gateway.
 Se consume de dos formas: conectándose directo a Kafka, o registrando un webhook para que el
-gateway haga el POST.
+dispatcher haga el POST.
+
+El dispatcher es **opcional**: un despliegue que no lo levante sigue publicando y sigue
+sirviendo a los consumidores de Kafka. Lo único que pierde es la vía de los webhooks
+([ADR-020](adr/ADR-020-webhooks-en-su-propio-servicio.md)).
 
 ---
 
@@ -117,14 +127,31 @@ gateway haga el POST.
 
 El corazón del sistema. Spring Boot con Kotlin.
 
-Hace cuatro cosas:
+Hace tres cosas:
 
 1. **Registra event types**: valida el schema Avro, lo publica en el Schema Registry y crea
    el tópico.
 2. **Publica eventos**: valida el payload contra el schema, le agrega la metadata, lo
    serializa a Avro y lo manda a Kafka.
-3. **Entrega webhooks**: consume los tópicos suscritos y hace POST a las callbacks.
-4. **Expone la Dead Letter Queue** y la consulta de eventos recientes.
+3. **Expone la consulta de eventos recientes.**
+
+Ya no entrega webhooks. Lo único que sabe de ellos es que, antes de borrar un event type,
+le pregunta al dispatcher si hay equipos ajenos suscriptos — y si no puede preguntar,
+rechaza el borrado con 503 en vez de borrar a ciegas.
+
+### webhook-dispatcher
+
+El servicio que entrega por HTTP a quien no quiere montar un consumer de Kafka.
+
+Lee del **listener interno** del broker, tiene su propia cola de fallidos
+(`sistema.webhooks-dlq`) y su propio volumen con las suscripciones. Se levanta con el
+perfil `webhooks` de compose; sin él, el resto del sistema funciona igual.
+
+Está en Kotlin y no en el stack más liviano que su trabajo sugeriría, y es a propósito: es
+la capa que existe para que un suscriptor **no tenga que decodificar Avro**, así que su
+decodificado tiene que usar la misma implementación que serializó. El experimento que lo
+midió está en
+[ADR-020](adr/ADR-020-webhooks-en-su-propio-servicio.md#por-qué-este-servicio-se-queda-en-la-jvm).
 
 ### kafka-authorizer
 
@@ -239,7 +266,8 @@ Por eso el autorizador del broker permite `READ` y niega `WRITE` a los clientes 
 es una restricción pendiente de levantar, es el diseño.
 
 Para los grupos que no quieran montar un consumidor Kafka están los webhooks, que son la
-rampa de entrada — a costa de contrapresión y de tener que deduplicar.
+rampa de entrada — a costa de contrapresión y de tener que deduplicar. Y como esa rampa vive
+en su propio servicio, quien no la usa no paga nada por que exista.
 
 ### Por qué la metadata va en un record aparte
 
@@ -277,11 +305,23 @@ más.
 
 → [ADR-011](adr/ADR-011-autorizacion-derivada-del-token.md)
 
+### Por qué los webhooks están en su propio servicio
+
+Publicar y entregar por webhook no comparten estado ni tienen la misma naturaleza: uno
+atiende peticiones cortas de los productores, el otro sostiene un consumer por tópico
+esperando a servidores ajenos que pueden tardar veinte segundos en no contestar.
+
+Juntos, la contrapresión de la entrega —que es deliberada, ver abajo— llegaba a un proceso
+que también tiene que aceptar publicaciones. Separados, cada uno escala por su cuenta y
+**ofrecer webhooks pasa a ser una decisión de despliegue**: se levanta el servicio o no.
+
+→ [ADR-020](adr/ADR-020-webhooks-en-su-propio-servicio.md)
+
 ### Por qué la entrega de webhooks bloquea al consumidor
 
 La entrega era asincrónica: el listener despachaba a un hilo y volvía enseguida. Eso hacía
 que Kafka confirmara el offset **con el evento todavía sin entregar**, así que un reinicio en
-ese momento lo perdía sin dejar ni una entrada en la DLQ.
+ese momento lo perdía sin dejar ni una entrada en la cola de fallidos.
 
 Ahora el listener espera a que la entrega termine y el offset se confirma después. El costo
 es contrapresión —un suscriptor lento frena su tópico— y que la entrega pasa a ser
@@ -306,6 +346,7 @@ que va a remover ZooKeeper.
 | Decisión | ADR |
 |---|---|
 | Webhooks para suscripción | [ADR-005](adr/ADR-005-webhooks-para-suscripcion.md) |
+| Webhooks en su propio servicio | [ADR-020](adr/ADR-020-webhooks-en-su-propio-servicio.md) |
 | Serialización Avro manual, sin el serializer de Confluent | [ADR-007](adr/ADR-007-serializacion-avro-manual.md) |
 | Persistencia de suscripciones en JSON | [ADR-008](adr/ADR-008-persistencia-webhooks-json.md) |
 | Dead Letter Queue en un tópico de Kafka | [ADR-009](adr/ADR-009-dead-letter-queue.md) |
@@ -348,20 +389,22 @@ Si Kafka no confirma dentro del tope, el gateway responde `504` y avisa que el e
 ```mermaid
 sequenceDiagram
     participant K as Kafka
-    participant G as event-gateway
+    participant W as webhook-dispatcher
+    participant R as Schema Registry
     participant C as Consumidor
-    participant D as DLQ
+    participant D as sistema.webhooks-dlq
 
-    K->>G: evento del tópico suscrito
-    G->>G: deserializa Avro a JSON
-    G->>G: resuelve la callbackUrl y verifica la IP
-    G->>C: POST con el evento
+    K->>W: evento del tópico suscrito (listener interno)
+    W->>R: schema por id, si no lo tiene cacheado
+    W->>W: deserializa Avro a JSON
+    W->>W: resuelve la callbackUrl y verifica la IP
+    W->>C: POST con el evento
     alt entrega exitosa
-        C-->>G: 2xx
-        G->>K: confirma el offset
+        C-->>W: 2xx
+        W->>K: confirma el offset
     else falla 3 veces
-        G->>D: entrada con payload y error
-        G->>K: confirma el offset
+        W->>D: entrada con payload y error
+        W->>K: confirma el offset
     end
 ```
 
@@ -374,7 +417,7 @@ en el medio, el evento se vuelve a leer.
 
 | Limitación | Consecuencia | Qué haría falta |
 |---|---|---|
-| **Una sola instancia** | Las suscripciones y los schemas viven en archivos de un volumen local. Dos gateways divergen | Mover ese estado a un tópico compactado o a una base |
+| **Una sola instancia** | Los schemas viven en archivos de un volumen local del gateway, y las suscripciones en uno del dispatcher. Dos réplicas de cualquiera de los dos divergen | Mover ese estado a un tópico compactado o a una base |
 | **Rate limiting en memoria** | El límite es por instancia | Un contador compartido |
 | **`GET /events` no es historial** | Lee la cola de los tópicos y filtra en memoria: no ve más atrás de esa ventana | Una proyección persistida, que es otro servicio |
 | **Un broker** | Sin réplicas: si el disco se pierde, se pierden los eventos | Más brokers y factor de replicación > 1 |

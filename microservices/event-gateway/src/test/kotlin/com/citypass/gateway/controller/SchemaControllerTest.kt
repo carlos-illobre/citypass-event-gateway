@@ -1,11 +1,11 @@
 package com.citypass.gateway.controller
 
-import com.citypass.gateway.model.Subscription
 import com.citypass.gateway.service.CambioDeEsquema
 import com.citypass.gateway.service.CupoAgotadoException
 import com.citypass.gateway.service.SchemaChangeNotifier
 import com.citypass.gateway.service.SchemaRegistryService
-import com.citypass.gateway.service.SubscriptionService
+import com.citypass.gateway.service.DispatcherClient
+import com.citypass.gateway.service.Suscriptor
 import com.citypass.gateway.service.TipoResuelto
 import com.citypass.gateway.service.TopicAuthorizationService
 import org.apache.avro.Schema
@@ -25,7 +25,7 @@ import org.springframework.security.oauth2.jwt.Jwt
 class SchemaControllerTest {
 
     private val schemaRegistryService: SchemaRegistryService = mock()
-    private val subscriptionService: SubscriptionService = mock()
+    private val dispatcherClient: DispatcherClient = mock()
     private val topicAuthorizationService: TopicAuthorizationService = mock()
     private val schemaChangeNotifier: SchemaChangeNotifier = mock()
     private lateinit var controller: SchemaController
@@ -53,7 +53,7 @@ class SchemaControllerTest {
     @BeforeEach
     fun setUp() {
         controller = SchemaController(
-            schemaRegistryService, subscriptionService, topicAuthorizationService, schemaChangeNotifier
+            schemaRegistryService, dispatcherClient, topicAuthorizationService, schemaChangeNotifier
         )
     }
 
@@ -289,13 +289,32 @@ class SchemaControllerTest {
         assertNull(body["subscriptionsOnPreviousVersion"], "no hay versión anterior que contar")
     }
 
+    /**
+     * Si el dispatcher no responde, el conteo va `null` y no cero: el cambio de schema se
+     * aplicó igual —no depende de los webhooks— pero cuántos quedaron atrás es un dato que
+     * en ese momento no se sabe, y decir «ninguno» sería inventarlo.
+     */
+    @Test
+    fun `si el dispatcher no responde, el conteo de suscripciones va nulo`() {
+        whenever(schemaRegistryService.updateSchema(any(), any(), any()))
+            .thenReturn(Result.success(cambio(breaking = true, previousTopic = fqn, topic = "$fqn.v2", version = 2)))
+        whenever(dispatcherClient.suscriptoresA(listOf(fqn))).thenReturn(null)
+
+        val response = controller.update(fqn, mapOf("fields" to listOf<Any>()), autorizado())
+
+        @Suppress("UNCHECKED_CAST")
+        val body = response.body as Map<String, Any?>
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertNull(body["subscriptionsOnPreviousVersion"])
+    }
+
     @Test
     fun `a breaking change reports how many subscriptions stayed behind`() {
         whenever(schemaRegistryService.updateSchema(any(), any(), any()))
             .thenReturn(Result.success(cambio(breaking = true, previousTopic = fqn, topic = "$fqn.v2", version = 2)))
-        whenever(subscriptionService.suscriptoresA(listOf(fqn))).thenReturn(listOf(
-            Subscription(topic = fqn, callbackUrl = "http://a", owner = "com.citypass.otros"),
-            Subscription(topic = fqn, callbackUrl = "http://b", owner = "com.citypass.otros")
+        whenever(dispatcherClient.suscriptoresA(listOf(fqn))).thenReturn(listOf(
+            Suscriptor(owner = "com.citypass.otros", topic = fqn),
+            Suscriptor(owner = "com.citypass.otros", topic = fqn)
         ))
 
         val response = controller.update(fqn, mapOf("fields" to emptyList<Any>()), autorizado())
@@ -389,12 +408,12 @@ class SchemaControllerTest {
     @Test
     fun `delete removes every version and its own subscriptions`() {
         whenever(schemaRegistryService.topicosDeEventType(fqn)).thenReturn(listOf(fqn, "$fqn.v2"))
-        whenever(subscriptionService.suscriptoresA(listOf(fqn, "$fqn.v2"))).thenReturn(listOf(
-            Subscription(topic = fqn, callbackUrl = "http://a", owner = "com.citypass.test")
+        whenever(dispatcherClient.suscriptoresA(listOf(fqn, "$fqn.v2"))).thenReturn(listOf(
+            Suscriptor(owner = "com.citypass.test", topic = fqn)
         ))
         whenever(schemaRegistryService.deleteEventType(fqn))
             .thenReturn(Result.success(listOf(fqn, "$fqn.v2")))
-        whenever(subscriptionService.unregisterTopics(listOf(fqn, "$fqn.v2"))).thenReturn(1)
+        whenever(dispatcherClient.borrarSuscripcionesDe(listOf(fqn, "$fqn.v2"))).thenReturn(1)
 
         val response = controller.delete(fqn, autorizado())
 
@@ -404,11 +423,28 @@ class SchemaControllerTest {
         assertEquals(1, body["subscriptionsRemoved"])
     }
 
+    /**
+     * El borrado es irreversible, así que no poder verificar equivale a no poder borrar.
+     * Si acá se devolviera 200, cada caída del dispatcher sería una ventana para borrar un
+     * event type que otros equipos están recibiendo.
+     */
+    @Test
+    fun `delete se rechaza si no se puede consultar al dispatcher`() {
+        whenever(schemaRegistryService.topicosDeEventType(fqn)).thenReturn(listOf(fqn))
+        whenever(dispatcherClient.suscriptoresA(listOf(fqn))).thenReturn(null)
+
+        val response = controller.delete(fqn, autorizado())
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.statusCode)
+        assertEquals("No se pudo verificar las suscripciones", problemOf(response).title)
+        verify(schemaRegistryService, never()).deleteEventType(any())
+    }
+
     @Test
     fun `delete is refused while another team is subscribed`() {
         whenever(schemaRegistryService.topicosDeEventType(fqn)).thenReturn(listOf(fqn))
-        whenever(subscriptionService.suscriptoresA(listOf(fqn))).thenReturn(listOf(
-            Subscription(topic = fqn, callbackUrl = "http://a", owner = "com.citypass.otros")
+        whenever(dispatcherClient.suscriptoresA(listOf(fqn))).thenReturn(listOf(
+            Suscriptor(owner = "com.citypass.otros", topic = fqn)
         ))
 
         val response = controller.delete(fqn, autorizado())
@@ -466,9 +502,9 @@ class SchemaControllerTest {
     @Test
     fun `deleteVersion retires one old version`() {
         whenever(schemaRegistryService.topicoDe(fqn, 1)).thenReturn(fqn)
-        whenever(subscriptionService.suscriptoresA(listOf(fqn))).thenReturn(emptyList())
+        whenever(dispatcherClient.suscriptoresA(listOf(fqn))).thenReturn(emptyList())
         whenever(schemaRegistryService.deleteVersion(fqn, 1)).thenReturn(Result.success(fqn))
-        whenever(subscriptionService.unregisterTopics(listOf(fqn))).thenReturn(0)
+        whenever(dispatcherClient.borrarSuscripcionesDe(listOf(fqn))).thenReturn(0)
 
         val response = controller.deleteVersion(fqn, 1, autorizado())
 
@@ -479,8 +515,8 @@ class SchemaControllerTest {
     @Test
     fun `deleteVersion is refused while another team is subscribed`() {
         whenever(schemaRegistryService.topicoDe(fqn, 1)).thenReturn(fqn)
-        whenever(subscriptionService.suscriptoresA(listOf(fqn))).thenReturn(listOf(
-            Subscription(topic = fqn, callbackUrl = "http://a", owner = "com.citypass.otros")
+        whenever(dispatcherClient.suscriptoresA(listOf(fqn))).thenReturn(listOf(
+            Suscriptor(owner = "com.citypass.otros", topic = fqn)
         ))
 
         assertEquals(HttpStatus.CONFLICT, controller.deleteVersion(fqn, 1, autorizado()).statusCode)

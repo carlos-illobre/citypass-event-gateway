@@ -63,7 +63,8 @@ graph TB
 | Puerto | Expuesto al exterior | Servicio |
 |---|---|---|
 | 9092 | Sí | Kafka (conexión directa desde fuera de Docker) |
-| 8080 | Sí | Event Gateway (publicación, webhooks, schemas, DLQ) |
+| 8080 | Sí | Event Gateway (publicación y event types) |
+| 8085 | Sí | Webhook Dispatcher (suscripciones y cola de fallidos). Sólo con el perfil `webhooks` |
 | 8081 | Sí | Schema Registry |
 | 8083 | Sí | Auth Simulator |
 | 8084 | Sí | Anomaly Detector |

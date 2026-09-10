@@ -13,26 +13,20 @@ class RestClientConfigTest {
 
     @Test
     fun `restClient bean is created and is not null`() {
-        val restClient = config.restClient()
-        assertNotNull(restClient)
-    }
-
-    @Test
-    fun `webhookRestClient se construye`() {
-        assertNotNull(config.webhookRestClient(connectTimeoutMs = 5_000, readTimeoutMs = 10_000))
+        assertNotNull(config.restClient(connectTimeoutMs = 3_000, readTimeoutMs = 5_000))
     }
 
     // Sin el read timeout la petición no vuelve nunca, así que el test colgaría en vez de
     // fallar. Con @Timeout la regresión se reporta como fallo y no como un build trabado.
     @Test
     @Timeout(20)
-    fun `webhookRestClient corta cuando el destino acepta la conexion y no responde`() {
+    fun `corta cuando el destino acepta la conexion y no responde`() {
         // Comprobar que el bean no es null no prueba nada: pasaría igual si alguien borra
         // los timeouts. Esto sí, porque mide el comportamiento.
         //
-        // Es el escenario que dejó de ser inofensivo cuando la entrega pasó a ser
-        // sincrónica: antes un suscriptor colgado se llevaba un hilo, ahora bloquea el
-        // consumer del tópico y los demás suscriptores dejan de recibir sin que nada falle.
+        // El destino que importa acá es el dispatcher: listar event types lo consulta una
+        // vez por tipo, así que un dispatcher colgado sin este corte se lleva puesto el
+        // pool de hilos de Tomcat y con él al gateway entero.
         val servidorMudo = ServerSocket(0)
         // Acepta la conexión y no contesta nunca: la conexión se establece, la respuesta
         // no llega. Sólo el read timeout puede cortar esto.
@@ -40,13 +34,12 @@ class RestClientConfigTest {
             .apply { isDaemon = true; start() }
 
         try {
-            val client = config.webhookRestClient(connectTimeoutMs = 2_000, readTimeoutMs = 500)
+            val client = config.restClient(connectTimeoutMs = 2_000, readTimeoutMs = 500)
             val empezo = System.currentTimeMillis()
 
             assertThrows(Exception::class.java) {
-                client.post()
-                    .uri("http://localhost:${servidorMudo.localPort}/hook")
-                    .body(mapOf("x" to 1))
+                client.get()
+                    .uri("http://localhost:${servidorMudo.localPort}/internal/suscripciones")
                     .retrieve()
                     .toBodilessEntity()
             }
