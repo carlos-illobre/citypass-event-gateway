@@ -29,7 +29,7 @@ variable "region" {
   description = <<-EOT
     Región de OCI, con el formato de la consola (ej. "sa-saopaulo-1"). Tiene que ser tu
     *home region* — Always Free sólo funciona ahí, y esa elección no se puede cambiar
-    después de crear la cuenta. Ver ADR-020 para las candidatas evaluadas.
+    después de crear la cuenta. Ver ADR-021 para las candidatas evaluadas.
   EOT
   type        = string
 }
@@ -123,7 +123,7 @@ variable "project_name" {
 # Dominio público
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Terraform NO administra el DNS (ver ADR-020, "Opción 4"): el registro A se crea a mano
+# Terraform NO administra el DNS (ver ADR-021, "Opción 4"): el registro A se crea a mano
 # en Cloudflare, una vez por entorno. Esta variable existe igual porque el hostname sí es
 # dato de infraestructura — es lo que hay que apuntar a la IP de la instancia, y lo que
 # después va en el .env de la VM. El output `next_steps` lo usa para recordar el paso.

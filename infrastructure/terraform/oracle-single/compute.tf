@@ -1,6 +1,6 @@
 # La instancia. Es el equivalente en código de ORACLE.md, sección "2. Crear la instancia".
 #
-# Lo que NO hace este archivo, a propósito (ver ADR-020): no instala Docker, no expande el
+# Lo que NO hace este archivo, a propósito (ver ADR-021): no instala Docker, no expande el
 # disco, no abre iptables adentro de la VM, no clona el repo ni levanta el compose. Todo
 # eso sigue siendo preflight.sh / ORACLE.md / deploy.sh, corridos a mano después del
 # `terraform apply`. Esta VM sale "pelada" —sólo el sistema operativo de la imagen—, lista

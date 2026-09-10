@@ -1,12 +1,14 @@
-# ADR-020: Terraform como IaC para la VM de Oracle Cloud
+# ADR-021: Terraform como IaC para la VM de Oracle Cloud
 
 **Estado:** Aceptado
 **Fecha:** 2026-08-26 (revisado 2026-09-07: el DNS queda fuera del alcance, ver "Opción 4")
 
-> Se escribió con el número 019 y se renumeró a 020 al integrarlo con `main`: el
-> [ADR-019](ADR-019-firewall-en-la-vcn.md) sobre el firewall se mergeó en paralelo y ya
-> tenía ese número. Son decisiones complementarias, no en conflicto — ver "Relación con el
-> ADR-019" más abajo.
+> Se escribió con el número 019 y terminó en el 021: mientras esta rama estaba abierta se
+> mergearon a `main` el [ADR-019](ADR-019-firewall-en-la-vcn.md) (firewall) y el
+> [ADR-020](ADR-020-webhooks-en-su-propio-servicio.md) (webhooks), que reclamaron los dos
+> números anteriores. El criterio en ambos casos fue el mismo: el número se lo queda el
+> ADR que ya está en `main`. Con el 019 hay además una relación de contenido — ver
+> "Relación con el ADR-019" más abajo; con el 020 no hay ninguna, es sólo el número.
 
 ---
 

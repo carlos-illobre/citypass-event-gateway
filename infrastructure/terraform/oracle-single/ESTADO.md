@@ -73,11 +73,11 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
    tipo `tudominio.com`, no el dominio real.
 2. **Shape de la VM:** default fijo según ADR-016 (2 OCPU / 12 GB, `VM.Standard.A1.Flex`,
    Ubuntu 24.04 arm64, boot volume 200 GB), parametrizado para poder override-earse.
-3. **[ADR-020](../../../docs/adr/ADR-020-terraform-iac-oracle-cloud.md) ya escrita**,
+3. **[ADR-021](../../../docs/adr/ADR-021-terraform-iac-oracle-cloud.md) ya escrita**,
    documentando todo lo de arriba, y el índice de `docs/adr/README.md` actualizado.
 4. **Módulo Terraform commiteado y pusheado.** Los 2 commits con todo el módulo
    (`versions.tf`, `providers.tf`, `variables.tf`, `network.tf`, `compute.tf`, `dns.tf`,
-   `outputs.tf`, `terraform.tfvars.example`, `README.md`) y el ADR-020 ya están en
+   `outputs.tf`, `terraform.tfvars.example`, `README.md`) y el ADR-021 ya están en
    `origin/feat/iac`. El usuario los revisó y commiteó él mismo.
 5. **Terraform CLI instalado** (v1.15.9 — hay v1.16.0 disponible, no bloqueante).
    `terraform init -backend=false` y `terraform validate` corridos por el usuario:
@@ -112,7 +112,7 @@ seguidas:
    nombre*, que es lo que hace `data.cloudflare_zone`.
 
 En ese punto el usuario decidió cambiar de estrategia y dejar el DNS manual. El
-razonamiento (ahora documentado en el ADR-020, "Opción 4"): un registro `A` por entorno,
+razonamiento (ahora documentado en el ADR-021, "Opción 4"): un registro `A` por entorno,
 dos entornos, sobre VMs que no se apagan ni se recrean — la automatización no se amortiza,
 cuesta un secreto más, y sobre todo **acopla el DNS al aprovisionamiento**: el
 `data.cloudflare_zone` se evalúa en el `plan`, así que un problema de Cloudflare abortaba
@@ -182,11 +182,21 @@ viven sólo en la home region, que es irreversible).
   un ADR no se edita sino que se supersede — se editó igual porque **todavía no está
   mergeado a `main`**, vive sólo en `feat/iac`. **Pendiente de confirmar con el equipo**
   si prefieren un ADR nuevo que lo supersede.
-- **Renumerado de 019 a 020 (2026-09-08).** Al mergear `main` apareció una colisión: el
-  equipo mergeó en paralelo `ADR-019-firewall-en-la-vcn.md` (commit `5e547a2`, fecha
-  2026-08-19). El número se lo queda el que ya está en `main` —está referenciado desde
-  `SECURITY.md` y `ORACLE.md`— y el de Terraform pasó a `ADR-020`. El conflicto estaba
-  sólo en la fila del índice; se resolvió dejando las dos.
+- **Renumerado dos veces: 019 → 020 → 021.** Colisionó con dos ADR que el equipo mergeó a
+  `main` mientras esta rama estaba abierta:
+  - 2026-09-08: `ADR-019-firewall-en-la-vcn.md` (commit `5e547a2`) → el de Terraform pasó
+    a 020.
+  - 2026-09-10: `ADR-020-webhooks-en-su-propio-servicio.md` → pasó a **021**.
+
+  Criterio, en los dos casos: **el número se lo queda el ADR que ya está en `main`**, que
+  es el que tiene referencias vivas desde otros documentos. El conflicto de git fue las
+  dos veces sólo la fila del índice `docs/adr/README.md`; se resuelve dejando todas las
+  filas.
+
+  **Causa de fondo:** esta rama lleva semanas abierta y `main` se mueve. El propio
+  [ADR-018](../../../docs/adr/ADR-018-ramificacion-y-versionado.md) pide ramas de "vida de
+  días y no de semanas" — mergear antes es lo que evita la tercera colisión. El número del
+  ADR conviene fijarlo recién al abrir el PR, mirando qué hay en `main` en ese momento.
 - **Relación con el ADR-019 (firewall), documentada.** No hay conflicto entre los dos: el
   019 decide *dónde* vive el control de acceso (la security list de la VCN, porque el DNAT
   de Docker saca los paquetes de `INPUT`) y el 020 decide *cómo se declara* esa security
@@ -241,7 +251,7 @@ Se repasó con el usuario (no tiene bucket, la idea es un Drive personal **cifra
 - La copia del `tfstate` sólo sirve si se re-sube **después de cada `apply`**.
 - Pendiente evaluado y postergado: la cuenta Always Free incluye Object Storage, así que
   un backend remoto es posible sin costo. No se hizo para no meter un cambio más en el
-  aire; el ADR-020 justifica el state local por concurrencia, que es un problema distinto
+  aire; el ADR-021 justifica el state local por concurrencia, que es un problema distinto
   del de la copia de resguardo.
 
 ## Conceptos ya explicados al usuario (no volver a explicar desde cero, sólo repasar si pregunta)
