@@ -143,6 +143,7 @@ http {
         # resolver, así que una recreación se absorbe sola en diez segundos.
         set $gateway event-gateway;
         set $identidad auth-simulator;
+        set $anomalias anomaly-detector;
         set $ui event-gateway-ui;
         set $dispatcher webhook-dispatcher;
 
@@ -201,7 +202,18 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # La UI queda en la raíz.
+        # Detector de anomalías. No tiene CORS ni autenticación propia, así que sin esta
+        # ruta ningún frontend podría alcanzarlo en producción — hasta ahora no hacía
+        # falta porque nada lo consumía desde el navegador.
+        location /anomaly/ {
+            rewrite ^/anomaly/(.*)$ /$1 break;
+            proxy_pass http://$anomalias:8084;
+            proxy_set_header Host $host;
+        }
+
+        # La UI queda en la raíz. Sigue siendo `event-gateway-ui`: `frontend` la reemplaza
+        # funcionalmente pero el corte de tráfico es una decisión aparte, para cuando esté
+        # completa — cambiar esto acá y ahora dejaría a los otros grupos sin aviso.
         location / {
             proxy_pass http://$ui:8080;
             proxy_set_header Host $host;

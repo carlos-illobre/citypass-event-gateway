@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Consola del bus · CityPass+</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      No hay `/config.js`. El bundle pide rutas relativas (`/api/v1`, `/auth/oauth/token`,
+      `/anomaly/api/v1`) y quien las reenvía es el servidor que sirve esta página: Vite en
+      desarrollo, nginx en el contenedor, el reverse-proxy en producción. Los tres usan los
+      mismos prefijos, así que no hay nada de ambiente que inyectar acá.
+    -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -262,6 +262,26 @@ jobs:
       - run: npx eslint .
         working-directory: microservices/event-gateway-ui
 
+  frontend:
+    name: Tests · frontend
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: microservices/frontend/package-lock.json
+      - run: npm ci
+        working-directory: microservices/frontend
+      - run: npm run build
+        working-directory: microservices/frontend
+      - run: npx eslint .
+        working-directory: microservices/frontend
+      # A diferencia del job `ui`, acá sí hay tests: `domain/` exige 100 % de cobertura.
+      - run: npm run coverage
+        working-directory: microservices/frontend
+
   configuracion:
     name: Paridad de ambientes
     runs-on: ubuntu-latest
@@ -297,7 +317,7 @@ jobs:
       # arreglar, en vez de descubrirlo de a una.
       fail-fast: false
       matrix:
-        servicio: [event-gateway, event-gateway-ui, auth-simulator, anomaly-detector, kafka-authorizer, webhook-dispatcher]
+        servicio: [event-gateway, event-gateway-ui, frontend, auth-simulator, anomaly-detector, kafka-authorizer, webhook-dispatcher]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
