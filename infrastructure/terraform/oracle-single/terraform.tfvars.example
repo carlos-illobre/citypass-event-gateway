@@ -34,7 +34,7 @@ ssh_public_key_path = "~/.ssh/id_rsa.pub"
 # en modo DNS-only, apuntando a la IP que devuelve el output instance_public_ip.
 # Este valor es sólo el hostname del entorno — el mismo que después va en el .env.
 
-public_domain = "citypass.tudominio.com"
+public_domain = "test.citypass.tudominio.com"
 
 
 # ── Shape, red y nombrado ──────────────────────────────────────────────────
