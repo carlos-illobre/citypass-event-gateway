@@ -61,6 +61,41 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
    porque memoria no viaja entre dispositivos. Coherente con "git hands-off" (el usuario
    hace sus propios commits, salvo que pida explícitamente lo contrario como pasó en esta
    sesión al pedir commitear y pushear el lock file + este archivo).
+9. **Dos ambientes, decidido con el equipo (2026-09-11): primero test, prod después.**
+   El ambiente que se está por levantar (el bloqueado por capacidad A1, arriba) es
+   **testing**; producción se levanta más adelante, en otra VM aparte.
+   - **Dominio:** `test.citypass.mrfranco.net.ar` para test. El dominio "pelado"
+     (`citypass.mrfranco.net.ar`) queda reservado para prod — no se le agrega prefijo,
+     así no se toca dos veces el dominio final.
+   - **Ya aplicado:** `DOMINIO` en `deployment/oracle-single/.env` (local, gitignoreado)
+     actualizado a `test.citypass.mrfranco.net.ar`. Falta actualizar `public_domain` en
+     `terraform.tfvars` cuando exista (hoy no existe el archivo, sólo el `.example` — se
+     crea recién al retomar el `apply`).
+   - **Mapa de impacto revisado con Claude** (sesión 2026-09-11): el dominio real sólo
+     vive en archivos locales/gitignoreados (`deployment/oracle-single/.env`,
+     `terraform.tfvars`) y en el `.env` que termina en la VM (generado desde
+     `.env.oracle` vía el `sed` del paso 6 de ORACLE.md — variables `PUBLIC_DOMAIN`,
+     `KAFKA_ADVERTISED_HOST`, `TOKEN_ISSUER`, `AUTH_CORS_ORIGIN`, `GATEWAY_CORS_ORIGIN`,
+     `LOGIN_API_URL`, `GATEWAY_API_URL`, `DISPATCHER_API_URL`). Nada del código
+     (`application.yml`, `docker-compose.yml`, `nginx.conf.template`) ni de la
+     documentación versionada tiene el dominio hardcodeado — todo sale de variables de
+     entorno o usa placeholders (`TU_DOMINIO`). El certificado usa `--cert-name citypass`
+     fijo, así que nginx no depende del dominio real en ningún lado.
+   - **Como el ambiente de test es una VM nueva** (todavía no provisionada), alcanza con
+     correr el paso 6 de ORACLE.md una sola vez con el `DOMINIO` nuevo — no hace falta
+     editar variables sueltas a mano. Conviene hacerlo recién ahora que `.env.oracle` ya
+     trae los cambios de `main` (PR #26, variables de webhooks reagrupadas) para no
+     regenerar el `.env` de la instancia dos veces.
+   - **Pendiente, pospuesto a propósito:** `deploy.sh` sólo lee un
+     `deployment/oracle-single/.env` fijo, sin noción de "a qué ambiente" apunta. Con dos
+     VMs reales existe riesgo de desplegar al servidor equivocado si se usa el mismo
+     checkout para los dos. El usuario decidió **no resolverlo todavía** — se retoma
+     cuando prod exista de verdad (opciones ya evaluadas: extender `deploy.sh` para
+     elegir entre `.env.test`/`.env.prod`, o mantener un checkout separado por ambiente).
+   - **Terraform para dos ambientes:** con state local (ya decidido, sin backend remoto),
+     falta elegir entre `tfvars` separados por ambiente (`-var-file`) o *workspaces* antes
+     de aplicar el segundo. No decidido todavía — no urge mientras el bloqueante de
+     capacidad A1 siga sin resolverse.
 
 ## Ya no pendiente — resuelto
 
