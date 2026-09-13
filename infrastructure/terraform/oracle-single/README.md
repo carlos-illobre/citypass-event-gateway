@@ -148,6 +148,12 @@ En el dashboard de Cloudflare → tu zona → **DNS** → **Add record**:
 Cloudflare intermediaría el HTTP y rompería la validación HTTP-01 de certbot, y además no
 puede proxiar Kafka en el 9092, que es TCP crudo y no HTTP.
 
+**Convención de nombre por ambiente:** el valor de `Name` sale tal cual de `public_domain`
+en tu `terraform.tfvars`, sin agregarle nada acá. Test lleva el prefijo `test.` (ej.
+`test.citypass.tudominio.com`); prod queda con el dominio pelado (`citypass.tudominio.com`),
+sin prefijo — así el dominio final de producción no se toca el día que se levante ese
+segundo entorno.
+
 Si la VM ya existía y la recreaste, la IP cambia: hay que editar el registro con la IP
 nueva. Reiniciar o hacer stop/start **no** la cambia (`ORACLE.md` lo documenta), así que en
 la práctica esto se toca una vez por entorno.

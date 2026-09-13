@@ -522,7 +522,7 @@ jobs:
       # vuelve a subir las imágenes, así que son unos segundos para las cinco.
       - name: Apuntar latest al commit verificado
         run: |
-          for servicio in event-gateway event-gateway-ui auth-simulator anomaly-detector kafka-authorizer; do
+          for servicio in event-gateway event-gateway-ui frontend auth-simulator anomaly-detector kafka-authorizer webhook-dispatcher; do
             docker buildx imagetools create \
               -t "$REGISTRO/$servicio:latest" \
               "$REGISTRO/$servicio:${{ github.sha }}"
