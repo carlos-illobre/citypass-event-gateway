@@ -31,7 +31,7 @@ export function LoginView() {
   }
 
   return (
-    <Center mih="100vh" bg="gray.0">
+    <Center mih="100vh" bg="var(--mantine-color-body)">
       <Paper withBorder shadow="sm" p="xl" w={380} radius="md">
         <Stack gap="lg">
           <Group justify="center" gap="xs">

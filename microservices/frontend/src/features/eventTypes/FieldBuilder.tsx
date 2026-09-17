@@ -98,7 +98,7 @@ function RecordPanel({
   onNameChange: (name: string) => void; onFieldsChange: (fields: FieldDef[]) => void
 }) {
   return (
-    <Paper withBorder p="sm" mt={4} bg="gray.0">
+    <Paper withBorder p="sm" mt={4} bg="var(--mantine-color-default-hover)">
       <TextInput
         size="xs" label="Nombre del record" placeholder="ej: Ubicacion" mb="xs"
         value={recordName} error={invalid} onChange={e => onNameChange(e.target.value)}
@@ -118,7 +118,7 @@ function EnumPanel({
   const removeAt = (i: number) => onSymbolsChange(symbols.filter((_, j) => j !== i))
 
   return (
-    <Paper withBorder p="sm" mt={4} bg="gray.0">
+    <Paper withBorder p="sm" mt={4} bg="var(--mantine-color-default-hover)">
       <TextInput
         size="xs" label="Nombre del enum" placeholder="ej: Estado" mb="xs"
         value={enumName} error={invalid} onChange={e => onNameChange(e.target.value)}
