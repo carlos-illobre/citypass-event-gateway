@@ -12,8 +12,9 @@
 declare global {
   interface Window {
     __CITYPASS__?: {
-      loginApiUrl?:   string
-      gatewayApiUrl?: string
+      loginApiUrl?:      string
+      gatewayApiUrl?:    string
+      dispatcherApiUrl?: string
     }
   }
 }
@@ -22,6 +23,15 @@ const ENV = {
   LOGIN_API_URL:   window.__CITYPASS__?.loginApiUrl,
   GATEWAY_API_URL: window.__CITYPASS__?.gatewayApiUrl,
 } as const
+
+/**
+ * Base del webhook-dispatcher, o vacío si este despliegue no lo levantó.
+ *
+ * Queda fuera de [ENV] a propósito: los de arriba son obligatorios y su ausencia rompe el
+ * arranque, mientras que acá el vacío es una respuesta legítima —los webhooks son
+ * opcionales desde el ADR-020— y lo que corresponde es no ofrecer la pestaña.
+ */
+const DISPATCHER_API_URL = window.__CITYPASS__?.dispatcherApiUrl ?? ''
 
 const missing = Object.entries(ENV)
   .filter(([, value]) => !value)
@@ -49,5 +59,17 @@ export const config = {
       // Los últimos eventos publicados por quien pregunta, entre todos sus tipos.
       events:        `${ENV.GATEWAY_API_URL}/events`,
     },
+    /**
+     * El dispatcher, o `null` si los webhooks están apagados.
+     *
+     * Es `null` y no una URL vacía para que la pantalla no pueda olvidarse de preguntar:
+     * con cadenas, un `fetch('')` compilaría y fallaría recién en runtime.
+     */
+    dispatcher: DISPATCHER_API_URL
+      ? {
+          subscriptions: `${DISPATCHER_API_URL}/subscriptions`,
+          deadLetters:   `${DISPATCHER_API_URL}/dead-letters`,
+        }
+      : null,
   },
 } as const

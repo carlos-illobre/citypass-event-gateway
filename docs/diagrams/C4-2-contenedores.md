@@ -2,6 +2,10 @@
 
 Muestra los contenedores (servicios Docker) que componen el Bus de Eventos (Grupo 1) y cómo interactúan con los demás grupos.
 
+El **Webhook Dispatcher** es opcional: se levanta con el perfil `webhooks` de compose. Sin
+él se publica y se consume por Kafka igual; lo único que no se ofrece es la entrega por
+HTTP ([ADR-020](../adr/ADR-020-webhooks-en-su-propio-servicio.md)).
+
 ```mermaid
 C4Container
     title CityPass+ EDA — Diagrama de Contenedores
@@ -9,7 +13,8 @@ C4Container
     Person(cliente, "Cliente HTTP", "Cualquier grupo que publica o consume eventos")
 
     System_Boundary(eda, "Bus de Eventos — Grupo 1") {
-        Container(event_gateway, "Event Gateway", "Spring Boot / Kotlin", "Punto de entrada y salida HTTP. Publica en Kafka, consume y despacha webhooks, gestiona schemas, DLQ y seguridad JWT.")
+        Container(event_gateway, "Event Gateway", "Spring Boot / Kotlin", "Punto de entrada HTTP. Valida contra el schema, sella la metadata desde el token y publica en Kafka. Gestiona event types.")
+        Container(webhook_dispatcher, "Webhook Dispatcher", "Spring Boot / Kotlin", "Opcional (perfil webhooks). Consume del listener interno y entrega por HTTP. Suscripciones y cola de fallidos propias.")
         Container(auth_simulator, "Auth Simulator", "Node.js / Express", "Simula el servicio de autenticación del Grupo 2. Emite JWT RS256 y expone JWKS.")
         Container(anomaly_detector, "Anomaly Detector", "Python / FastAPI / scikit-learn", "Consume todos los tópicos. Detecta anomalías con Isolation Forest. Publica alertas en Kafka.")
         Container(kafka, "Apache Kafka", "KRaft (sin ZooKeeper)", "Broker de mensajes. Un tópico por tipo de evento.")
@@ -17,7 +22,7 @@ C4Container
         Container(kafka_ui, "Kafka UI", "Provectus", "Interfaz web para inspeccionar tópicos, mensajes y consumers. Con login propio.")
         Container(gateway_ui, "Event Gateway UI", "React / TypeScript", "Registrar event types con editor de schemas, publicar eventos y ver los últimos publicados.")
         Container(proxy, "Reverse Proxy", "nginx + certbot", "Sólo en producción. Termina TLS y es el único servicio expuesto a internet.")
-        ContainerDb(volumes, "Volúmenes Docker", "JSON files", "Persistencia de suscripciones (subscriptions.json) y schemas (.avsc).")
+        ContainerDb(volumes, "Volúmenes Docker", "JSON files", "Schemas (.avsc) en el volumen del gateway; suscripciones (subscriptions.json) en el del dispatcher.")
     }
 
     System_Ext(grupo2, "Grupo 2 — Auth", "Servicio real de autenticación JWT (reemplaza auth-simulator)")
@@ -33,10 +38,16 @@ C4Container
     Rel(event_gateway, auth_simulator, "GET /.well-known/jwks.json", "Valida JWT RS256")
     Rel(event_gateway, schema_registry, "REST API", "Registra y valida schemas Avro")
     Rel(event_gateway, kafka, "Produce y consume mensajes", "Avro binario + wire format")
-    Rel(event_gateway, volumes, "Lee/escribe", "schemas/*.avsc, subscriptions.json")
-    Rel(event_gateway, grupo3, "HTTP POST webhook", "JSON deserializado")
-    Rel(event_gateway, grupo4, "HTTP POST webhook", "JSON deserializado")
-    Rel(event_gateway, grupoN, "HTTP POST webhook", "JSON deserializado")
+    Rel(event_gateway, volumes, "Lee/escribe", "schemas/*.avsc")
+    Rel(proxy, webhook_dispatcher, "HTTP", "/api/v1/subscriptions y /api/v1/dead-letters")
+    Rel(kafka, webhook_dispatcher, "Consume los tópicos suscritos", "Listener interno, sin autenticar")
+    Rel(webhook_dispatcher, schema_registry, "REST API", "Resuelve el schema por id, sin pasar por el gateway")
+    Rel(webhook_dispatcher, auth_simulator, "GET /.well-known/jwks.json", "Valida JWT RS256")
+    Rel(webhook_dispatcher, volumes, "Lee/escribe", "subscriptions.json")
+    Rel(event_gateway, webhook_dispatcher, "GET/DELETE /internal/suscripciones", "Antes de borrar un event type")
+    Rel(webhook_dispatcher, grupo3, "HTTP POST webhook", "JSON deserializado")
+    Rel(webhook_dispatcher, grupo4, "HTTP POST webhook", "JSON deserializado")
+    Rel(webhook_dispatcher, grupoN, "HTTP POST webhook", "JSON deserializado")
     Rel(kafka, anomaly_detector, "Consume todos los tópicos", "Avro binario")
     Rel(anomaly_detector, kafka, "Publica anomalías", "sistema.anomalia.detectada")
     Rel(kafka_ui, kafka, "Lee", "Inspección de tópicos y mensajes")

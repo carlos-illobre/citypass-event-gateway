@@ -8,6 +8,12 @@
 
 set -uo pipefail
 
+# Dónde vive cada API. Desde el ADR-020 las suscripciones y la cola de fallidos son de
+# webhook-dispatcher y no del gateway: en producción las dos rutas entran por el mismo
+# host porque el proxy las separa, pero acá se habla con los contenedores directamente.
+GATEWAY=${GATEWAY:-http://localhost:8080}
+DISPATCHER=${DISPATCHER:-http://localhost:8085}
+
 VERDE='\033[0;32m'; ROJO='\033[0;31m'; AMARILLO='\033[0;33m'; NC='\033[0m'
 
 # Prefijados: son estado interno del arnés, y un script que definiera una variable con

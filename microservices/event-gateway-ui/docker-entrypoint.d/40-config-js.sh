@@ -13,9 +13,12 @@ set -eu
 
 : "${LOGIN_API_URL:?falta LOGIN_API_URL}"
 : "${GATEWAY_API_URL:?falta GATEWAY_API_URL}"
+# Sin los dos puntos: acá vacío no es lo mismo que ausente. Vacío significa que este
+# despliegue no levantó el webhook-dispatcher, y es una configuración legítima.
+: "${DISPATCHER_API_URL?falta DISPATCHER_API_URL}"
 
-envsubst '${LOGIN_API_URL} ${GATEWAY_API_URL}' \
+envsubst '${LOGIN_API_URL} ${GATEWAY_API_URL} ${DISPATCHER_API_URL}' \
   < /etc/nginx/config.js.template \
   > /usr/share/nginx/html/config.js
 
-echo "config.js generado: LOGIN_API_URL=$LOGIN_API_URL GATEWAY_API_URL=$GATEWAY_API_URL"
+echo "config.js generado: LOGIN_API_URL=$LOGIN_API_URL GATEWAY_API_URL=$GATEWAY_API_URL DISPATCHER_API_URL=${DISPATCHER_API_URL:-(webhooks apagados)}"

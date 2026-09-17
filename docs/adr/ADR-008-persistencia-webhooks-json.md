@@ -44,3 +44,15 @@ Persistir las suscripciones en un **archivo JSON** montado en un volumen Docker.
 - No escala a múltiples instancias del Event Gateway — cada instancia tendría su propio archivo con su propia lista de suscripciones.
 - Escritura no atómica — si el proceso se cae durante la escritura, el archivo puede quedar corrupto (riesgo bajo con `ConcurrentHashMap` y escrituras pequeñas).
 - Para alta disponibilidad en producción real, se necesitaría migrar a una base de datos compartida.
+
+
+---
+
+## Enmienda (ADR-020)
+
+El archivo sigue siendo un JSON en un volumen, pero ya no es el volumen del gateway:
+`webhook-dispatcher` tiene el suyo (`webhook-dispatcher-data`). La consecuencia negativa de
+arriba se traslada tal cual —dos réplicas del dispatcher tendrían cada una su lista— pero
+ahora afecta sólo a la escalabilidad de la entrega, y no impide replicar el gateway.
+
+→ [ADR-020](ADR-020-webhooks-en-su-propio-servicio.md)

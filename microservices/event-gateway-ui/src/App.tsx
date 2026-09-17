@@ -4,10 +4,12 @@ import { gateway } from '@/api/gateway'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { SchemasWorkspace } from '@/components/event-type/SchemasWorkspace'
 import { PublishWorkspace } from '@/components/event/PublishWorkspace'
+import { DeadLetterPanel } from '@/components/webhooks/DeadLetterPanel'
+import { webhooksHabilitados } from '@/api/dispatcher'
 import type { SentEvent } from '@/components/event/SentEventsPanel'
 import './App.css'
 
-type Tab = 'schemas' | 'publish'
+type Tab = 'schemas' | 'publish' | 'webhooks'
 
 function Dashboard() {
   const { logout, user, namespace, token } = useContext(AuthContext)
@@ -56,6 +58,19 @@ function Dashboard() {
           >
             Publicar
           </button>
+          {/*
+            La pestaña sólo existe si hay dispatcher configurado. Mostrarla siempre haría
+            que un despliegue sin webhooks ofreciera una pantalla que no puede funcionar,
+            y el usuario descubriría el problema recién al hacer clic.
+          */}
+          {webhooksHabilitados && (
+            <button
+              className={`dashboard-tab${tab === 'webhooks' ? ' dashboard-tab--active' : ''}`}
+              onClick={() => setTab('webhooks')}
+            >
+              Webhooks
+            </button>
+          )}
         </nav>
         <div className="dashboard-user">
           <span className="dashboard-user-item">
@@ -73,6 +88,7 @@ function Dashboard() {
 
       <main className="dashboard-main dashboard-main--wide">
         {tab === 'schemas' && <SchemasWorkspace />}
+        {tab === 'webhooks' && webhooksHabilitados && <DeadLetterPanel />}
         {tab === 'publish' && (
           <PublishWorkspace
             sent={sent}

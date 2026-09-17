@@ -79,6 +79,42 @@ if [ -n "$sin_definir" ]; then
     env_ok=0
 fi
 
+# ── Variables que sólo tienen sentido juntas ─────────────────────────────────
+#
+# La paridad de arriba comprueba que todos los ambientes DECLAREN lo mismo. No dice nada
+# de si los valores son coherentes ENTRE SÍ, y hay un grupo donde eso importa:
+#
+#   COMPOSE_PROFILES con `webhooks`  levanta el webhook-dispatcher
+#   DISPATCHER_URL                   el gateway le pregunta si hay equipos suscriptos
+#   DISPATCHER_API_URL               la UI muestra la pestaña de webhooks
+#
+# Separadas producen fallas que no se parecen a su causa: el perfil sin las URLs deja al
+# gateway creyendo que no hay webhooks mientras el dispatcher entrega; las URLs sin el
+# perfil hacen que la UI ofrezca una pestaña hacia un servicio que no existe, y que el
+# borrado de un event type falle con 503 porque consulta a nadie.
+#
+# Ese segundo caso llegó a producción: el .env de la instancia tenía las URLs puestas y el
+# perfil sin `webhooks`. La paridad no lo vio porque las variables ESTABAN declaradas.
+for archivo in "${AMBIENTES[@]}"; do
+    perfiles=$(grep -oP '^COMPOSE_PROFILES=\K.*' "$archivo" 2>/dev/null || true)
+    api=$(grep -oP '^DISPATCHER_API_URL=\K.*' "$archivo" 2>/dev/null || true)
+    interna=$(grep -oP '^DISPATCHER_URL=\K.*' "$archivo" 2>/dev/null || true)
+
+    if echo "$perfiles" | grep -q webhooks; then
+        if [ -z "$api" ] || [ -z "$interna" ]; then
+            echo -e "${RED}✗ $(etiqueta "$archivo"): el perfil 'webhooks' está activo pero"
+            echo -e "    DISPATCHER_URL o DISPATCHER_API_URL están vacías${NC}"
+            env_ok=0
+        fi
+    else
+        if [ -n "$api" ] || [ -n "$interna" ]; then
+            echo -e "${RED}✗ $(etiqueta "$archivo"): hay DISPATCHER_* con valor pero el perfil"
+            echo -e "    'webhooks' no está en COMPOSE_PROFILES — el dispatcher no se levanta${NC}"
+            env_ok=0
+        fi
+    fi
+done
+
 if [ "$env_ok" -eq 1 ]; then
     echo -e "${GREEN}✓ configuración — $(nombres "$REFERENCIA" | wc -l) variables, iguales en los ${#AMBIENTES[@]} ambientes${NC}"
 else

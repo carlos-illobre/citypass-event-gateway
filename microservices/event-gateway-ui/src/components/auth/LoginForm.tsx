@@ -1,11 +1,10 @@
 import { useContext, useState } from 'react'
 import { AuthContext } from '@/contexts/auth-context'
-import { auth } from '@/api/auth'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import './LoginForm.css'
 
 export function LoginForm() {
-  const { setToken } = useContext(AuthContext)
+  const { login } = useContext(AuthContext)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
@@ -15,8 +14,7 @@ export function LoginForm() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    auth.login({ username, password })
-      .then(({ token }) => setToken(token))
+    login({ username, password })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false))
   }

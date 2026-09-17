@@ -66,6 +66,18 @@ class OpenApiConfig(private val buildProperties: BuildProperties) {
                     `metadata` desde el request, y por eso `source` es confiable.
 
                     Los errores siguen RFC 9457 (`application/problem+json`).
+
+                    ## ¿Dónde están las suscripciones por webhook?
+
+                    **No están acá.** `/api/v1/subscriptions` y `/api/v1/dead-letters` las
+                    sirve `webhook-dispatcher`, que es otro servicio (ADR-020). En el
+                    despliegue expuesto entran por el mismo host, porque el proxy las
+                    rutea; en desarrollo local están en el puerto **8085**, con su propia
+                    documentación en `http://localhost:8085/doc`.
+
+                    Ese servicio es **optativo**: un despliegue puede elegir no levantarlo,
+                    y entonces el bus no ofrece webhooks. Consumir directo de Kafka no
+                    depende de él.
                     """.trimIndent()
                 )
         )

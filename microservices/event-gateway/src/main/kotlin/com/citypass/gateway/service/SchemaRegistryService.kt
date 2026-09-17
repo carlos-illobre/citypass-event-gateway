@@ -18,6 +18,7 @@ import org.springframework.web.client.RestClientResponseException
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * El namespace llegó a su máximo de event types.
@@ -119,10 +120,34 @@ class SchemaRegistryService(
     private val logger = LoggerFactory.getLogger(javaClass)
     private val mapper = jacksonObjectMapper()
 
-    private val schemas = mutableMapOf<String, Schema>()
-    private val schemaIds = mutableMapOf<String, Int>()
-    private val schemasByRegistryId = mutableMapOf<Int, Schema>()
-    private val vigentes = mutableMapOf<String, String>()
+    // Concurrentes, no `mutableMapOf`. Este servicio es un singleton de Spring: los hilos
+    // de Tomcat lo usan en paralelo, y el registro del arranque recorre `schemas` cuando
+    // Tomcat ya acepta peticiones. Con un LinkedHashMap eso terminó siendo un
+    // ConcurrentModificationException que mataba el arranque, y en el camino silencioso
+    // podía dejar los índices inconsistentes sin que nada avisara.
+    //
+    // La iteración de un ConcurrentHashMap es débilmente consistente: puede no ver lo que
+    // se insertó mientras recorría, pero nunca lanza. Para el registro del arranque eso
+    // alcanza, porque un event type creado en ese instante ya se registra por su propio
+    // camino.
+    private val schemas = ConcurrentHashMap<String, Schema>()
+    private val schemaIds = ConcurrentHashMap<String, Int>()
+    private val schemasByRegistryId = ConcurrentHashMap<Int, Schema>()
+    private val vigentes = ConcurrentHashMap<String, String>()
+
+    /**
+     * Protege las mutaciones de los índices, que son **compuestas**.
+     *
+     * Mapas concurrentes evitan que la estructura se corrompa, pero no hacen atómico un
+     * "leer la vigente, comparar versiones y escribir": dos altas simultáneas del mismo
+     * event type pueden leer la misma vigente y pisarse, dejando la versión menor como
+     * vigente. El lock cubre sólo eso.
+     *
+     * No abarca nada de I/O: registrar contra el Schema Registry reintenta hasta 30 s, y
+     * sostener un lock durante esa espera frenaría a todo el mundo. Las lecturas tampoco
+     * lo toman — el camino de publicación, que es el caliente, sigue sin bloquearse.
+     */
+    private val indices = Any()
 
     private val namePattern = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -187,7 +212,7 @@ class SchemaRegistryService(
      * Punto único de escritura: [vigentes] es un índice derivado, y calcularlo acá evita
      * que quede desactualizado si alguien agrega otro camino que inserte en [schemas].
      */
-    private fun indexar(topico: String, schema: Schema) {
+    internal fun indexar(topico: String, schema: Schema) = synchronized(indices) {
         schemas[topico] = schema
         val (fqn, version) = versionDe(topico)
         val vigente = vigentes[fqn]
@@ -195,7 +220,7 @@ class SchemaRegistryService(
     }
 
     /** Quita un tópico de los índices y recalcula la versión vigente de su event type. */
-    private fun desindexar(topico: String) {
+    private fun desindexar(topico: String) = synchronized(indices) {
         schemas.remove(topico)
         schemaIds.remove(topico)
         val (fqn, _) = versionDe(topico)
@@ -307,8 +332,10 @@ class SchemaRegistryService(
         repeat(maxRetries) { attempt ->
             try {
                 val id = postSchemaToRegistry(topico, schema)
-                schemaIds[topico] = id
-                schemasByRegistryId[id] = schema
+                synchronized(indices) {
+                    schemaIds[topico] = id
+                    schemasByRegistryId[id] = schema
+                }
                 logger.info("Registered schema $topico with ID: $id")
                 return
             } catch (e: Exception) {
@@ -593,9 +620,13 @@ class SchemaRegistryService(
      */
     private fun publicarVersion(topico: String, schema: Schema): Int {
         val id = postSchemaToRegistry(topico, schema)
-        indexar(topico, schema)
-        schemaIds[topico] = id
-        schemasByRegistryId[id] = schema
+        // Los tres índices se escriben juntos: un lector que viera `schemaIds` sin
+        // `schemas` resolvería un id para un tópico que todavía no tiene esquema.
+        synchronized(indices) {
+            indexar(topico, schema)
+            schemaIds[topico] = id
+            schemasByRegistryId[id] = schema
+        }
         File(schemasDir, "$topico.avsc").writeText(schema.toString(true))
         return id
     }

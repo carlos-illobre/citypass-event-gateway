@@ -6,6 +6,9 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Componentes, diagrama general y el porqué de cada decisión |
 | [SECURITY.md](SECURITY.md) | Modelo de amenazas y cómo está implementada cada regla |
 | [AUTH.md](AUTH.md) | **Para el Grupo 2:** qué implementar para reemplazar el `auth-simulator` |
+| [IDENTIDAD-CAMBIOS-REQUERIDOS.md](IDENTIDAD-CAMBIOS-REQUERIDOS.md) | **Para el Grupo 2:** la lista corta de lo que necesitamos que cambien |
+| [externo/GRUPO-2-AUTENTICACION.md](externo/GRUPO-2-AUTENTICACION.md) | **Documento del Grupo 2**, tal como lo recibimos. No lo editamos |
+| [INTEGRACION-IDENTIDAD.md](INTEGRACION-IDENTIDAD.md) | **Para el Grupo 2:** la justificación de cada pedido, y qué adaptamos nosotros |
 | [CONTRACTS.md](CONTRACTS.md) | Nombres, schemas, evolución y retención de los eventos |
 | [EVENT-TYPES.md](EVENT-TYPES.md) | Cómo cambiar el schema de un event type y cómo borrarlo |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Despliegue en la nube: dominio, TLS, puertos |
@@ -24,5 +27,6 @@
 | Saber por qué se publica por HTTP y se consume por Kafka | [ARCHITECTURE.md](ARCHITECTURE.md#por-qué-publicar-por-http-y-consumir-por-kafka) |
 | Auditar la seguridad | [SECURITY.md](SECURITY.md) |
 | Implementar el servicio de identidad real | [AUTH.md](AUTH.md) |
+| Acordar el contrato de identidad con el Grupo 2 | [INTEGRACION-IDENTIDAD.md](INTEGRACION-IDENTIDAD.md) |
 | Desplegarlo en la nube | [DEPLOYMENT.md](DEPLOYMENT.md) |
 | Saber qué alternativas se descartaron y por qué | [adr/](adr/) |

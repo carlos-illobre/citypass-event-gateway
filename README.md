@@ -11,6 +11,9 @@ los grupos 2 al 8 publican y consumen los eventos de sus dominios.
 Publicar es por **HTTP**, consumir es por **Kafka** o por **webhook**. La asimetría es
 deliberada y está explicada en [ARCHITECTURE.md](docs/ARCHITECTURE.md#por-qué-publicar-por-http-y-consumir-por-kafka).
 
+Los webhooks los atiende un servicio aparte, `webhook-dispatcher`, que puede no estar
+desplegado: quien consume por Kafka no depende de él ([ADR-020](docs/adr/ADR-020-webhooks-en-su-propio-servicio.md)).
+
 ---
 
 ## Contenido
@@ -94,7 +97,9 @@ Con el stack levantado localmente:
 | **UI del gateway** | http://localhost:5173 | Frontend que permite definir y enviar eventos desde el navegador |
 | **API del gateway** | http://localhost:8080 | La API REST que se utilizará para definir y enviar eventos |
 | **Swagger UI** | http://localhost:8080/doc | Documentación interactiva, con ejemplos de request y response |
+| **Swagger de webhooks** | http://localhost:8085/doc | Suscripciones y cola de fallidos. Es **otro servicio**, así que tiene su propia doc |
 | **OpenAPI (JSON)** | http://localhost:8080/v3/api-docs | Documentación de la API REST en formato JSON |
+| **API de webhooks** | http://localhost:8085 | Suscripciones y cola de fallidos. Es **otro servicio** (ver más abajo) |
 | **Simulador de Autenticación** | http://localhost:8083 | API REST para genera tokens de autenticación |
 | **Kafka (externo)** | `localhost:9092` | Para conectar tu consumidor. `SASL_PLAINTEXT` + `OAUTHBEARER` |
 | **Métricas (crudas)** | http://localhost:9090/actuator/prometheus | Métricas de los eventos enviados en formato Prometheus |
@@ -395,6 +400,44 @@ Es la vía más eficiente: te conectás al broker y leés el tópico directament
    librerías estándar funcionan sin cambios.
 4. **Consumer group:** usá un `group.id` que empiece con tu namespace. El broker sólo te
    deja usar grupos con ese prefijo.
+5. **El acuse de recibo es tuyo.** Nadie te "entrega" el evento: lo leés vos, y sos vos
+   quien marca hasta dónde procesaste. Cómo se hace está abajo, y **es la parte que más
+   fácil se hace mal**.
+
+### Cómo confirmás lo que procesaste
+
+Kafka no te manda los eventos: los dejás anotados en un log y vos los vas a buscar. Tu
+posición en ese log es un número —el **offset**— y guardarlo se llama *commitear*. No va al
+gateway: va a un tópico interno del broker, con clave `(group.id, tópico, partición)`. Por
+eso dos equipos leen lo mismo sin pisarse, y por eso al reconectar el broker sabe dónde
+estabas.
+
+**El orden importa más que la técnica:**
+
+```
+leer → procesar → commitear     ✓  si te caés antes del commit, lo volvés a recibir
+leer → commitear → procesar     ✗  si te caés después del commit, lo perdés
+```
+
+Con el primero podés recibir un evento **dos veces**; con el segundo podés **no recibirlo
+nunca**. La entrega es *at-least-once* justamente para que el problema sea el primero: por
+eso cada evento trae `metadata.payloadHash`, para que deduplifiques.
+
+**Y ojo con el default de tu librería**, que casi siempre es el orden equivocado:
+
+| Cliente | Qué hace si no lo configurás | Riesgo |
+|---|---|---|
+| `confluent-kafka` (Python) | Marca el offset **al entregarte el mensaje**, y commitea cada 5 s | **Pérdida** |
+| `kafka-clients` (Java) | Commitea dentro de `poll()` lo que te dio en el `poll()` anterior | **Pérdida** |
+| `kafkajs` (Node) | Commitea **después** de que tu handler termine bien | Duplicados |
+
+Los ejemplos de abajo apagan el automático y commitean a mano. Es unas pocas líneas y es la
+diferencia entre perder eventos y repetirlos.
+
+> **Una trampa más.** Si armás el offset vos mismo, el valor que se commitea es **el próximo
+> a leer**, no el último leído: va `offset + 1`. Sin el `+1` releés el mismo mensaje para
+> siempre, en un bucle que procesa, commitea, no falla y nunca avanza. Pasarle el mensaje
+> directamente a la función de commit te evita el problema.
 
 ### JavaScript / Node.js
 
@@ -442,6 +485,10 @@ await consumer.subscribe({
 })
 
 await consumer.run({
+  // kafkajs commitea recién cuando este handler termina bien: si lanza, el evento se
+  // vuelve a entregar. Es el orden correcto, pero por eso mismo **no atrapes los errores
+  // acá adentro** — un try/catch que se traga la excepción hace que el offset avance
+  // igual, y el evento se pierde.
   eachMessage: async ({ message }) => {
     const evento = await registry.decode(message.value)
     console.log(evento.metadata.eventId, evento.metadata.source, evento.data)
@@ -473,6 +520,10 @@ consumer = Consumer({
     "group.id": f"{NAMESPACE}.dashboard",
     "auto.offset.reset": "earliest",
 
+    # Sin esto, la librería marca el offset al entregarte el mensaje —antes de que lo
+    # proceses— y commitea cada 5 segundos. Un corte en el medio pierde esos eventos.
+    "enable.auto.commit": False,
+
     # El cliente pide y renueva el token solo contra el servicio de identidad.
     "security.protocol": "SASL_PLAINTEXT",   # SASL_SSL en producción
     "sasl.mechanisms": "OAUTHBEARER",
@@ -495,6 +546,9 @@ try:
 
         evento = deserializar(mensaje.value(), None)
         print(evento["metadata"]["eventId"], evento["metadata"]["source"], evento["data"])
+
+        # Después de procesar, nunca antes. `message=` commitea offset+1 por vos.
+        consumer.commit(message=mensaje)
 finally:
     consumer.close()
 ```
@@ -537,6 +591,10 @@ public class ConsumidorCityPass {
         props.put("group.id", NAMESPACE + ".dashboard");
         props.put("auto.offset.reset", "earliest");
 
+        // Sin esto, poll() commitea lo que devolvió el poll anterior dando por hecho que
+        // lo procesaste. Un corte en el medio pierde esos eventos.
+        props.put("enable.auto.commit", "false");
+
         props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         props.put("value.deserializer", KafkaAvroDeserializer.class.getName());
 
@@ -566,6 +624,9 @@ public class ConsumidorCityPass {
 
                     System.out.println(metadata.get("eventId") + " " + metadata.get("source") + " " + data);
                 }
+
+                // Después de procesar el lote, nunca antes.
+                if (!registros.isEmpty()) consumer.commitSync();
             }
         }
     }
@@ -710,10 +771,15 @@ agregan campos que ayudan: si te equivocás en el nombre del event type, el `404
 ### Acto 3 — Recibirlo por webhook (Simple, facil, pero No Recomendado, pueden perderse eventos o haber duplicados)
 
 Ya viste [cómo consumir directo de Kafka](#6-consumir-eventos-desde-kafka), que es la vía
-eficiente. El webhook es la alternativa simple: creas un endpoint público en tu backend, le pasas la URL al siguiente endpoint y el gateway te hace un `POST` cada vez que ocurre un evento de un tipo en especifico, sin librerias de Kafka ni complicaciones:
+eficiente. El webhook es la alternativa simple: creas un endpoint público en tu backend, le pasas la URL al siguiente endpoint y el sistema te hace un `POST` cada vez que ocurre un evento de un tipo en especifico, sin librerias de Kafka ni complicaciones:
+
+> **Ojo con el puerto.** Las suscripciones y la cola de fallidos las atiende
+> `webhook-dispatcher`, que en tu máquina escucha en el **8085** y no en el 8080. En el
+> despliegue desplegado no cambia nada: el proxy rutea `/api/v1/subscriptions` y
+> `/api/v1/dead-letters` a ese servicio, así que ahí las URLs son las de siempre.
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/subscriptions \
+curl -X POST http://localhost:8085/api/v1/subscriptions \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -743,8 +809,8 @@ La url puede tener cualquier nombre o formato, solo tiene que aceptar POST y ser
 
 #### Cuatro cosas que conviene saber antes de escribir el receptor
 
-**La URL tiene que ser pública.** El gateway corre en otra máquina, así que `localhost` no
-apunta a tu servicio sino al contenedor del gateway. Las URLs que resuelven a direcciones de
+**La URL tiene que ser pública.** El dispatcher corre en otra máquina, así que `localhost`
+no apunta a tu servicio sino a su propio contenedor. Las URLs que resuelven a direcciones de
 red interna se rechazan con `400`, y no sólo al registrarlas: se vuelven a verificar en cada
 entrega, porque un dominio puede devolver una IP pública al registro y una privada después.
 
@@ -757,8 +823,8 @@ receptor lee exactamente `Content-Length` bytes, va a recibir un cuerpo **vacío
 error — la mayoría de los frameworks lo manejan solos, pero si armás el servidor a mano es
 la trampa más fácil de pisar.
 
-**Vas a recibir duplicados.** La entrega es *at-least-once*: el gateway confirma su posición
-en Kafka recién cuando tu endpoint respondió, así que si se reinicia en el medio, el evento
+**Vas a recibir duplicados.** La entrega es *at-least-once*: el dispatcher confirma su
+posición en Kafka recién cuando tu endpoint respondió, así que si se reinicia en el medio, el evento
 se vuelve a mandar. Podes deduplicar por `metadata.eventId`, que se mantiene estable entre reintentos.
 
 **Si tu endpoint no responde, el evento no se pierde.** Reintenta tres veces con dos
@@ -766,13 +832,13 @@ segundos de espera, y si igual falla lo deja en la Dead Letter Queue con el payl
 error. Podés consultarla —sólo ves las entradas de tu grupo— y ahí está el porqué:
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/v1/dead-letters?limit=10'
+curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8085/api/v1/dead-letters?limit=10'
 ```
 
 Y para darte de baja:
 
 ```bash
-curl -X DELETE http://localhost:8080/api/v1/subscriptions/2501ae02-89dc-48b8-a008-d0ffaec0545d \
+curl -X DELETE http://localhost:8085/api/v1/subscriptions/2501ae02-89dc-48b8-a008-d0ffaec0545d \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -857,7 +923,7 @@ timeouts por mensaje y alcanza uno solo para frenar el tópico de todos.
 Que una suscripción tuya esté silenciada lo ves en el listado:
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/subscriptions
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8085/api/v1/subscriptions
 ```
 
 Cada suscripción trae `status` (`active` o `silenced`) y, si está silenciada,

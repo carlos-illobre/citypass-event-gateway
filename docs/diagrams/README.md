@@ -10,13 +10,14 @@ se renderizan directamente en GitHub.
 | [C4-1-contexto.md](C4-1-contexto.md) | Contexto | CityPass+ y los ocho grupos |
 | [C4-2-contenedores.md](C4-2-contenedores.md) | Contenedores | Todos los servicios del sistema y cómo se comunican |
 | [C4-3-componentes-event-gateway.md](C4-3-componentes-event-gateway.md) | Componentes | Adentro del `event-gateway` |
-| [clases-event-gateway.md](clases-event-gateway.md) | Código | Vista lógica 4+1: clases y sus relaciones |
+| [clases-event-gateway.md](clases-event-gateway.md) | Código | Vista lógica 4+1: clases del gateway |
+| [clases-webhook-dispatcher.md](clases-webhook-dispatcher.md) | Código | Vista lógica 4+1: clases del dispatcher |
 
 ## Comportamiento
 
 | Diagrama | Qué muestra |
 |---|---|
-| [secuencias.md](secuencias.md) | Publicar un evento, entregar un webhook, registrar un schema |
+| [secuencias.md](secuencias.md) | Publicar un evento (gateway), entregar un webhook (dispatcher), registrar un schema |
 | [estados.md](estados.md) | Ciclo de vida de un evento, de una suscripción y del modelo de ML |
 
 ## Infraestructura

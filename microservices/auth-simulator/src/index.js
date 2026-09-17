@@ -25,7 +25,16 @@
  *   namespace  Identificador del grupo. Cumple dos funciones: es la identidad con la
  *              que Kafka autoriza el consumo, y el prefijo de los tópicos que el
  *              grupo posee. Un grupo sólo puede publicar en `<namespace>.*`.
- *   aud        Audiencia. El broker la verifica.
+ *   aud        Audiencia: para qué API se emitió. Va como **lista** aunque tenga un
+ *              solo elemento, que es como la manda el emisor real. El gateway y el
+ *              broker verifican que la suya esté adentro, no que la lista sea igual.
+ *   iss        Emisor. El gateway lo compara literalmente: es lo que impide que un
+ *              emisor distinto que llegue a estar en el JWKS pase por el legítimo.
+ *   token_use  `service` para credenciales de backends. El gateway sólo acepta esas
+ *              para publicar: la identidad de la persona que originó el hecho viaja
+ *              como dato del evento, no como el token con el que se publica.
+ *   ver        Versión del contrato de identidad. Rechazar lo que no se entiende es
+ *              preferible a interpretarlo con las reglas de otra versión.
  *   jti        Identificador único de esta emisión. El gateway lo guarda en
  *              `metadata.tokenId`, para acotar el impacto de una credencial filtrada.
  *   iat, exp   Emisión y vencimiento.
@@ -87,11 +96,29 @@ const CLIENTS = {
   grupo8: { secret: 'grupo8', namespace: 'com.citypass.analitica' },
 }
 
-/** Segundos de vigencia del token. OAuth2 exige `expires_in` numérico. */
-const TOKEN_TTL_SECONDS = 8 * 60 * 60
+/**
+ * Segundos de vigencia del token. OAuth2 exige `expires_in` numérico.
+ *
+ * Quince minutos, igual que el emisor real. No es una elección cómoda: con un token de
+ * ocho horas nadie llega a ver un vencimiento durante el desarrollo, y el código que lo
+ * maneja —renovar y reintentar en la interfaz— se estrenaría recién en producción. Un
+ * doble de prueba que no falla como el original no sirve para probar nada.
+ */
+const TOKEN_TTL_SECONDS = Number(process.env.TOKEN_TTL_SECONDS || 15 * 60)
 
 /** Audiencia del token: para quién fue emitido. El broker Kafka la verifica. */
-const AUDIENCE = 'citypass'
+const AUDIENCE = process.env.TOKEN_AUDIENCE || 'citypass'
+
+/**
+ * Emisor. Va en el claim `iss` y el gateway lo compara literalmente.
+ *
+ * El emisor real usa su propia URL; acá se declara la del simulador para que el claim
+ * exista y el camino de validación se ejercite igual.
+ */
+const ISSUER = process.env.TOKEN_ISSUER || 'http://auth-simulator:8083'
+
+/** Versión del contrato de identidad. El gateway rechaza lo que no entiende. */
+const CONTRACT_VERSION = 1
 
 let privateKey, publicJwk
 
@@ -128,10 +155,18 @@ app.post('/oauth/token', async (req, res) => {
   if (!client || client.secret !== clientSecret)
     return fail(401, 'invalid_client', 'Las credenciales no son válidas.')
 
-  const accessToken = await new SignJWT({ namespace: client.namespace })
+  // `token_use: service` marca que la credencial es de un backend y no de una persona:
+  // el gateway lo exige para publicar, porque la identidad de quien disparó el hecho
+  // viaja como dato del evento y no como el token con el que se publica.
+  const accessToken = await new SignJWT({
+    namespace: client.namespace,
+    token_use: 'service',
+    ver: CONTRACT_VERSION,
+  })
     .setProtectedHeader({ alg: 'RS256', kid: publicJwk.kid })
+    .setIssuer(ISSUER)
     .setSubject(clientId)
-    .setAudience(AUDIENCE)
+    .setAudience([AUDIENCE])
     .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(`${TOKEN_TTL_SECONDS}s`)

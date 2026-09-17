@@ -72,3 +72,28 @@ suscriptor que acepta la conexión y nunca responde bloquea el tópico para siem
 - `enable.auto.commit=false` y `ackMode=RECORD` son dos propiedades que, si alguien cambia,
   reintroducen la pérdida en silencio. Por eso hay un test que las afirma y otro que mide el
   efecto contra un broker embebido.
+
+
+---
+
+## Enmienda (ADR-020)
+
+La decisión no cambia, pero sí quién paga su costo. La contrapresión —«un suscriptor lento
+frena su tópico»— ya no llega a un proceso que además tiene que aceptar publicaciones: los
+consumers viven en `webhook-dispatcher`, así que un endpoint ajeno colgado no puede afectar
+al camino de publicación.
+
+El `group.id` de esos consumers pasó de `event-gateway-webhook-$topic` a
+`webhook-dispatcher-$topic`. Es el nombre que aparece en `kafka-consumer-groups` y en
+kafka-ui cuando hay que diagnosticar un tópico frenado, así que tiene que decir quién está
+atrás del consumer.
+
+El cambio **tiene un costo por única vez**: un group id nuevo no tiene offsets guardados, y
+con `auto.offset.reset=latest` cada suscripción arranca desde el final. Los eventos
+publicados entre el reinicio y la primera asignación de particiones no se entregan. Es una
+ventana de segundos, ocurre una sola vez, y está anunciada acá y en el
+[ADR-020](ADR-020-webhooks-en-su-propio-servicio.md) — a diferencia del costo de arrastrar
+un nombre que miente, que no se paga una vez sino cada vez que alguien lee la consola de
+consumers.
+
+→ [ADR-020](ADR-020-webhooks-en-su-propio-servicio.md)

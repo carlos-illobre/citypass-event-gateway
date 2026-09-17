@@ -150,7 +150,7 @@ siguen funcionando; lo único que debe fallar es crear un event type nuevo.
 Dos instancias detrás de un `upstream` de nginx con `proxy_next_upstream`. El problema no es
 el balanceo sino **el estado en memoria** (hecho 4). Se resuelve con el propio bus:
 
-- **Webhooks:** las dos instancias comparten el `group.id` (`event-gateway-webhook-$topic`),
+- **Webhooks:** las dos instancias comparten el `group.id` (`webhook-dispatcher-$topic`),
   así que **Kafka reparte las particiones y rebalancea solo** cuando una muere. El failover
   no hay que escribirlo: el broker es el árbitro, y por eso no hay escenario de dos
   instancias creyéndose dueñas a la vez.
@@ -339,6 +339,26 @@ privilegiada peor que el problema que resuelve.
 
 ---
 
+## Enmienda (ADR-020)
+
+La **capa 2 se partió en dos**, y a favor: los webhooks se fueron al `webhook-dispatcher`,
+así que replicar el gateway y replicar la entrega dejaron de ser el mismo problema.
+
+- Los dos primeros puntos de la capa 2 siguen valiendo, pero repartidos: el `group.id`
+  compartido que hace el failover solo es ahora del dispatcher, y el catálogo de schemas
+  por `group.id` único sigue siendo del gateway.
+- El tercero —«hace falta el evento análogo para las suscripciones»— **sigue pendiente y
+  sigue siendo el único desarrollo de fondo**, sólo que ahora es del dispatcher y ya no
+  bloquea replicar el gateway. Replicar el gateway ya no necesita ningún evento nuevo.
+
+El `group.id` pasó a `webhook-dispatcher-$topic`. El cambio salteó, por única vez, lo
+publicado durante ese despliegue: un group id nuevo no tiene offsets guardados y
+`auto.offset.reset=latest` arranca desde el final.
+
+→ [ADR-020](ADR-020-webhooks-en-su-propio-servicio.md)
+
+---
+
 ## Referencias
 
 - [ADR-001](ADR-001-kafka-como-broker.md) — por qué Kafka es el bus
@@ -347,5 +367,6 @@ privilegiada peor que el problema que resuelve.
 - [ADR-011](ADR-011-autorizacion-derivada-del-token.md) — el modelo de confianza del autorizador, que es lo que fija la topología de despliegue
 - [ADR-013](ADR-013-entrega-at-least-once.md) — la garantía de entrega que la capa 2 tensiona
 - [ADR-014](ADR-014-un-compose-configuracion-en-env.md) — los techos de memoria y replicación salen del `.env`
+- [ADR-020](ADR-020-webhooks-en-su-propio-servicio.md) — la separación que partió la capa 2 en dos
 - [DEPLOYMENT.md](../DEPLOYMENT.md) — dominio, TLS, puertos y operación
 - [SECURITY.md](../SECURITY.md) — los límites por instancia que dos gateways duplican

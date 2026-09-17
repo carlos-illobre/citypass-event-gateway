@@ -93,6 +93,25 @@ Un campo de negocio puede llamarse `source` o `eventId` sin colisionar con nada.
 
 → [ADR-012](adr/ADR-012-envelope-metadata-data.md)
 
+### El actor humano detrás de un evento
+
+`metadata.source` identifica al **servicio** que publicó, no a la persona que originó el
+hecho. Es correcto que sea así: el gateway lo saca del token, y el token con el que se
+publica es el de un backend.
+
+Cuando el hecho lo originó una persona y a los consumidores les sirve saber quién, la
+convención de la plataforma es un campo **`actorSub`** en `data`, con el identificador
+estable de esa persona:
+
+```json
+{ "name": "actorSub", "type": "string" }
+```
+
+No va en `metadata` porque el gateway no puede calcularlo: no sabe nada de las personas de
+tu módulo. Y conviene que el nombre sea el mismo en todos lados —aunque `data` no tenga
+nombres reservados y cada equipo pueda llamarlo como quiera— porque un consumidor que
+atraviesa varios dominios necesita poder leerlo sin aprenderse una convención por equipo.
+
 ---
 
 ## 3. Tipos permitidos

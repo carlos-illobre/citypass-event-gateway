@@ -11,6 +11,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator
+import org.springframework.security.oauth2.core.OAuth2Error
+import org.springframework.security.oauth2.core.OAuth2TokenValidator
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.security.oauth2.jwt.JwtClaimNames
 import org.springframework.security.oauth2.jwt.JwtClaimValidator
 import org.springframework.security.oauth2.jwt.JwtDecoder
@@ -27,6 +31,8 @@ class SecurityConfig(
     @Value("\${gateway.auth-service-url}") private val authServiceUrl: String,
     @Value("\${gateway.cors-origin}") private val corsOrigin: String,
     @Value("\${gateway.token-audience}") private val audience: String,
+    @Value("\${gateway.token-issuer:}") private val issuer: String,
+    @Value("\${gateway.token-contract-version:1}") private val contractVersion: Int,
     @Value("\${springdoc.swagger-ui.enabled:false}") private val openapiEnabled: Boolean
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -114,20 +120,83 @@ class SecurityConfig(
     }
 
     /**
-     * Valida firma, vencimiento **y audiencia**.
+     * Valida firma, vencimiento, emisor, audiencia, tipo de token y versión del contrato.
      *
-     * Sin el chequeo de audiencia, un token emitido por el mismo servicio de identidad
-     * para otro destinatario sería aceptado acá. El `aud` es lo que dice para quién fue
-     * emitido, y verificarlo evita que un token de otro sistema sirva contra el gateway.
+     * Cada validador está por un motivo distinto, y ninguno cubre lo que cubre otro:
+     *
+     * - **`aud`** dice para quién se emitió el token. Sin este chequeo, un token que el
+     *   mismo emisor generó para otro destinatario serviría acá. Llega como lista aunque
+     *   tenga un solo elemento, así que se pregunta si la nuestra está adentro y no si es
+     *   igual.
+     * - **`iss`** dice quién lo emitió, y se compara literalmente. Es lo que impide que un
+     *   emisor distinto que llegue a estar en el JWKS —una rotación mal hecha, un segundo
+     *   entorno— pase por el legítimo.
+     * - **`token_use`** separa las credenciales de personas de las de servicios. Publicar
+     *   en el bus es cosa de un backend: la persona se autentica contra la API de su
+     *   módulo, y su identidad viaja como dato del evento. Hoy un token humano ya fallaría
+     *   por no traer `namespace`, pero eso es un accidente, no un control: el día que el
+     *   emisor agregue ese claim a los tokens de personas, esto es lo único que evita que
+     *   alguien publique salteándose esa frontera.
+     * - **`ver`** es la versión del contrato de identidad. Rechazar lo que no se entiende
+     *   es preferible a interpretarlo con reglas de otra versión.
+     *
+     * `token-issuer` vacío desactiva su chequeo, para no romper despliegues cuyo emisor
+     * todavía no lo emite. Es una concesión temporal y debería quedar siempre configurado.
      */
     @Bean
     fun jwtDecoder(): JwtDecoder =
         NimbusJwtDecoder.withJwkSetUri("$authServiceUrl/.well-known/jwks.json").build().apply {
-            setJwtValidator(
-                DelegatingOAuth2TokenValidator(
-                    JwtValidators.createDefault(),
-                    JwtClaimValidator<List<String>>(JwtClaimNames.AUD) { it != null && audience in it }
+            setJwtValidator(DelegatingOAuth2TokenValidator(validadores()))
+        }
+
+    internal fun validadores(): List<OAuth2TokenValidator<Jwt>> = buildList {
+        add(JwtValidators.createDefault())
+        add(JwtClaimValidator<List<String>>(JwtClaimNames.AUD) { it != null && audience in it })
+        add(JwtClaimValidator<String>(TOKEN_USE) { it == SERVICE })
+        add(validadorDeVersion())
+        if (issuer.isNotBlank()) {
+            add(JwtClaimValidator<String>(JwtClaimNames.ISS) { it == issuer })
+        } else {
+            logger.warn(
+                "gateway.token-issuer está vacío: no se valida el emisor de los tokens. " +
+                    "Configuralo apenas el servicio de identidad emita el claim 'iss'."
+            )
+        }
+    }
+
+    /**
+     * Valida la versión del contrato, tolerando que **falte**.
+     *
+     * No se usa `JwtClaimValidator` porque rechaza el claim ausente antes de llegar al
+     * predicado, y acá la ausencia es aceptable: hay emisores que todavía no mandan `ver`,
+     * y rechazar por su falta dejaría al gateway sin poder validar nada más. Lo que no se
+     * acepta es una versión **distinta** de la que este código entiende.
+     */
+    private fun validadorDeVersion() = OAuth2TokenValidator<Jwt> { jwt ->
+        if (versionValida(jwt.claims[CONTRACT_VERSION])) {
+            OAuth2TokenValidatorResult.success()
+        } else {
+            OAuth2TokenValidatorResult.failure(
+                OAuth2Error(
+                    "invalid_token",
+                    "El token declara la versión de contrato '${jwt.claims[CONTRACT_VERSION]}' " +
+                        "y este gateway entiende la $contractVersion.",
+                    null
                 )
             )
         }
+    }
+
+    /** Tolera que la versión llegue como número o como texto: hay emisores que la serializan. */
+    private fun versionValida(valor: Any?): Boolean = when (valor) {
+        null -> true
+        is Number -> valor.toInt() == contractVersion
+        else -> valor.toString() == contractVersion.toString()
+    }
+
+    internal companion object {
+        const val TOKEN_USE = "token_use"
+        const val CONTRACT_VERSION = "ver"
+        const val SERVICE = "service"
+    }
 }

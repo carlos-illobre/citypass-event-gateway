@@ -45,3 +45,19 @@ Usar **webhooks** (HTTP callbacks) como mecanismo de suscripción alternativo a 
 - Si el servicio destino está caído, los eventos se pierden después de 3 reintentos. Para consumo confiable, los grupos deben usar Kafka directo.
 - Sin garantía de orden entre reintentos.
 - El servicio consumidor debe ser accesible desde la red de Docker (o desde la VM en producción).
+
+
+---
+
+## Enmienda (ADR-020)
+
+Los webhooks siguen siendo la vía elegida, pero ya no los sirve el gateway: viven en
+`webhook-dispatcher`, un servicio aparte que puede no estar desplegado. Lo que cambia para
+quien los usa es el puerto en desarrollo (8085); en producción el proxy los rutea al mismo
+host de siempre.
+
+La frase «el proxy reintenta hasta 3 veces» de más arriba es de una versión anterior: los
+reintentos los hace el dispatcher, y desde el [ADR-013](ADR-013-entrega-at-least-once.md) lo
+que agota los tres intentos no se pierde, va a la cola de fallidos.
+
+→ [ADR-020](ADR-020-webhooks-en-su-propio-servicio.md)

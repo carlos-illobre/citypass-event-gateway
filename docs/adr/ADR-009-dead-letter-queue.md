@@ -41,3 +41,19 @@ Los mensajes fallidos son eventos — y nuestro sistema ya tiene un bus de event
 - Los mensajes en la DLQ incluyen el payload original en Base64, lo que permite reprocesamiento manual.
 - El tópico tiene la misma retención que los demás (7 días por defecto).
 - El `DlqService` expone métodos separados para fallos de deserialización y de webhook, facilitando el diagnóstico.
+
+
+---
+
+## Enmienda (ADR-020)
+
+La cola se fue entera al `webhook-dispatcher`, y el gateway se quedó sin ninguna. No es un
+reparto: las dos cosas que entraban a la DLQ —un evento ilegible y una entrega agotada—
+ocurren las dos en el camino de la entrega, que ya no es del gateway.
+
+El tópico pasó a llamarse `sistema.webhooks-dlq`, con `sistema.webhooks-dlq-resueltos`
+compactado al lado para las entradas ya reentregadas. El endpoint es
+`GET /api/v1/dead-letters` (el `GET /api/v1/dlq` de más arriba es de una versión anterior) y
+lo atiende el dispatcher.
+
+→ [ADR-020](ADR-020-webhooks-en-su-propio-servicio.md)

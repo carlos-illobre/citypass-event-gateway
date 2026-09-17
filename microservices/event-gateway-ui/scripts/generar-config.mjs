@@ -41,7 +41,8 @@ const plantilla = readFileSync(resolve(raiz, 'config.js.template'), 'utf8')
 const faltantes = []
 
 const salida = plantilla.replace(/\$\{(\w+)\}/g, (_, clave) => {
-  if (!valores[clave]) faltantes.push(clave)
+  // Declarada pero vacía es válido: así se apaga una parte opcional de la UI.
+  if (valores[clave] === undefined) faltantes.push(clave)
   return valores[clave] ?? ''
 })
 

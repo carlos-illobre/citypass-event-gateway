@@ -34,6 +34,7 @@ declare -A esperados=(
     [prometheus]=MEM_LIMIT_PROMETHEUS
     [grafana]=MEM_LIMIT_GRAFANA
     [anomaly-detector]=MEM_LIMIT_ANOMALY_DETECTOR
+    [event-anomaly-analysis]=MEM_LIMIT_EVENT_ANOMALY_ANALYSIS
     [auth-simulator]=MEM_LIMIT_AUTH_SIMULATOR
     [event-gateway-ui]=MEM_LIMIT_EVENT_GATEWAY_UI
 )
