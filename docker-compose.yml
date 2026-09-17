@@ -431,6 +431,42 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  event-anomaly-analysis:
+    mem_limit: ${MEM_LIMIT_EVENT_ANOMALY_ANALYSIS:?falta MEM_LIMIT_EVENT_ANOMALY_ANALYSIS en el .env}
+    logging: *logging
+    image: ${IMAGE_PREFIX:-citypass-eda}/event-anomaly-analysis:${TAG:-latest}
+    build:
+      context: ./microservices/event-anomaly-analysis
+      dockerfile: Dockerfile
+    container_name: event-anomaly-analysis
+    hostname: event-anomaly-analysis
+    # El detector histórico ya publica 8084 en el host. Este componente conserva 8084
+    # dentro de la red de Docker y usa 8086 sólo para diagnóstico local.
+    ports:
+      - "${PUBLISH_ADDR:-127.0.0.1}:8086:8084"
+    depends_on:
+      kafka-authorizer:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONSUMER_GROUP_ID: ${EVENT_ANOMALY_ANALYSIS_CONSUMER_GROUP_ID:?falta EVENT_ANOMALY_ANALYSIS_CONSUMER_GROUP_ID en el .env}
+      PORT: 8084
+      MIN_SAMPLES_TO_TRAIN: ${EVENT_ANOMALY_ANALYSIS_MIN_SAMPLES_TO_TRAIN:?falta EVENT_ANOMALY_ANALYSIS_MIN_SAMPLES_TO_TRAIN en el .env}
+      RETRAIN_EVERY_N: ${EVENT_ANOMALY_ANALYSIS_RETRAIN_EVERY_N:?falta EVENT_ANOMALY_ANALYSIS_RETRAIN_EVERY_N en el .env}
+      CONTAMINATION: ${EVENT_ANOMALY_ANALYSIS_CONTAMINATION:?falta EVENT_ANOMALY_ANALYSIS_CONTAMINATION en el .env}
+      ANOMALIES_TOPIC: ${EVENT_ANOMALY_ANALYSIS_ANOMALIES_TOPIC:?falta EVENT_ANOMALY_ANALYSIS_ANOMALIES_TOPIC en el .env}
+      MAX_ANOMALIES_HISTORY: ${EVENT_ANOMALY_ANALYSIS_MAX_ANOMALIES_HISTORY:?falta EVENT_ANOMALY_ANALYSIS_MAX_ANOMALIES_HISTORY en el .env}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8084/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
   # ── Observabilidad ──────────────────────────────────────────────────────────
   # El gateway expone sus métricas, pero sin alguien que las consulte sólo se ve el valor
   # instantáneo. Prometheus guarda la serie y Grafana la muestra.

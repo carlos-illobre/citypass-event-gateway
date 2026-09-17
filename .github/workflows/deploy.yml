@@ -317,7 +317,7 @@ jobs:
       # arreglar, en vez de descubrirlo de a una.
       fail-fast: false
       matrix:
-        servicio: [event-gateway, event-gateway-ui, frontend, auth-simulator, anomaly-detector, kafka-authorizer, webhook-dispatcher]
+        servicio: [event-gateway, event-gateway-ui, frontend, auth-simulator, anomaly-detector, event-anomaly-analysis, kafka-authorizer, webhook-dispatcher]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -522,7 +522,7 @@ jobs:
       # vuelve a subir las imágenes, así que son unos segundos para las cinco.
       - name: Apuntar latest al commit verificado
         run: |
-          for servicio in event-gateway event-gateway-ui frontend auth-simulator anomaly-detector kafka-authorizer webhook-dispatcher; do
+          for servicio in event-gateway event-gateway-ui frontend auth-simulator anomaly-detector event-anomaly-analysis kafka-authorizer webhook-dispatcher; do
             docker buildx imagetools create \
               -t "$REGISTRO/$servicio:latest" \
               "$REGISTRO/$servicio:${{ github.sha }}"
