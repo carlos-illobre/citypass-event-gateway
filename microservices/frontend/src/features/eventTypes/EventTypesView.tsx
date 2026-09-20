@@ -8,7 +8,7 @@ import { notifications } from '@mantine/notifications'
 import { AuthContext } from '@/contexts/auth-context'
 import { useResource } from '@/hooks/useResource'
 import { gateway, type EventTypeSummary } from '@/api/gateway'
-import { makeField } from '@/domain/avro'
+import { dataRecordOf, makeField } from '@/domain/avro'
 import type { FieldDef } from '@/domain/avro'
 import { ScopeNote } from '@/components/layout/ScopeNote'
 import { ViewState } from '@/components/layout/ViewState'
@@ -80,7 +80,10 @@ export function EventTypesView() {
     gateway.getEventTypeSchema(token, t.fqn).then(schema => {
       setEditing(t)
       setName(t.name)
-      setFields(fromAvroFields(schema.fields))
+      // El schema trae el envelope completo (data + metadata que calcula el gateway); acá sólo
+      // se edita el record `data` con los campos de negocio. Si no tiene ese formato (schemas
+      // viejos, sin envelope) se cae a los campos crudos.
+      setFields(fromAvroFields(dataRecordOf(schema.fields)?.fields ?? schema.fields))
     }).catch((e: Error) => notifications.show({ color: 'red', message: e.message }))
   }
 
