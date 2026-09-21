@@ -144,7 +144,7 @@ http {
         set $gateway event-gateway;
         set $identidad auth-simulator;
         set $anomalias anomaly-detector;
-        set $ui event-gateway-ui;
+        set $ui frontend;
         set $dispatcher webhook-dispatcher;
 
         # Suscripciones y cola de fallidos: desde el ADR-020 son de webhook-dispatcher.
@@ -211,9 +211,13 @@ http {
             proxy_set_header Host $host;
         }
 
-        # La UI queda en la raíz. Sigue siendo `event-gateway-ui`: `frontend` la reemplaza
-        # funcionalmente pero el corte de tráfico es una decisión aparte, para cuando esté
-        # completa — cambiar esto acá y ahora dejaría a los otros grupos sin aviso.
+        # La UI queda en la raíz, y desde acá es `frontend` (la consola Mantine). Reemplaza a
+        # `event-gateway-ui`, que sigue en el compose y publicada sobre 127.0.0.1:5173 por si
+        # hace falta compararlas, pero ya no recibe tráfico de afuera.
+        #
+        # Sólo llega acá lo que no matcheó ningún prefijo de arriba: `/api/`, `/auth/` y
+        # `/anomaly/` los resuelve este proxy antes, así que el nginx del `frontend` sólo
+        # sirve el bundle y el `try_files` de la SPA.
         location / {
             proxy_pass http://$ui:8080;
             proxy_set_header Host $host;
