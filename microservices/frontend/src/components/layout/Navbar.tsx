@@ -1,14 +1,16 @@
-import { Box, Stack, Group, Text, UnstyledButton, Divider, Badge, Image, ActionIcon, Indicator, Tooltip } from '@mantine/core'
+import { Box, Stack, Group, Text, UnstyledButton, Divider, Badge, Image, ActionIcon, Tooltip } from '@mantine/core'
 import { IconBell, IconLayoutSidebarLeftCollapse } from '@tabler/icons-react'
 import { RAIL } from '@/theme'
+import type { DeadLetter } from '@/api/deadLetters'
 import { NAV_MAIN, NAV_UTIL, type Tab } from './nav'
+import { NotificationsBell } from './NotificationsBell'
 
 type Props = {
   active: Tab
   onSelect: (tab: Tab) => void
   navOpened: boolean
   onToggleNav: () => void
-  pendingCount: number
+  notifications: readonly DeadLetter[]
 }
 
 function RailIcon({ label, onClick, children }: { label: string; onClick?: () => void; children: React.ReactNode }) {
@@ -65,7 +67,7 @@ function Item({ tab, label, icon: Icon, active, onSelect }: {
  * como un solo producto aunque cada grupo administre su propio dominio. Acá la sección
  * principal es "bus de eventos": lo que construye el equipo de EDA.
  */
-export function Navbar({ active, onSelect, navOpened, onToggleNav, pendingCount }: Props) {
+export function Navbar({ active, onSelect, navOpened, onToggleNav, notifications }: Props) {
   return (
     <Stack
       h="100%"
@@ -82,11 +84,15 @@ export function Navbar({ active, onSelect, navOpened, onToggleNav, pendingCount 
             <RailIcon label={navOpened ? 'Ocultar menú' : 'Mostrar menú'} onClick={onToggleNav}>
               <IconLayoutSidebarLeftCollapse size={20} stroke={1.5} />
             </RailIcon>
-            <Indicator label={pendingCount} size={16} disabled={pendingCount === 0} color="red" offset={4}>
-              <RailIcon label="Notificaciones">
-                <IconBell size={20} stroke={1.5} />
-              </RailIcon>
-            </Indicator>
+            <NotificationsBell
+              messages={notifications}
+              onOpenDeadLetters={() => onSelect('fallidos')}
+              renderTrigger={({ onClick }) => (
+                <RailIcon label="Notificaciones" onClick={onClick}>
+                  <IconBell size={20} stroke={1.5} />
+                </RailIcon>
+              )}
+            />
           </Group>
         </Group>
 
