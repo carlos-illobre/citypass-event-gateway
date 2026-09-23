@@ -33,10 +33,10 @@ export function Shell({ pendingCount, children }: Props) {
       />
       <AppShell navbar={{ width: 264, breakpoint: 'sm', collapsed: { mobile: !navOpened, desktop: !navOpened } }}>
         <AppShell.Navbar withBorder={false}>
-          <Navbar active={tab} onSelect={goTo} />
+          <Navbar active={tab} onSelect={goTo} navOpened={navOpened} onToggleNav={toggleNav} pendingCount={pendingCount} />
         </AppShell.Navbar>
         <AppShell.Main bg="var(--mantine-color-body)">
-          <TopBar pendingCount={pendingCount} navOpened={navOpened} onToggleNav={toggleNav} />
+          <TopBar navOpened={navOpened} onToggleNav={toggleNav} />
           {children(tab)}
         </AppShell.Main>
       </AppShell>
