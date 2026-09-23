@@ -19,6 +19,10 @@ import { AccountView } from '@/features/account/AccountView'
 import { SettingsView, HelpView } from '@/features/settings/SettingsView'
 import type { Tab } from '@/components/layout/nav'
 import { POLL_MS } from '@/config'
+import { NOTIFICATIONS_LIMIT } from '@/domain/notifications'
+import type { DeadLetter } from '@/api/deadLetters'
+
+const NO_MESSAGES: readonly DeadLetter[] = []
 
 /**
  * El riel tiene una única entrada "Catálogo de tipos"; el ABM de tipos propios (crear,
@@ -57,18 +61,18 @@ const VIEWS: Record<Tab, () => React.ReactNode> = {
 export function App() {
   const { token } = useContext(AuthContext)
 
-  // Cuenta para la campanita del encabezado: mensajes fallidos del propio namespace. Un
+  // Lo que muestra la campanita del riel: los últimos fallidos del propio namespace. Un
   // sondeo aparte y lento —no hace falta más precisión que "hay algo para mirar"— para no
   // acoplar el shell a lo que cada vista ya sondea con su propio intervalo.
   const dlq = useResource(
-    (t, signal) => deadLetters.list(t, 1, signal),
+    (t, signal) => deadLetters.list(t, NOTIFICATIONS_LIMIT, signal),
     { intervalMs: POLL_MS.deadLetters, enabled: Boolean(token) },
   )
 
   if (!token) return <LoginView />
 
   return (
-    <Shell pendingCount={dlq.data ? Math.min(dlq.data.returned, 1) : 0}>
+    <Shell notifications={dlq.data?.messages ?? NO_MESSAGES}>
       {tab => VIEWS[tab]()}
     </Shell>
   )
