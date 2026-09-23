@@ -184,4 +184,50 @@ describe('usePolling', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(MIN_INTERVAL_MS) })
     expect(result.current.data).toBe('nuevo')
   })
+
+  it('si se desmonta mientras la consulta está en vuelo, descarta la respuesta', async () => {
+    let resolve!: (v: string) => void
+    const fetcher = vi.fn(() => new Promise<string>(r => { resolve = r }))
+    const { result, unmount } = renderHook(() => usePolling(fetcher))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    unmount()
+    await act(async () => { resolve('tarde'); await vi.advanceTimersByTimeAsync(MIN_INTERVAL_MS * 2) })
+
+    expect(result.current.data).toBeNull()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('un rechazo que no es Error se muestra como texto y reintenta con el intervalo', async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce('se cayó').mockResolvedValue('ok')
+    const { result } = renderHook(() => usePolling(fetcher, { intervalMs: MIN_INTERVAL_MS }))
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.error).toBe('se cayó')
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(MIN_INTERVAL_MS) })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(result.current.error).toBe('')
+  })
+
+  it('un error de API sin Retry-After reintenta con el intervalo', async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(apiError('caído', 503)).mockResolvedValue('ok')
+    renderHook(() => usePolling(fetcher, { intervalMs: MIN_INTERVAL_MS }))
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(MIN_INTERVAL_MS) })
+
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('un visibilitychange hacia oculto no dispara una consulta', async () => {
+    const fetcher = vi.fn().mockResolvedValue('x')
+    renderHook(() => usePolling(fetcher))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    setHidden(true)
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await vi.advanceTimersByTimeAsync(0) })
+
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
 })
