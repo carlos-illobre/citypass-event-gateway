@@ -59,9 +59,19 @@ export function summarizeDeadLetters(messages: readonly DeadLetter[]): DeadLette
   }
 }
 
-/** Etiqueta legible para los dos motivos que el gateway sabe producir. */
+/** Etiqueta legible para los motivos que el dispatcher sabe producir. */
 export function reasonLabel(reason: string): string {
   if (reason === 'DESERIALIZATION_ERROR') return 'No se pudo deserializar'
   if (reason === 'WEBHOOK_DELIVERY_FAILED') return 'Falló la entrega del webhook'
+  if (reason === 'WEBHOOK_SILENCED') return 'Suscripción silenciada'
   return reason
+}
+
+/**
+ * Si el dispatcher acepta reintentar la entrada. Sólo los fallos de webhook tienen a quién
+ * reenviarse; un evento que no se pudo deserializar no tiene destino, y el backend lo
+ * rechazaría con 409.
+ */
+export function isRetryable(m: Pick<DeadLetter, 'failureReason'>): boolean {
+  return m.failureReason === 'WEBHOOK_DELIVERY_FAILED' || m.failureReason === 'WEBHOOK_SILENCED'
 }
