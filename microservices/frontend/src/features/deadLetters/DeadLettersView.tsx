@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useContext, useMemo, useState } from 'react'
 import { Stack, Table, Badge, Code, Text, Group, SimpleGrid, Paper, CopyButton, Button, Collapse } from '@mantine/core'
 import { CodeHighlight } from '@mantine/code-highlight'
-import { IconCopy, IconCheck, IconChevronDown, IconChevronRight } from '@tabler/icons-react'
+import { notifications } from '@mantine/notifications'
+import { IconCopy, IconCheck, IconChevronDown, IconChevronRight, IconRefresh } from '@tabler/icons-react'
+import { AuthContext } from '@/contexts/auth-context'
+import { isApiError } from '@/api/client'
 import { useResource } from '@/hooks/useResource'
 import { useNow } from '@/hooks/useNow'
 import { deadLetters, type DeadLetter } from '@/api/deadLetters'
-import { decodePayload, reasonLabel, summarizeDeadLetters } from '@/domain/deadLetters'
+import { decodePayload, isRetryable, reasonLabel, summarizeDeadLetters } from '@/domain/deadLetters'
 import { relativeTo, toMillis } from '@/domain/time'
 import { ScopeNote } from '@/components/layout/ScopeNote'
 import { ViewState } from '@/components/layout/ViewState'
@@ -21,9 +24,34 @@ function asCurl(m: DeadLetter): string {
     `  -d '${body}'`
 }
 
-function Row({ m, now }: { m: DeadLetter; now: number }) {
+/**
+ * El 502 de un reintento no es RFC 9457: trae `detalle` en vez de `detail`, así que `apiFetch`
+ * se queda con el genérico «HTTP 502». Se rescata acá para no mostrar un código pelado.
+ */
+function retryErrorMessage(e: unknown): string {
+  if (isApiError(e) && e.status === 502) {
+    const detalle = (e.problem as { detalle?: string }).detalle
+    if (detalle) return detalle
+  }
+  return e instanceof Error ? e.message : String(e)
+}
+
+function Row({ m, now, onResolved }: { m: DeadLetter; now: number; onResolved: () => void }) {
+  const { token } = useContext(AuthContext)
   const [open, setOpen] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const decoded = decodePayload(m.originalPayloadBase64)
+
+  const retry = () => {
+    setRetrying(true)
+    deadLetters.retry(token, m.dlqId)
+      .then(r => {
+        notifications.show({ color: 'teal', message: `Reentregado a ${r.callbackUrl}.` })
+        onResolved()
+      })
+      .catch((e: unknown) => notifications.show({ color: 'red', title: 'No se pudo reentregar', message: retryErrorMessage(e) }))
+      .finally(() => setRetrying(false))
+  }
 
   return (
     <>
@@ -37,9 +65,16 @@ function Row({ m, now }: { m: DeadLetter; now: number }) {
         <Table.Td><Code>{m.originalTopic}</Code></Table.Td>
         <Table.Td>{m.retryCount}</Table.Td>
         <Table.Td title={m.timestamp}>{relativeTo(toMillis(m.timestamp), now)}</Table.Td>
+        <Table.Td onClick={e => e.stopPropagation()}>
+          {isRetryable(m) && (
+            <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} loading={retrying} onClick={retry}>
+              Reintentar
+            </Button>
+          )}
+        </Table.Td>
       </Table.Tr>
       <Table.Tr>
-        <Table.Td colSpan={5} p={0}>
+        <Table.Td colSpan={6} p={0}>
           <Collapse expanded={open}>
             <Stack gap="xs" mx="md" my="sm">
               <Text size="xs" c="dimmed">{m.errorMessage}</Text>
@@ -65,9 +100,10 @@ function Row({ m, now }: { m: DeadLetter; now: number }) {
 }
 
 /**
- * La cola de fallidos. No hay endpoint de reintento: el gateway sólo la expone para leer,
- * así que la recuperación es manual — de ahí "copiar como curl" en vez de un botón
- * "reintentar" que no existe.
+ * La cola de fallidos. Los fallos de webhook se pueden reintentar desde acá: el dispatcher
+ * reentrega a la suscripción vigente y, si funciona, la entrada pasa a resuelta y desaparece
+ * del listado. Un evento que no se pudo deserializar no tiene a quién reenviarse, así que para
+ * esos queda "copiar como curl" y la recuperación manual.
  */
 export function DeadLettersView() {
   const now = useNow()
@@ -92,10 +128,10 @@ export function DeadLettersView() {
             <Table.ScrollContainer minWidth={600}>
               <Table striped highlightOnHover verticalSpacing="xs">
                 <Table.Thead>
-                  <Table.Tr><Table.Th /><Table.Th>Motivo</Table.Th><Table.Th>Tópico</Table.Th><Table.Th>Reintentos</Table.Th><Table.Th>Cuándo</Table.Th></Table.Tr>
+                  <Table.Tr><Table.Th /><Table.Th>Motivo</Table.Th><Table.Th>Tópico</Table.Th><Table.Th>Reintentos</Table.Th><Table.Th>Cuándo</Table.Th><Table.Th /></Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {data.messages.filter((m): m is DeadLetter => typeof m === 'object').map(m => <Row key={m.dlqId} m={m} now={now} />)}
+                  {data.messages.filter((m): m is DeadLetter => typeof m === 'object').map(m => <Row key={m.dlqId} m={m} now={now} onResolved={poll.refresh} />)}
                 </Table.Tbody>
               </Table>
             </Table.ScrollContainer>

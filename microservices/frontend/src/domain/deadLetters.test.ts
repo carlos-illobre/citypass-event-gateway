@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { DeadLetter } from '@/api/deadLetters'
-import { decodePayload, reasonLabel, summarizeDeadLetters } from './deadLetters'
+import { decodePayload, isRetryable, reasonLabel, summarizeDeadLetters } from './deadLetters'
 
 const b64 = (bytes: number[]) => btoa(String.fromCharCode(...bytes))
 
@@ -75,9 +75,21 @@ describe('reasonLabel', () => {
   it('traduce los dos motivos que el gateway sabe producir', () => {
     expect(reasonLabel('DESERIALIZATION_ERROR')).toBe('No se pudo deserializar')
     expect(reasonLabel('WEBHOOK_DELIVERY_FAILED')).toBe('Falló la entrega del webhook')
+    expect(reasonLabel('WEBHOOK_SILENCED')).toBe('Suscripción silenciada')
   })
 
   it('deja pasar un motivo desconocido tal cual', () => {
     expect(reasonLabel('ALGO_NUEVO')).toBe('ALGO_NUEVO')
+  })
+})
+
+describe('isRetryable', () => {
+  it('acepta los fallos de webhook, que tienen a quién reenviarse', () => {
+    expect(isRetryable({ failureReason: 'WEBHOOK_DELIVERY_FAILED' })).toBe(true)
+    expect(isRetryable({ failureReason: 'WEBHOOK_SILENCED' })).toBe(true)
+  })
+
+  it('rechaza un fallo de deserialización, que el dispatcher contestaría con 409', () => {
+    expect(isRetryable({ failureReason: 'DESERIALIZATION_ERROR' })).toBe(false)
   })
 })
