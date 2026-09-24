@@ -153,21 +153,28 @@ function PublishFormBody({ fqn, token, fields, error, setError, sending, setSend
  * reconstruirla acá, que sería adivinar.
  */
 export function PublishView() {
+  const { namespace } = useContext(AuthContext)
   const [fqn, setFqn] = useState<string | null>(null)
   const poll = useResource((t, signal) => gateway.listEventTypes(t, undefined, signal), { intervalMs: 60_000 })
-  const eventType = poll.data?.find(t => t.fqn === fqn) ?? null
+  // El catálogo es global, pero el gateway sólo deja publicar en `<namespace>.*`: ofrecer
+  // los tipos de otros grupos era armar un formulario que termina siempre en 403.
+  const own = useMemo(() => (poll.data ?? []).filter(t => t.namespace === namespace), [poll.data, namespace])
+  const eventType = own.find(t => t.fqn === fqn) ?? null
 
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end">
         <Select
           label="Event type" placeholder="Elegí un tipo para publicar" w={420}
-          data={(poll.data ?? []).map(t => ({ value: t.fqn, label: t.fqn }))}
+          data={own.map(t => ({ value: t.fqn, label: t.fqn }))}
           searchable value={fqn} onChange={setFqn}
         />
       </Group>
 
-      {!fqn && <Text c="dimmed">Elegí un tipo del catálogo para armar el formulario.</Text>}
+      {poll.data && own.length === 0 && (
+        <Text c="dimmed">{namespace || 'Tu namespace'} todavía no tiene event types. Sólo se puede publicar en los tipos propios.</Text>
+      )}
+      {!fqn && own.length > 0 && <Text c="dimmed">Elegí uno de los tipos de {namespace} para armar el formulario.</Text>}
       {fqn && !eventType && <Loader size="sm" />}
       {/* `key={fqn}`: sin esto, cambiar de tipo no remonta `PublishForm` y el schema
           consultado —`useResource` con un intervalo de una hora— se queda pegado al
