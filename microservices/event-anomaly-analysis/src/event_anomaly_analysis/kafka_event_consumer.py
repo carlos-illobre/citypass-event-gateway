@@ -13,6 +13,9 @@ from .isolation_forest_model import IsolationForestModel
 from .kafka_anomaly_publisher import KafkaAnomalyPublisher
 
 
+ALL_TOPICS_PATTERN = r"^.*$"
+
+
 class KafkaEventConsumer:
     def __init__(
         self,
@@ -64,8 +67,7 @@ class KafkaEventConsumer:
 
     def _consume_until_stopped(self) -> None:
         consumer = self._consumer_factory(self._consumer_configuration)
-        escaped_topic = self._anomalies_topic.replace(".", "\\.")
-        consumer.subscribe([f"^(?!{escaped_topic}).*$"])
+        consumer.subscribe([ALL_TOPICS_PATTERN])
         try:
             while self.is_running:
                 message = consumer.poll(timeout=1.0)
@@ -74,6 +76,8 @@ class KafkaEventConsumer:
                 if message.error():
                     if message.error().code() != KafkaError._PARTITION_EOF:
                         print(f"[consumer] error: {message.error()}")
+                    continue
+                if message.topic() == self._anomalies_topic:
                     continue
                 raw_event = message.value()
                 if not raw_event:
