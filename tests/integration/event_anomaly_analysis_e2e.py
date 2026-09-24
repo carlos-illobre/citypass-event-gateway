@@ -211,10 +211,11 @@ def main() -> int:
 
         normal_padding = "normal-" + ("x" * 32)
         for sequence in range(NORMAL_SAMPLES):
+            normal_value = 100 + (sequence % 5)
             publish(token, fqn, {
                 "runId": run_id,
-                "sequence": sequence,
-                "value": 100.0,
+                "sequence": normal_value,
+                "value": float(normal_value),
                 "padding": normal_padding,
             })
 
@@ -227,9 +228,9 @@ def main() -> int:
 
         controlled = publish(token, fqn, {
             "runId": run_id,
-            "sequence": 999999999999,
-            "value": 1e12,
-            "padding": "outlier-" + ("Z" * 20000),
+            "sequence": -1_000_000,
+            "value": -1_000_000.0,
+            "padding": "outlier-" + ("Z" * 32),
         })
         controlled_event_id = controlled["metadata"]["eventId"]
         print(f"CONTROLLED_EVENT_ID={controlled_event_id}")

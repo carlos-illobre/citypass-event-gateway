@@ -2,7 +2,9 @@ import threading
 from collections import deque
 from unittest.mock import Mock
 
-from event_anomaly_analysis.kafka_event_consumer import KafkaEventConsumer
+from confluent_kafka import Consumer
+
+from event_anomaly_analysis.kafka_event_consumer import ALL_TOPICS_PATTERN, KafkaEventConsumer
 
 
 def make_consumer(messages):
@@ -47,6 +49,9 @@ def test_consume_loop_preserves_message_filtering_and_analysis():
     partition_end.error.return_value.code.return_value = -191
     broker_error = Mock()
     broker_error.error.return_value.code.return_value = 123
+    own_anomaly = Mock()
+    own_anomaly.error.return_value = None
+    own_anomaly.topic.return_value = "sistema.anomalia.detectada"
     empty = Mock()
     empty.error.return_value = None
     empty.value.return_value = b""
@@ -58,7 +63,7 @@ def test_consume_loop_preserves_message_filtering_and_analysis():
     valid.value.return_value = b"valid"
     valid.topic.return_value = "business.topic"
     consumer, kafka, deserializer, extractor, model, publisher, history = make_consumer(
-        [partition_end, broker_error, empty, invalid, valid]
+        [partition_end, broker_error, own_anomaly, empty, invalid, valid]
     )
     deserializer.deserialize.side_effect = [None, {"metadata": {"eventId": "event"}}]
     extractor.extract.return_value = [1.0]
@@ -70,8 +75,17 @@ def test_consume_loop_preserves_message_filtering_and_analysis():
         threading.Event().wait(0.01)
     consumer.stop()
 
-    kafka.subscribe.assert_called_once_with([r"^(?!sistema\.anomalia\.detectada).*$"])
+    kafka.subscribe.assert_called_once_with([ALL_TOPICS_PATTERN])
+    own_anomaly.value.assert_not_called()
     assert list(history) == [{"originalEventId": "event"}]
+
+
+def test_subscription_pattern_is_accepted_by_librdkafka():
+    kafka = Consumer({"bootstrap.servers": "localhost:1", "group.id": "pattern-test"})
+    try:
+        kafka.subscribe([ALL_TOPICS_PATTERN])
+    finally:
+        kafka.close()
 
 
 def test_normal_event_is_not_published():
