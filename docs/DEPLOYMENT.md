@@ -37,15 +37,12 @@ esperá a que resuelva:
 dig +short citypass.tudominio.com
 ```
 
-### El servicio de identidad real
+### El servicio de identidad
 
-El `auth-simulator` que viene en el repo es un **mock**: credenciales fijas en el código y
-clave de firma que se regenera en cada arranque, o sea que cada reinicio invalida todos los
-tokens emitidos. Sirve para desarrollar y para la demo, no para producción.
-
-El gateway ya está preparado para un emisor real —valida firma, audiencia y expiración
-contra el JWKS— pero mientras el emisor sea el mock, la plataforma entera confía en él. El
-contrato que tiene que cumplir el reemplazo está en [AUTH.md](AUTH.md).
+Los tokens los emite **login-federado**, del Grupo 2, en `https://api.citypass-login.pp.ua`.
+No corre en esta instancia: gateway, dispatcher, broker y los nginx le hablan por HTTPS, así
+que **la instancia necesita salida a internet** hacia ese host. Se configura con
+`AUTH_SERVICE_URL` y `TOKEN_ISSUER` ([AUTH.md §8](AUTH.md#8-cómo-está-enchufado)).
 
 ### Recursos
 
@@ -161,8 +158,9 @@ el dominio, el mail y la contraseña de kafka-ui:
 | `SPRING_PROFILES_ACTIVE` | vacío | Deja los valores de producción del gateway |
 | `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` | los tuyos | **No dejar `CAMBIAR`** |
 | `GRAFANA_USER` / `GRAFANA_PASSWORD` | los tuyos | Ídem: el compose no arranca si faltan |
-| `AUTH_CORS_ORIGIN` / `GATEWAY_CORS_ORIGIN` | `https://tu-dominio` | Un solo origen, nunca `*` |
-| `LOGIN_API_URL` / `GATEWAY_API_URL` | `https://tu-dominio/...` | Las lee la UI al arrancar, no en el build |
+| `GATEWAY_CORS_ORIGIN` | `https://tu-dominio` | Un solo origen, nunca `*` |
+| `AUTH_SERVICE_URL` | `https://api.citypass-login.pp.ua` | Servicio de identidad del Grupo 2. Sin barra final |
+| `TOKEN_ISSUER` | `https://idp.citypass.local` | El `iss` que emite hoy login-federado; si no coincide, todo da 401 |
 
 **Si alguna variable falta, el compose usa el valor de producción igual**: los defaults son
 los seguros. Olvidarse nunca abre nada.
@@ -412,7 +410,7 @@ ninguno de los que ya existen, así que los merges desde `main` nunca dan confli
 | nginx no arranca por certificado faltante | Falta la emisión inicial del paso 5 |
 | Los clientes de Kafka no conectan | `KAFKA_ADVERTISED_HOST` tiene que ser el dominio, y coincidir con el certificado |
 | El navegador bloquea las llamadas de la UI | `GATEWAY_CORS_ORIGIN` tiene que ser el origen exacto, con `https://` |
-| Los tokens dejan de servir tras un reinicio | El `auth-simulator` regenera su clave. Es el mock: hace falta el servicio real |
+| Todo pedido autenticado da 401 | `TOKEN_ISSUER` distinto del `iss` del token, o la instancia no llega a `AUTH_SERVICE_URL` para bajar el JWKS |
 
 ---
 

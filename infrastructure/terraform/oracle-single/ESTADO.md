@@ -75,8 +75,7 @@ el criterio es el del ADR-016: declarar y documentar la nube de punta a punta al
      vive en archivos locales/gitignoreados (`deployment/oracle-single/.env`,
      `terraform.tfvars`) y en el `.env` que termina en la VM (generado desde
      `.env.oracle` vía el `sed` del paso 6 de ORACLE.md — variables `PUBLIC_DOMAIN`,
-     `KAFKA_ADVERTISED_HOST`, `TOKEN_ISSUER`, `AUTH_CORS_ORIGIN`, `GATEWAY_CORS_ORIGIN`,
-     `LOGIN_API_URL`, `GATEWAY_API_URL`, `DISPATCHER_API_URL`). Nada del código
+     `KAFKA_ADVERTISED_HOST`, `GATEWAY_CORS_ORIGIN`). Nada del código
      (`application.yml`, `docker-compose.yml`, `nginx.conf.template`) ni de la
      documentación versionada tiene el dominio hardcodeado — todo sale de variables de
      entorno o usa placeholders (`TU_DOMINIO`). El certificado usa `--cert-name citypass`

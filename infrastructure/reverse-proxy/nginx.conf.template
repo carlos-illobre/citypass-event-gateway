@@ -142,7 +142,8 @@ http {
         # Con la variable, nginx consulta el DNS de Docker respetando el `valid=10s` del
         # resolver, así que una recreación se absorbe sola en diez segundos.
         set $gateway event-gateway;
-        set $identidad auth-simulator;
+        # URL completa, con esquema: el servicio de identidad es externo (Grupo 2).
+        set $identidad ${AUTH_SERVICE_URL};
         set $anomalias anomaly-detector;
         set $ui frontend;
         set $dispatcher webhook-dispatcher;
@@ -189,17 +190,40 @@ http {
             proxy_pass http://$gateway:8080/health;
         }
 
-        # Servicio de identidad. Cuando lo reemplace el del grupo 2, acá cambia el
-        # destino y nada más.
+        # Servicio de identidad: login-federado, del Grupo 2. Se sigue ofreciendo bajo
+        # `/auth/` para que la consola y los grupos que ya usaban
+        # `https://<dominio>/auth/oauth/token` no tengan que cambiar nada.
         #
-        # El `rewrite` reemplaza al `/` final que llevaba el proxy_pass literal, que era
-        # lo que quitaba el prefijo `/auth/`. Con variables esa forma no sirve: nginx
+        # El `rewrite` reemplaza al `/` final que llevaría un proxy_pass literal, que es
+        # lo que quita el prefijo `/auth/`. Con variables esa forma no sirve: nginx
         # mandaría TODAS las peticiones a `/` en vez de conservar el resto de la ruta.
+        #
+        # `Host` es el del destino y no el nuestro: es un servidor ajeno detrás de su
+        # propio proxy, que rutea por nombre.
         location /auth/ {
             rewrite ^/auth/(.*)$ /$1 break;
-            proxy_pass http://$identidad:8083;
-            proxy_set_header Host              $host;
+            proxy_pass $identidad;
+            proxy_set_header Host              $proxy_host;
             proxy_set_header X-Forwarded-Proto $scheme;
+            # Es un host público por HTTPS: SNI con su nombre (sin esto su TLS no sabe qué
+            # certificado dar) y verificación del certificado contra las CA del sistema, porque
+            # por acá viajan los `client_secret` de cada grupo.
+            proxy_ssl_server_name on;
+            proxy_ssl_verify on;
+            proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+            proxy_ssl_verify_depth 3;
+        }
+
+        # Su `/health` pide token; el público es el de actuator. Se traduce acá para que
+        # `/auth/health` siga significando «la identidad está arriba».
+        location = /auth/health {
+            proxy_pass $identidad/actuator/health;
+            proxy_set_header Host $proxy_host;
+            # Mismo TLS que `/auth/`.
+            proxy_ssl_server_name on;
+            proxy_ssl_verify on;
+            proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+            proxy_ssl_verify_depth 3;
         }
 
         # Detector de anomalías. No tiene CORS ni autenticación propia, así que sin esta
@@ -211,9 +235,7 @@ http {
             proxy_set_header Host $host;
         }
 
-        # La UI queda en la raíz, y desde acá es `frontend` (la consola Mantine). Reemplaza a
-        # `event-gateway-ui`, que sigue en el compose y publicada sobre 127.0.0.1:5173 por si
-        # hace falta compararlas, pero ya no recibe tráfico de afuera.
+        # La UI queda en la raíz: `frontend`, la consola Mantine.
         #
         # Sólo llega acá lo que no matcheó ningún prefijo de arriba: `/api/`, `/auth/` y
         # `/anomaly/` los resuelve este proxy antes, así que el nginx del `frontend` sólo

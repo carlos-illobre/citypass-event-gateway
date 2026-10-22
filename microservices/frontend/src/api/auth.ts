@@ -25,5 +25,5 @@ export const auth = {
     }).then(({ access_token }) => ({ token: access_token })),
 
   health: (signal?: AbortSignal) =>
-    apiFetch<{ status: string; service: string }>(api.auth.health, { signal }),
+    apiFetch<{ status: string }>(api.auth.health, { signal }),
 }

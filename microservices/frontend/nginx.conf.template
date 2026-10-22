@@ -3,7 +3,8 @@ server {
     listen 8080;
     root /usr/share/nginx/html;
 
-    # DNS interno de Docker, y con los destinos en VARIABLES y no en el `proxy_pass`
+    # DNS interno de Docker (que también resuelve nombres públicos, como el del servicio
+    # de identidad), y con los destinos en VARIABLES y no en el `proxy_pass`
     # literal: sin esto nginx resuelve el nombre UNA VEZ, al arrancar, y si en ese
     # instante el contenedor destino todavía no tiene una entrada en la red —el
     # `depends_on: condition: service_healthy` ayuda, pero no lo garantiza en cualquier
@@ -16,6 +17,7 @@ server {
     # imagen oficial de nginx corre las plantillas de `/etc/nginx/templates/*.template`
     # sola, sin que haga falta un script de entrypoint propio.
     set $gateway  ${GATEWAY_UPSTREAM};
+    # URL completa, con esquema: el servicio de identidad es externo (Grupo 2) y va por HTTPS.
     set $auth     ${AUTH_UPSTREAM};
     set $anomaly  ${ANOMALY_UPSTREAM};
 
@@ -41,11 +43,33 @@ server {
         proxy_set_header Origin "";
     }
 
+    # `Host` es el del destino y no el nuestro: es un servidor ajeno detrás de su propio
+    # proxy, que rutea por nombre. Las directivas `proxy_ssl_*` no hacen nada si el destino
+    # es http (un login-federado local, por ejemplo).
     location /auth/ {
         rewrite ^/auth/(.*)$ /$1 break;
-        proxy_pass http://$auth;
-        proxy_set_header Host $host;
+        proxy_pass $auth;
+        proxy_set_header Host $proxy_host;
         proxy_set_header Origin "";
+        # Es un host público por HTTPS: SNI con su nombre (sin esto su TLS no sabe qué
+        # certificado dar) y verificación del certificado contra las CA del sistema, porque
+        # por acá viajan los `client_secret` de cada grupo.
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_ssl_verify_depth 3;
+    }
+
+    # Su `/health` pide token; el público es el de actuator.
+    location = /auth/health {
+        proxy_pass $auth/actuator/health;
+        proxy_set_header Host $proxy_host;
+        proxy_set_header Origin "";
+        # Mismo TLS que `/auth/`.
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_ssl_verify_depth 3;
     }
 
     # El detector no tiene CORS configurado en absoluto: este proxy es la única forma de

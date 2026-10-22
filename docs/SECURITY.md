@@ -51,8 +51,8 @@ API REST y para conectarse a Kafka, y los dos validan contra el mismo JWKS.
 La consecuencia práctica: dar de baja a un cliente en el servicio de identidad lo deja
 afuera del bus **y** de la API a la vez, sin tocar ninguna lista en ningún otro lado.
 
-Hoy ese emisor es `auth-simulator`, un mock. Lo reemplaza el Grupo 2; cuando llegue, cambia
-de dónde salen los tokens, no cómo se validan.
+Ese emisor es login-federado, del Grupo 2. El bus sólo tiene su clave pública: puede
+validar tokens, nunca emitirlos ([AUTH.md](AUTH.md)).
 
 ### Qué se valida
 
@@ -401,7 +401,7 @@ gateway con su sesión.
 
 | Qué | Dónde vive | Versionado |
 |---|---|---|
-| Credenciales de los grupos | Código del `auth-simulator` | Sí, **es un mock** que se reemplaza |
+| Credenciales de los grupos | login-federado (Grupo 2) | No — las administra el Grupo 2; acá no hay ninguna |
 | Contraseña de kafka-ui | `.env` de la máquina | No — `.env` está en `.gitignore` |
 | Certificado TLS | Volumen `certbot-conf` | No |
 | Clave de firma de los JWT | En memoria del emisor | No |

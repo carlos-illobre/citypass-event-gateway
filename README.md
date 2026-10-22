@@ -94,13 +94,13 @@ Con el stack levantado localmente:
 
 | Servicio | URL | Para qué |
 |---|---|---|
-| **UI del gateway** | http://localhost:5173 | Frontend que permite definir y enviar eventos desde el navegador |
+| **Consola del bus** | http://localhost:5176 | Frontend que permite definir y enviar eventos desde el navegador |
 | **API del gateway** | http://localhost:8080 | La API REST que se utilizará para definir y enviar eventos |
 | **Swagger UI** | http://localhost:8080/doc | Documentación interactiva, con ejemplos de request y response |
 | **Swagger de webhooks** | http://localhost:8085/doc | Suscripciones y cola de fallidos. Es **otro servicio**, así que tiene su propia doc |
 | **OpenAPI (JSON)** | http://localhost:8080/v3/api-docs | Documentación de la API REST en formato JSON |
 | **API de webhooks** | http://localhost:8085 | Suscripciones y cola de fallidos. Es **otro servicio** (ver más abajo) |
-| **Simulador de Autenticación** | http://localhost:8083 | API REST para genera tokens de autenticación |
+| **Servicio de identidad (Grupo 2)** | https://api.citypass-login.pp.ua | Emite los tokens (`/oauth/token`). Es externo: no corre en el compose |
 | **Kafka (externo)** | `localhost:9092` | Para conectar tu consumidor. `SASL_PLAINTEXT` + `OAUTHBEARER` |
 | **Métricas (crudas)** | http://localhost:9090/actuator/prometheus | Métricas de los eventos enviados en formato Prometheus |
 | **Prometheus** | http://localhost:9091 | Guarda la serie histórica de todos los eventos enviados. |
@@ -118,37 +118,34 @@ Salvo `/health` y `/api/v1/schemas/ids/{id}` para la resolución de schemas por 
 Cada grupo tiene un identificador único al que llamaremos **namespace**. El namespace se utiliza para determinar que tipos de eventos 
 puede emitir cada grupo.
 
-> Mientras el grupo 2 desarrolla el módulo de autenticación, se puede utilizar el **Simulador de Autenticación** para generar los
-> JWT necesarios para utilizar la API REST. El Simulador de Autenticación tiene las siguientes credenciales dummy:
+Los tokens los emite **login-federado**, el servicio de identidad del Grupo 2, en
+`https://api.citypass-login.pp.ua`. Cada grupo tiene un cliente de servicio (`client_id` +
+secreto) que **le entrega el Grupo 2**; el namespace va adentro del token y es el que
+registraron para ese cliente. Hoy están registrados:
 
-| Cliente (username) | Secret (password) | Namespace |
-|---|---|---|
-| `grupo1` | `grupo1` | `com.citypass.bus` |
-| `grupo2` | `grupo2` | `com.citypass.auth` |
-| `grupo3` | `grupo3` | `com.citypass.movilidad` |
-| `grupo4` | `grupo4` | `com.citypass.reclamos` |
-| `grupo5` | `grupo5` | `com.citypass.emergencias` |
-| `grupo6` | `grupo6` | `com.citypass.turismo` |
-| `grupo7` | `grupo7` | `com.citypass.transporte` |
-| `grupo8` | `grupo8` | `com.citypass.analitica` |
+| Cliente | Namespace |
+|---|---|
+| `group1` | `com.citypass.bus` |
+| `grupo2` | `com.citypass.auth` |
+| `group5` | `com.citypass.analitica` |
 
-> Estas credenciales son de un **simulador**. El servicio de identidad real lo entrega el
-> Grupo 2; cuando el servicio real este listo se cambia de dónde salen los JWT, no cómo se usan. El contrato que
-> tiene que cumplir el servicio de autenticación real está en [AUTH.md](docs/AUTH.md).
+Si tu grupo no aparece, el cliente lo tiene que crear el Grupo 2
+([IDENTIDAD-CAMBIOS-REQUERIDOS.md](docs/IDENTIDAD-CAMBIOS-REQUERIDOS.md)). Qué exige el bus
+de cada token, y cómo está enchufado, está en [AUTH.md](docs/AUTH.md).
 
 ### Pedir un JWT
 
 ```bash
-curl -X POST http://localhost:8083/oauth/token \
-  -u grupo3:grupo3 \
+curl -X POST https://api.citypass-login.pp.ua/oauth/token \
+  -u "$CLIENT_ID:$SECRET" \
   -d grant_type=client_credentials
 ```
 
 ```json
 {
-  "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImNpdHlwYXNzLWF1dGgta2V5In0...",
+  "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6IlFJUHlYRmRSSllMODctQlpDalVZd0JQVXVUSEJ0WkZKZWlEOGNxY3lzdG8ifQ...",
   "token_type": "Bearer",
-  "expires_in": 3600
+  "expires_in": 900
 }
 ```
 
@@ -235,7 +232,7 @@ exactamente con qué contrato deserializarlo.
 Sólo mandás el nombre y los campos de negocio. El namespace sale de tu token, y la
 `metadata` la agrega el gateway.
 
-Se puede registrar el tipo de evento desde el navegador usando la **UI del gateway** http://localhost:5173, o se puede ejecutar directamente el POST al endpoint:
+Se puede registrar el tipo de evento desde el navegador usando la **consola del bus** http://localhost:5176, o se puede ejecutar directamente el POST al endpoint:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/event-types \
@@ -458,7 +455,7 @@ const registry = new SchemaRegistry({ host: 'http://localhost:8080/api/v1' })
 
 /** Pide un token al servicio de identidad. kafkajs lo vuelve a llamar al vencer. */
 async function obtenerToken() {
-  const respuesta = await fetch('http://localhost:8083/oauth/token', {
+  const respuesta = await fetch('https://api.citypass-login.pp.ua/oauth/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -530,7 +527,7 @@ consumer = Consumer({
     "sasl.oauthbearer.method": "oidc",
     "sasl.oauthbearer.client.id": CLIENT_ID,
     "sasl.oauthbearer.client.secret": SECRET,
-    "sasl.oauthbearer.token.endpoint.url": "http://localhost:8083/oauth/token",
+    "sasl.oauthbearer.token.endpoint.url": "https://api.citypass-login.pp.ua/oauth/token",
 })
 
 consumer.subscribe(["com.citypass.movilidad.BiciDevuelta"])
@@ -606,7 +603,7 @@ public class ConsumidorCityPass {
         props.put("sasl.mechanism", "OAUTHBEARER");
         props.put("sasl.login.callback.handler.class",
                 "org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerLoginCallbackHandler");
-        props.put("sasl.oauthbearer.token.endpoint.url", "http://localhost:8083/oauth/token");
+        props.put("sasl.oauthbearer.token.endpoint.url", "https://api.citypass-login.pp.ua/oauth/token");
         props.put("sasl.jaas.config",
                 "org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required"
                         + " clientId=\"" + CLIENT_ID + "\""

@@ -3,7 +3,7 @@
  * Semillero de datos de demostración.
  *
  * Registra un par de tipos de evento en el namespace de este equipo (`com.citypass.bus`,
- * cliente `grupo1`) y publica un lote, para que la consola no arranque con las ocho
+ * cliente `group1`) y publica un lote, para que la consola no arranque con las ocho
  * pantallas vacías. Corre en Node, no en el navegador: le pega directo al gateway sin
  * pasar por el proxy de Vite, así sirve igual con la consola apagada.
  *
@@ -13,9 +13,14 @@
  */
 
 const GATEWAY = process.env.SEED_GATEWAY_URL ?? 'http://localhost:8080'
-const AUTH    = process.env.SEED_AUTH_URL    ?? 'http://localhost:8083'
-const CLIENT  = process.env.SEED_CLIENT_ID     ?? 'grupo1'
-const SECRET  = process.env.SEED_CLIENT_SECRET ?? 'grupo1'
+const AUTH    = process.env.SEED_AUTH_URL    ?? 'https://api.citypass-login.pp.ua'
+const CLIENT  = process.env.SEED_CLIENT_ID     ?? 'group1'
+// Sin default: es un secreto real del servicio de identidad, no un valor de desarrollo.
+const SECRET  = process.env.SEED_CLIENT_SECRET
+if (!SECRET) {
+  console.error('Falta SEED_CLIENT_SECRET: el secreto de ' + CLIENT + ' que entrega el Grupo 2.')
+  process.exit(1)
+}
 
 // El detector de anomalías necesita 50 muestras para entrenar; por debajo de eso la
 // pantalla de anomalías se queda diciendo "acumulando" y la demo queda a mitad de camino.

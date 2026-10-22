@@ -6,7 +6,7 @@ anomalías, respaldos y salud de los tres servicios. React 19 + Vite + TypeScrip
 [Mantine](https://mantine.dev) como librería de componentes y el navbar lateral en la misma
 estructura que usa el resto de CityPass+.
 
-Reemplaza a [`../event-gateway-ui`](../event-gateway-ui): esa aplicación cubría sólo el alta
+Reemplazó a `event-gateway-ui` (ya retirada del repositorio), que cubría sólo el alta
 de tipos y la publicación; acá se agregó lo que le faltaba —suscripciones, DLQ, anomalías,
 salud, respaldos— sobre la misma lógica de dominio, portada sin reescribir.
 
@@ -19,7 +19,8 @@ npm install
 npm run dev                   # http://localhost:5175
 ```
 
-Credenciales: `grupo1` / `grupo1` — el cliente de este equipo en el simulador de identidad.
+Credenciales: `group1` y su secreto — el cliente de este equipo en login-federado (Grupo 2),
+que entrega el Grupo 2. Sin conexión a `https://api.citypass-login.pp.ua` no se puede ingresar.
 
 Para que las pantallas no arranquen vacías:
 
@@ -39,7 +40,7 @@ npm run coverage
 
 ## Por qué no hay `/config.js` ni variables de build
 
-`event-gateway-ui` resuelve la configuración por ambiente escribiendo `window.__CITYPASS__`
+La vieja `event-gateway-ui` resolvía la configuración por ambiente escribiendo `window.__CITYPASS__`
 en tiempo de arranque del contenedor (ADR-014: una sola imagen para todos los ambientes).
 Acá se llega al mismo resultado por otro camino, más simple porque hay un problema más que
 resolver de paso: **el bundle no tiene ninguna URL de ambiente adentro.** Todas las llamadas
@@ -49,7 +50,7 @@ resuelve es el servidor que sirve esta página:
 | El navegador pide | En desarrollo (Vite) | En el contenedor (nginx) | En producción (`reverse-proxy`) |
 |---|---|---|---|
 | `/api/v1/…`, `/health` | `event-gateway:8080` | ídem | ídem |
-| `/auth/…` | `auth-simulator:8083` | ídem | ídem |
+| `/auth/…` | `https://api.citypass-login.pp.ua` (login-federado, Grupo 2); `/auth/health` va a su `/actuator/health` | ídem | ídem |
 | `/anomaly/…` | `anomaly-detector:8084` | ídem | ídem |
 
 Los tres reenvían con el mismo prefijo, así que una URL relativa compilada una sola vez sirve
@@ -108,7 +109,7 @@ Ninguna pantalla deja adivinar el alcance de sus datos, y no es un detalle de pr
 No hay streaming: ni el gateway ni el detector exponen SSE o WebSocket, y la única vía push
 es un webhook por tópico exacto. Se sondea, y con cuidado: el límite de **600 peticiones por
 minuto** tiene como clave el *namespace*, no el usuario, y se comparte con
-`event-gateway-ui` y con cualquier script del equipo.
+cualquier script del equipo.
 
 `usePolling` (portado de la rama `frontend`) lo maneja de forma estructural:
 

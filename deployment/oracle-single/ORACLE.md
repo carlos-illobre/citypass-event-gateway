@@ -641,11 +641,12 @@ Tiene que decir `301 Moved Permanently`.
 
 ### 10.5 · El recorrido completo
 
-Prueba la cadena entera: nginx, TLS, el simulador de identidad, el gateway, el Schema
-Registry y Kafka.
+Prueba la cadena entera: nginx, TLS, el reenvío a login-federado (Grupo 2), el gateway, el
+Schema Registry y Kafka. Hace falta el secreto real de `group1`, que entrega el Grupo 2:
+exportalo en tu sesión, nunca lo escribas en un archivo.
 
 ```bash
-TOKEN=$(curl -s -X POST https://TU_DOMINIO/auth/oauth/token -u grupo3:grupo3 -d grant_type=client_credentials | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'); echo "${TOKEN:0:40}..."
+TOKEN=$(curl -s -X POST https://TU_DOMINIO/auth/oauth/token -u "group1:$CLIENT_SECRET_GROUP1" -d grant_type=client_credentials | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'); echo "${TOKEN:0:40}..."
 ```
 
 ```bash
@@ -653,16 +654,16 @@ curl -s -X POST https://TU_DOMINIO/api/v1/event-types -H "Authorization: Bearer 
 ```
 
 ```bash
-curl -s -X POST https://TU_DOMINIO/api/v1/event-types/com.citypass.movilidad.PruebaDespliegue/events -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"id":"1"}' -w '\nHTTP %{http_code}\n'
+curl -s -X POST https://TU_DOMINIO/api/v1/event-types/com.citypass.bus.PruebaDespliegue/events -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"id":"1"}' -w '\nHTTP %{http_code}\n'
 ```
 
 `201` en los dos. El segundo devuelve el evento con su `metadata` —`eventId`, `payloadHash`,
 `schemaId`—, que es la prueba de que se serializó contra el schema registrado y llegó a
 Kafka.
 
-> Si da **401**, acordate de la limitación del mock: `auth-simulator` regenera su clave de
-> firma en cada arranque, así que un token pedido antes del último reinicio ya no vale. Pedí
-> uno nuevo.
+> Si el primer comando no devuelve token, la instancia no llega a login-federado o el
+> secreto es incorrecto. Si el token sale pero el gateway da **401**, casi siempre es
+> `TOKEN_ISSUER` en el `.env` distinto del `iss` del token ([AUTH.md §7](../../docs/AUTH.md#7-cómo-verificar-que-cumple)).
 
 Y para limpiar el event type de prueba:
 
@@ -714,8 +715,8 @@ ssh citypass 'cd ~/citypass-event-gateway && docker compose stop reverse-proxy &
 
 ### En el navegador
 
-**`https://TU_DOMINIO`**, con cualquiera de las credenciales del simulador (`grupo3` /
-`grupo3`, por ejemplo).
+**`https://TU_DOMINIO`**, con el `client_id` y el secreto de tu equipo en login-federado
+(`group1`).
 
 **Ya está online.**
 

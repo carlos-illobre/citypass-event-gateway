@@ -14,12 +14,12 @@ source tests/integration/comun.sh
 echo "▶ techo de tópicos"
 
 curl -sf http://localhost:8080/health >/dev/null 2>&1 || { omitir "el gateway no responde"; terminar; }
-TOKEN=$(token_de grupo3)
+TOKEN=$(token_de "$CLIENTE_PRUEBA")
 [ -z "$TOKEN" ] && { omitir "sin token"; terminar; }
 
 leer_env() { grep -E "^$1=" .env 2>/dev/null | cut -d= -f2- | tr -d '"'; }
 MAX_VERSIONES=$(leer_env MAX_VERSIONS_PER_EVENT_TYPE)
-FQN="com.citypass.movilidad.PruebaTechoTopicos"
+FQN="$NS_PRUEBA.PruebaTechoTopicos"
 
 curl -s -X DELETE "http://localhost:8080/api/v1/event-types/$FQN" -H "Authorization: Bearer $TOKEN" -o /dev/null
 

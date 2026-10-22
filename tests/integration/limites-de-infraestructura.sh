@@ -75,13 +75,12 @@ else
 
     salida=$(docker run --rm \
         --add-host kafka-authorizer:127.0.0.1 --add-host event-gateway:127.0.0.1 \
-        --add-host auth-simulator:127.0.0.1 --add-host event-gateway-ui:127.0.0.1 \
         -e NGINX_MAX_BODY -e NGINX_RATE_LIMIT -e NGINX_RATE_BURST -e NGINX_CONN_LIMIT \
-        -e NGINX_KAFKA_CONN_LIMIT \
+        -e NGINX_KAFKA_CONN_LIMIT -e AUTH_SERVICE_URL \
         -v "$PWD/infrastructure/reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro" \
         -v "$TMP:/etc/letsencrypt:ro" \
         --entrypoint sh "$IMAGEN_NGINX" -c '
-            envsubst "\${NGINX_MAX_BODY} \${NGINX_RATE_LIMIT} \${NGINX_RATE_BURST} \${NGINX_CONN_LIMIT} \${NGINX_KAFKA_CONN_LIMIT}" \
+            envsubst "\${NGINX_MAX_BODY} \${NGINX_RATE_LIMIT} \${NGINX_RATE_BURST} \${NGINX_CONN_LIMIT} \${NGINX_KAFKA_CONN_LIMIT} \${AUTH_SERVICE_URL}" \
               < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
             nginx -t 2>&1 | tail -1
             echo "--- stream ---"

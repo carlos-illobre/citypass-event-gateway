@@ -5,7 +5,7 @@
 | [../README.md](../README.md) | **Empezá acá.** Instalación local, URLs y referencia de la API |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Componentes, diagrama general y el porqué de cada decisión |
 | [SECURITY.md](SECURITY.md) | Modelo de amenazas y cómo está implementada cada regla |
-| [AUTH.md](AUTH.md) | **Para el Grupo 2:** qué implementar para reemplazar el `auth-simulator` |
+| [AUTH.md](AUTH.md) | Qué exige el bus de los tokens de login-federado (Grupo 2) y cómo está enchufado |
 | [IDENTIDAD-CAMBIOS-REQUERIDOS.md](IDENTIDAD-CAMBIOS-REQUERIDOS.md) | **Para el Grupo 2:** la lista corta de lo que necesitamos que cambien |
 | [externo/GRUPO-2-AUTENTICACION.md](externo/GRUPO-2-AUTENTICACION.md) | **Documento del Grupo 2**, tal como lo recibimos. No lo editamos |
 | [INTEGRACION-IDENTIDAD.md](INTEGRACION-IDENTIDAD.md) | **Para el Grupo 2:** la justificación de cada pedido, y qué adaptamos nosotros |

@@ -22,7 +22,7 @@ export function SettingsView() {
         <Text size="sm" c="dimmed" mb="sm">
           No son configurables desde acá: son un piso pensado para no comerse el límite de
           600 peticiones por minuto que el gateway aplica por namespace, compartido con
-          <code> event-gateway-ui</code> y con cualquier script del grupo.
+          cualquier script del grupo.
         </Text>
         <Table>
           <Table.Tbody>
@@ -47,7 +47,7 @@ export function HelpView() {
           <Table.Thead><Table.Tr><Table.Th>Código</Table.Th><Table.Th>Significa</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>
             <Table.Tr><Table.Td>400</Table.Td><Table.Td>El evento no cumple el schema, o falta un campo requerido en la petición.</Table.Td></Table.Tr>
-            <Table.Tr><Table.Td>401</Table.Td><Table.Td>Sesión vencida — el token dura 8 h y se invalida si el gateway o el simulador reinician.</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td>401</Table.Td><Table.Td>Sesión vencida — el token dura 15 minutos; después hay que volver a ingresar.</Table.Td></Table.Tr>
             <Table.Tr><Table.Td>403</Table.Td><Table.Td>El event type es de otro namespace: sólo se puede modificar lo que empieza con el propio.</Table.Td></Table.Tr>
             <Table.Tr><Table.Td>404</Table.Td><Table.Td>El tipo no existe. Al publicar, el error trae la lista de tipos disponibles.</Table.Td></Table.Tr>
             <Table.Tr><Table.Td>409</Table.Td><Table.Td>Cupo agotado, o hay equipos de otro namespace suscriptos al tipo que se quiere borrar.</Table.Td></Table.Tr>

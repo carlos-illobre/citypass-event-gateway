@@ -270,23 +270,6 @@ jobs:
           retention-days: 7
           overwrite: true
 
-  ui:
-    name: Build · event-gateway-ui
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: microservices/event-gateway-ui/package-lock.json
-      - run: npm ci
-        working-directory: microservices/event-gateway-ui
-      - run: npm run build
-        working-directory: microservices/event-gateway-ui
-      - run: npx eslint .
-        working-directory: microservices/event-gateway-ui
-
   frontend:
     name: Tests · frontend
     runs-on: ubuntu-24.04-arm
@@ -303,7 +286,7 @@ jobs:
         working-directory: microservices/frontend
       - run: npx eslint .
         working-directory: microservices/frontend
-      # A diferencia del job `ui`, acá sí hay tests: `domain/` exige 100 % de cobertura.
+      # `domain/` exige 100 % de cobertura.
       - run: npm run coverage
         working-directory: microservices/frontend
 
@@ -342,7 +325,7 @@ jobs:
       # arreglar, en vez de descubrirlo de a una.
       fail-fast: false
       matrix:
-        servicio: [event-gateway, event-gateway-ui, frontend, auth-simulator, anomaly-detector, event-anomaly-analysis, kafka-authorizer, webhook-dispatcher]
+        servicio: [event-gateway, frontend, anomaly-detector, event-anomaly-analysis, kafka-authorizer, webhook-dispatcher]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -533,7 +516,7 @@ jobs:
 
   etiquetar:
     name: Mover latest
-    needs: [gateway, authorizer, dispatcher, ui, configuracion, construir]
+    needs: [gateway, authorizer, dispatcher, frontend, configuracion, construir]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -548,7 +531,7 @@ jobs:
       # vuelve a subir las imágenes, así que son unos segundos para las cinco.
       - name: Apuntar latest al commit verificado
         run: |
-          for servicio in event-gateway event-gateway-ui frontend auth-simulator anomaly-detector event-anomaly-analysis kafka-authorizer webhook-dispatcher; do
+          for servicio in event-gateway frontend anomaly-detector event-anomaly-analysis kafka-authorizer webhook-dispatcher; do
             docker buildx imagetools create \
               -t "$REGISTRO/$servicio:latest" \
               "$REGISTRO/$servicio:${{ github.sha }}"

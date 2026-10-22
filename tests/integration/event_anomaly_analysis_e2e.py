@@ -126,7 +126,7 @@ def validate_anomaly(message: dict, output_topic: str, input_topic: str, event_i
         raise RuntimeError("eventType no coincide con el topic E2E")
     if message["originalTopic"] != input_topic or message["originalEventId"] != event_id:
         raise RuntimeError("la anomalía no pertenece al evento controlado")
-    if message["originalSource"] != "grupo3":
+    if message["originalSource"] != os.environ.get("CITYPASS_E2E_CLIENT", "group1"):
         raise RuntimeError("originalSource no conserva la identidad del productor")
     if not isinstance(message["anomalyScore"], (int, float)):
         raise RuntimeError("anomalyScore no es numérico")
@@ -143,7 +143,8 @@ def main() -> int:
 
     run_id = uuid.uuid4().hex[:12]
     event_name = f"E2EAnomaly{run_id}"
-    fqn = f"com.citypass.movilidad.{event_name}"
+    namespace = os.environ.get("CITYPASS_E2E_NAMESPACE", "com.citypass.bus")
+    fqn = f"{namespace}.{event_name}"
     input_topic = fqn
     output_topic = f"sistema.anomalia.detectada.e2e.{run_id}"
     consumer_group = f"event-anomaly-analysis-e2e-{run_id}"

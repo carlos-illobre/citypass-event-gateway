@@ -57,9 +57,30 @@ contenedor_activo() {
     [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ]
 }
 
-# Token del auth-simulator para el grupo indicado.
+# ── Identidad para las pruebas ───────────────────────────────────────────────
+#
+# Los tokens los emite el login-federado del Grupo 2 (AUTH_SERVICE_URL), así que los
+# secretos son reales y no viven en el repositorio: se exportan antes de correr, uno por
+# cliente, como CLIENT_SECRET_<CLIENTE> en mayúsculas (CLIENT_SECRET_GROUP1).
+#
+# CLIENTE_PRUEBA y NS_PRUEBA tienen que coincidir con lo que ese cliente tiene registrado
+# del lado del Grupo 2: el gateway sólo deja publicar dentro del namespace del token.
+CLIENTE_PRUEBA="${CLIENTE_PRUEBA:-group1}"
+NS_PRUEBA="${NS_PRUEBA:-com.citypass.bus}"
+
+_auth_url() {
+    if [ -n "${AUTH_SERVICE_URL:-}" ]; then echo "$AUTH_SERVICE_URL"; return; fi
+    grep -E '^AUTH_SERVICE_URL=' .env 2>/dev/null | cut -d= -f2- | tr -d '"'
+}
+
+# Token del servicio de identidad para el cliente indicado. Vacío si falta el secreto o
+# el servicio no lo emite: cada script decide si eso es omitir o fallar.
 token_de() {
-    curl -s -X POST http://localhost:8083/oauth/token -u "$1:$1" \
+    local var secreto
+    var="CLIENT_SECRET_$(echo "$1" | tr '[:lower:]-' '[:upper:]_')"
+    secreto="${!var:-}"
+    [ -n "$secreto" ] || return 0
+    curl -s -X POST "$(_auth_url)/oauth/token" -u "$1:$secreto" \
         -d grant_type=client_credentials 2>/dev/null \
         | python3 -c 'import sys,json;print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null
 }

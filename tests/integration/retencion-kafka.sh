@@ -28,9 +28,9 @@ if [ "${1:-}" = "--rapido" ]; then
     omitir "prueba de borrado omitida (--rapido)"; terminar
 fi
 
-TOKEN=$(token_de grupo3)
+TOKEN=$(token_de "$CLIENTE_PRUEBA")
 [ -z "$TOKEN" ] && { omitir "sin token"; terminar; }
-FQN="com.citypass.movilidad.PruebaRetencionAuto"
+FQN="$NS_PRUEBA.PruebaRetencionAuto"
 
 curl -s -X DELETE "http://localhost:8080/api/v1/event-types/$FQN" -H "Authorization: Bearer $TOKEN" -o /dev/null
 creado=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8080/api/v1/event-types \
@@ -47,7 +47,7 @@ fi
 # Se publica el doble de la retención para forzar varias rotaciones. El rate limit es
 # por namespace y por minuto, así que un 429 no es un fallo: se espera a la ventana
 # siguiente. Sin esto el test dependería de que nadie haya usado el namespace hace poco.
-publicados=$(python3 tests/integration/publicar_hasta.py "$TOKEN" "$RETENCION")
+publicados=$(python3 tests/integration/publicar_hasta.py "$TOKEN" "$RETENCION" "$FQN")
 bytes_publicados=$(( publicados * 20000 ))
 afirmar_que "se publicó más que la retención ($bytes_publicados > $RETENCION)" \
     "[ $bytes_publicados -gt $RETENCION ]"

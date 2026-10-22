@@ -12,11 +12,11 @@ if ! curl -sf http://localhost:8080/health >/dev/null 2>&1; then
     omitir "el gateway no responde en :8080"; terminar
 fi
 
-TOKEN=$(token_de grupo3)
-[ -z "$TOKEN" ] && { omitir "el auth-simulator no emitió token"; terminar; }
+TOKEN=$(token_de "$CLIENTE_PRUEBA")
+[ -z "$TOKEN" ] && { omitir "sin token de $CLIENTE_PRUEBA (¿falta su CLIENT_SECRET_*?)"; terminar; }
 
 leer_env() { grep -E "^$1=" .env 2>/dev/null | cut -d= -f2- | tr -d '"'; }
-NS="com.citypass.movilidad"
+NS="$NS_PRUEBA"
 
 # ── cupo de event types ──
 CUPO=$(curl -s http://localhost:8080/api/v1/event-types/quota -H "Authorization: Bearer $TOKEN")
@@ -45,11 +45,11 @@ afirmar_que "la ruta /quota no la captura /{fqn}" "[ -n '$limite_api' ]"
 # Se prueba con un cuerpo apenas mayor que el límite: si el filtro no estuviera, esto
 # devolvería 400 o 202 en lugar de 413.
 maximo=$(leer_env MAX_PAYLOAD_BYTES)
-codigo=$(python3 - "$TOKEN" "$maximo" <<'PY'
+codigo=$(python3 - "$TOKEN" "$maximo" "$NS" <<'PY'
 import sys, json, urllib.request, urllib.error
-tok, maximo = sys.argv[1], int(sys.argv[2])
+tok, maximo, ns = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 cuerpo = json.dumps({'relleno': 'x' * (maximo + 5000)}).encode()
-r = urllib.request.Request('http://localhost:8080/api/v1/event-types/com.citypass.movilidad.NoExiste/events',
+r = urllib.request.Request(f'http://localhost:8080/api/v1/event-types/{ns}.NoExiste/events',
                            data=cuerpo, method='POST',
                            headers={'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'})
 try:
