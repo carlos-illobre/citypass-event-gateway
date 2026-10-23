@@ -1,6 +1,6 @@
-import { useContext, useState } from 'react'
+import { useContext, useMemo, useState } from 'react'
 import {
-  Stack, Group, Table, TextInput, Button, Badge, Code, ActionIcon, Paper, Text, Title,
+  Stack, Group, Table, TextInput, Select, Button, Badge, Code, ActionIcon, Paper, Text, Title,
 } from '@mantine/core'
 import { IconTrash, IconPlus } from '@tabler/icons-react'
 import { modals } from '@mantine/modals'
@@ -9,6 +9,7 @@ import { AuthContext } from '@/contexts/auth-context'
 import { useResource } from '@/hooks/useResource'
 import { useNow } from '@/hooks/useNow'
 import { subscriptions } from '@/api/subscriptions'
+import { gateway } from '@/api/gateway'
 import { relativeTo, toMillis } from '@/domain/time'
 import { ScopeNote } from '@/components/layout/ScopeNote'
 import { ViewState } from '@/components/layout/ViewState'
@@ -18,7 +19,8 @@ import { POLL_MS } from '@/config'
 export function SubscriptionsView() {
   const { token } = useContext(AuthContext)
   const now = useNow()
-  const [topic, setTopic] = useState('')
+  const [group, setGroup] = useState<string | null>(null)
+  const [topic, setTopic] = useState<string | null>(null)
   const [callbackUrl, setCallbackUrl] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -27,10 +29,22 @@ export function SubscriptionsView() {
     (t, signal) => subscriptions.list(t, undefined, signal), { intervalMs: POLL_MS.subscriptions },
   )
 
+  // El catálogo es global: se puede suscribir a eventos de cualquier grupo, no sólo del propio.
+  const types = useResource((t, signal) => gateway.listEventTypes(t, undefined, signal), { intervalMs: 60_000 })
+  const groups = useMemo(
+    () => [...new Set((types.data ?? []).map(t => t.namespace))].sort(),
+    [types.data],
+  )
+  const events = useMemo(
+    () => (types.data ?? []).filter(t => t.namespace === group).map(t => ({ value: t.topic, label: t.name })),
+    [types.data, group],
+  )
+
   const create = () => {
+    if (!topic) return
     setCreating(true); setError(null)
-    subscriptions.create(token, { topic: topic.trim(), callbackUrl: callbackUrl.trim() })
-      .then(() => { setTopic(''); setCallbackUrl(''); poll.refresh() })
+    subscriptions.create(token, { topic, callbackUrl: callbackUrl.trim() })
+      .then(() => { setGroup(null); setTopic(null); setCallbackUrl(''); poll.refresh() })
       .catch(setError)
       .finally(() => setCreating(false))
   }
@@ -51,12 +65,14 @@ export function SubscriptionsView() {
       <Paper withBorder p="md">
         <Title order={4} size="h5" mb="sm">Nueva suscripción</Title>
         <Group align="flex-end">
-          <TextInput label="Tópico" placeholder="com.citypass.movilidad.BiciDevuelta" value={topic}
-            onChange={e => setTopic(e.target.value)} w={340} />
-          <TextInput label="Callback URL" placeholder="https://tu-servicio.example.com/webhook" value={callbackUrl}
+          <Select label="Grupo" placeholder="Elegí un grupo" data={groups} value={group} searchable
+            onChange={g => { setGroup(g); setTopic(null) }} w={220} />
+          <Select label="Eventos" placeholder={group ? 'Elegí un evento' : 'Elegí un grupo primero'} data={events}
+            value={topic} onChange={setTopic} disabled={!group} searchable w={260} />
+          <TextInput label="Webhook" placeholder="https://tu-servicio.example.com/webhook" value={callbackUrl}
             onChange={e => setCallbackUrl(e.target.value)} w={360} />
           <Button leftSection={<IconPlus size={16} />} loading={creating}
-            disabled={!topic.trim() || !callbackUrl.trim()} onClick={create}>
+            disabled={!topic || !callbackUrl.trim()} onClick={create}>
             Suscribir
           </Button>
         </Group>
