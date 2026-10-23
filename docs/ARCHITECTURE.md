@@ -57,8 +57,7 @@ flowchart TB
             suscripciones["Suscripciones<br/>alta · baja · silenciado"]
         end
 
-        ui["event-gateway-ui<br/>registrar tipos y publicar"]
-        auth["Servicio de identidad<br/>emite JWT · publica JWKS"]
+        ui["frontend<br/>consola del bus"]
 
         subgraph kafka_box["kafka-authorizer (broker)"]
             broker["Kafka KRaft"]
@@ -68,6 +67,8 @@ flowchart TB
         registry["Schema Registry<br/>contratos Avro"]
         dlq[("sistema.webhooks-dlq")]
     end
+
+    auth["login-federado (Grupo 2)<br/>emite JWT · publica JWKS"]
 
     subgraph observabilidad["Observabilidad"]
         kafkaui["kafka-ui"]
@@ -174,13 +175,15 @@ atrás. En producción no se publica: los grupos resuelven schemas por el gatewa
 
 ### Servicio de identidad
 
-Emite los JWT y publica su clave pública en un JWKS. Hoy es `auth-simulator`, un mock que
-entrega el Grupo 2 en su versión real.
+Emite los JWT y publica su clave pública en un JWKS. Es **login-federado**, del Grupo 2,
+fuera de esta plataforma (`https://api.citypass-login.pp.ua`). Gateway, dispatcher y broker
+sólo tienen su clave pública ([AUTH.md](AUTH.md), [ADR-024](adr/ADR-024-identidad-delegada-en-login-federado.md)).
 
-### event-gateway-ui
+### frontend
 
-Frontend en React. Permite registrar event types con un editor de schemas, publicar eventos
-con un formulario generado a partir del schema, y ver los últimos eventos publicados.
+La consola del bus, en React + Mantine. Registra event types, publica eventos, administra
+suscripciones y la cola de fallidos, y muestra anomalías y salud. Su nginx reenvía `/api/`,
+`/auth/` y `/anomaly/`, así que el navegador no le habla directo a ningún servicio.
 
 ### anomaly-detector
 

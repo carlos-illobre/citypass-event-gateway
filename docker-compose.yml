@@ -27,11 +27,9 @@ services:
       # consigo mismo. Exponerlo sería una puerta lateral por encima de toda la
       # autorización del listener externo.
       - "${PUBLISH_ADDR:-127.0.0.1}:${KAFKA_HOST_PORT:-19092}:9092"
-    depends_on:
-      # El listener externo valida los JWT contra el JWKS del auth-simulator, así que
-      # necesita que esté arriba antes de aceptar conexiones.
-      auth-simulator:
-        condition: service_healthy
+    # El listener externo valida los JWT contra el JWKS del servicio de identidad del
+    # Grupo 2, que está fuera de este compose: no hay `depends_on` posible. Si el JWKS no
+    # responde al arrancar, el broker reintenta en cada refresco (ver más abajo).
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
@@ -39,20 +37,20 @@ services:
       # Tres listeners con propósitos distintos:
       #   INTERNAL  (29092) — servicios del compose, sin autenticar, sólo red de Docker
       #   CONTROLLER (9093) — quórum de KRaft, nunca sale del contenedor
-      #   EXTERNAL   (9092) — los grupos, autenticados con el JWT del auth-simulator
+      #   EXTERNAL   (9092) — los grupos, autenticados con el JWT del servicio de identidad
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:SASL_PLAINTEXT'
       KAFKA_LISTENERS: 'INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092'
       KAFKA_ADVERTISED_LISTENERS: 'INTERNAL://kafka-authorizer:29092,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
 
-      # ── Autenticación del listener externo: OAUTHBEARER contra el auth-simulator ──
+      # ── Autenticación del listener externo: OAUTHBEARER contra el servicio de identidad ──
       # El broker valida la firma del JWT con el mismo JWKS que usa el event-gateway,
       # así que la identidad es una sola para toda la plataforma: revocar un cliente
-      # en el auth-simulator lo deja afuera del bus y de la API REST a la vez.
+      # en el servicio de identidad lo deja afuera del bus y de la API REST a la vez.
       KAFKA_SASL_ENABLED_MECHANISMS: 'OAUTHBEARER'
       KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required;'
       KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_SERVER_CALLBACK_HANDLER_CLASS: 'org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerValidatorCallbackHandler'
-      KAFKA_SASL_OAUTHBEARER_JWKS_ENDPOINT_URL: 'http://auth-simulator:8083/.well-known/jwks.json'
+      KAFKA_SASL_OAUTHBEARER_JWKS_ENDPOINT_URL: '${AUTH_SERVICE_URL:?falta AUTH_SERVICE_URL en el .env}/.well-known/jwks.json'
       KAFKA_SASL_OAUTHBEARER_EXPECTED_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
 
       # Cada cuánto releer el JWKS. El validador de Kafka lo recarga **por intervalo**, no
@@ -189,7 +187,7 @@ services:
       # kafka-ui administra el cluster entero y no puede usar el servicio de identidad:
       # ese sólo soporta client_credentials y un navegador no tiene cómo autenticarse
       # contra él. Así que lleva su propio login, que es la única credencial del sistema
-      # fuera del auth-simulator.
+      # fuera del servicio de identidad.
       #
       # La autenticación va acá dentro y no en el reverse-proxy a propósito: si algún día
       # PUBLISH_ADDR queda en 0.0.0.0, kafka-ui se publica solo y se llega al 8090 sin
@@ -203,31 +201,6 @@ services:
       AUTH_TYPE: LOGIN_FORM
       SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:?falta KAFKA_UI_USER en el .env}
       SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?falta KAFKA_UI_PASSWORD en el .env}
-    restart: unless-stopped
-
-  auth-simulator:
-    mem_limit: ${MEM_LIMIT_AUTH_SIMULATOR:?falta MEM_LIMIT_AUTH_SIMULATOR en el .env}
-    logging: *logging
-    image: ${IMAGE_PREFIX:-citypass-eda}/auth-simulator:${TAG:-latest}
-    build:
-      context: ./microservices/auth-simulator
-      dockerfile: Dockerfile
-    container_name: auth-simulator
-    hostname: auth-simulator
-    ports:
-      - "${PUBLISH_ADDR:-127.0.0.1}:8083:8083"
-    environment:
-      TOKEN_ISSUER: ${TOKEN_ISSUER:?falta TOKEN_ISSUER en el .env}
-      TOKEN_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
-      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:?falta TOKEN_TTL_SECONDS en el .env}
-      PORT: 8083
-      AUTH_CORS_ORIGIN: '${AUTH_CORS_ORIGIN}'
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     restart: unless-stopped
 
   event-gateway:
@@ -249,8 +222,6 @@ services:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
-      auth-simulator:
-        condition: service_healthy
     environment:
       TOKEN_ISSUER: ${TOKEN_ISSUER:?falta TOKEN_ISSUER en el .env}
       # Con qué dispatcher hablar para saber de suscripciones al borrar un event type.
@@ -263,7 +234,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       SCHEMAS_DIR: /app/schemas
-      AUTH_SERVICE_URL: http://auth-simulator:8083
+      # Servicio de identidad (Grupo 2). De acá sale el JWKS con el que se validan los tokens.
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?falta AUTH_SERVICE_URL en el .env}
       # Multiplicados dan la velocidad máxima a la que un equipo puede llenar el disco.
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:?falta RATE_LIMIT_PER_MINUTE en el .env}
       MAX_PAYLOAD_BYTES: ${MAX_PAYLOAD_BYTES:?falta MAX_PAYLOAD_BYTES en el .env}
@@ -312,8 +284,6 @@ services:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
-      auth-simulator:
-        condition: service_healthy
     environment:
       SERVER_PORT: 8085
       # Mismo perfil que el gateway: es lo que enciende el Swagger y el log en DEBUG.
@@ -323,7 +293,7 @@ services:
       # Listener INTERNO: sin autenticar y sólo alcanzable dentro de esta red.
       KAFKA_BOOTSTRAP_SERVERS: kafka-authorizer:29092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      AUTH_SERVICE_URL: http://auth-simulator:8083
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?falta AUTH_SERVICE_URL en el .env}
       CORS_ORIGIN: ${GATEWAY_CORS_ORIGIN:?falta GATEWAY_CORS_ORIGIN en el .env}
       TOKEN_ISSUER: ${TOKEN_ISSUER:?falta TOKEN_ISSUER en el .env}
       TOKEN_AUDIENCE: ${TOKEN_AUDIENCE:?falta TOKEN_AUDIENCE en el .env}
@@ -350,37 +320,11 @@ services:
       start_period: 40s
     restart: unless-stopped
 
-  event-gateway-ui:
-    mem_limit: ${MEM_LIMIT_EVENT_GATEWAY_UI:?falta MEM_LIMIT_EVENT_GATEWAY_UI en el .env}
-    logging: *logging
-    image: ${IMAGE_PREFIX:-citypass-eda}/event-gateway-ui:${TAG:-latest}
-    build:
-      context: ./microservices/event-gateway-ui
-      dockerfile: Dockerfile
-    container_name: event-gateway-ui
-    hostname: event-gateway-ui
-    # En runtime, no como argumentos de build: la imagen no sabe a qué ambiente sirve
-    # hasta que arranca, así que la misma vale para todos. `?` porque sin ellas la UI
-    # no puede hablar con nadie, y es mejor que el contenedor no levante a que levante
-    # apuntando a ningún lado.
-    environment:
-      LOGIN_API_URL: '${LOGIN_API_URL:?falta LOGIN_API_URL}'
-      GATEWAY_API_URL: '${GATEWAY_API_URL:?falta GATEWAY_API_URL}'
-      DISPATCHER_API_URL: '${DISPATCHER_API_URL?falta DISPATCHER_API_URL}'
-    ports:
-      - "${PUBLISH_ADDR:-127.0.0.1}:5173:8080"
-    depends_on:
-      event-gateway:
-        condition: service_healthy
-      auth-simulator:
-        condition: service_healthy
-    restart: unless-stopped
-
   # Consola del Grupo 1 (EDA): catálogo, publicar, suscripciones, DLQ, anomalías, respaldos
-  # y salud. A diferencia de `event-gateway-ui`, no lee ninguna URL de ambiente: el bundle
-  # pide rutas relativas y es este mismo nginx el que reenvía a los tres servicios, con el
-  # header `Origin` borrado para que un POST del mismo origen no dispare el 403 de Spring.
-  # Por eso no hace falta agregar nada a `GATEWAY_CORS_ORIGIN` ni a `AUTH_CORS_ORIGIN`.
+  # y salud. El bundle pide rutas relativas y es este mismo nginx el que reenvía a los tres
+  # servicios, con el header `Origin` borrado para que un POST del mismo origen no dispare
+  # el 403 de Spring. Por eso no hace falta agregar nada a `GATEWAY_CORS_ORIGIN`, ni pedirle
+  # al Grupo 2 que sume este origen a su CORS: el navegador nunca le habla directo.
   frontend:
     mem_limit: ${MEM_LIMIT_FRONTEND:?falta MEM_LIMIT_FRONTEND en el .env}
     logging: *logging
@@ -392,10 +336,11 @@ services:
     hostname: frontend
     ports:
       - "${PUBLISH_ADDR:-127.0.0.1}:5176:8080"
+    environment:
+      # URL completa, con esquema: el servicio de identidad es externo y va por HTTPS.
+      AUTH_UPSTREAM: ${AUTH_SERVICE_URL:?falta AUTH_SERVICE_URL en el .env}
     depends_on:
       event-gateway:
-        condition: service_healthy
-      auth-simulator:
         condition: service_healthy
     restart: unless-stopped
 
@@ -547,6 +492,7 @@ services:
       NGINX_RATE_BURST: ${NGINX_RATE_BURST:?falta NGINX_RATE_BURST en el .env}
       NGINX_CONN_LIMIT: ${NGINX_CONN_LIMIT:?falta NGINX_CONN_LIMIT en el .env}
       NGINX_KAFKA_CONN_LIMIT: ${NGINX_KAFKA_CONN_LIMIT:?falta NGINX_KAFKA_CONN_LIMIT en el .env}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?falta AUTH_SERVICE_URL en el .env}
     volumes:
       - ./infrastructure/reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
       - ./infrastructure/reverse-proxy/entrypoint.sh:/entrypoint.sh:ro

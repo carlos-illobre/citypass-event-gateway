@@ -16,8 +16,8 @@ import { ProblemAlert } from '@/components/ui/ProblemAlert'
  */
 export function LoginView() {
   const { setToken } = useContext(AuthContext)
-  const [username, setUsername] = useState('grupo1')
-  const [password, setPassword] = useState('grupo1')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<unknown>(null)
 
@@ -58,9 +58,8 @@ export function LoginView() {
           </form>
 
           <Text size="xs" c="dimmed" ta="center">
-            La identidad del sistema es el grupo, no una persona: <code>grupo1</code> a{' '}
-            <code>grupo8</code>, con la contraseña igual al usuario en el simulador de
-            desarrollo.
+            La identidad del sistema es el grupo, no una persona: el <code>client_id</code> y
+            el secreto que el Grupo 2 le asignó a tu equipo en el servicio de identidad.
           </Text>
         </Stack>
       </Paper>

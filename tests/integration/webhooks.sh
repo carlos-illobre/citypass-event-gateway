@@ -16,13 +16,13 @@ echo "▶ webhooks"
 
 curl -sf "$GATEWAY/health" >/dev/null 2>&1 || { omitir "el gateway no responde"; terminar; }
 curl -sf "$DISPATCHER/health" >/dev/null 2>&1 || { omitir "el dispatcher no responde (¿perfil webhooks apagado?)"; terminar; }
-TOKEN=$(token_de grupo3)
+TOKEN=$(token_de "$CLIENTE_PRUEBA")
 [ -z "$TOKEN" ] && { omitir "sin token"; terminar; }
 
 leer_env() { grep -E "^$1=" .env 2>/dev/null | cut -d= -f2- | tr -d '"'; }
 MAX_WH=$(leer_env MAX_WEBHOOKS_PER_EVENT_TYPE)
 UMBRAL_FALLOS=$(leer_env WEBHOOK_FAILURES_BEFORE_DISABLE)
-FQN="com.citypass.movilidad.PruebaWebhooks"
+FQN="$NS_PRUEBA.PruebaWebhooks"
 
 limpiar() {
     python3 tests/integration/limpiar_webhooks.py "$DISPATCHER" "$TOKEN" "$FQN" >/dev/null 2>&1

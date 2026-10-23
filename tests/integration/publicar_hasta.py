@@ -27,7 +27,7 @@ LIMITE_SEGUNDOS = 300
 def main() -> None:
     token = sys.argv[1]
     objetivo_bytes = int(sys.argv[2])
-    fqn = sys.argv[3] if len(sys.argv) > 3 else 'com.citypass.movilidad.PruebaRetencionAuto'
+    fqn = sys.argv[3] if len(sys.argv) > 3 else 'com.citypass.bus.PruebaRetencionAuto'
 
     url = f'http://localhost:8080/api/v1/event-types/{fqn}/events'
     relleno = 'x' * TAMANO_EVENTO

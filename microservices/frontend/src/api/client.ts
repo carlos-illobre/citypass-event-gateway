@@ -70,7 +70,7 @@ async function problemOf(response: Response): Promise<{ message: string; problem
 
   try {
     // El gateway responde RFC 9457 (application/problem+json): `detail` explica esta ocurrencia
-    // y `title` el tipo de problema. El simulador de identidad responde RFC 6749
+    // y `title` el tipo de problema. El servicio de identidad responde RFC 6749
     // (`error` + `error_description`) — `error` es un código («invalid_client»), la descripción
     // es lo legible. Los demás campos quedan como fallback.
     const cuerpo = JSON.parse(texto) as Problem & { error_description?: string; error?: string; message?: string }

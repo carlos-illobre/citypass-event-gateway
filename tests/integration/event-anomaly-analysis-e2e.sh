@@ -14,11 +14,16 @@ command -v python3 >/dev/null || { echo "FAIL: python3 no está disponible"; exi
 # forma explícita para no depender de un .env privado de la máquina que ejecuta el test.
 docker compose --env-file .env.example config --quiet
 docker compose --env-file .env.example build \
-  kafka-authorizer auth-simulator webhook-dispatcher event-gateway event-anomaly-analysis
+  kafka-authorizer webhook-dispatcher event-gateway event-anomaly-analysis
 docker compose --env-file .env.example up -d --wait \
-  kafka-authorizer schema-registry auth-simulator webhook-dispatcher event-gateway
+  kafka-authorizer schema-registry webhook-dispatcher event-gateway
 
-token=$(token_de grupo3)
-[ -n "$token" ] || { echo "FAIL: auth-simulator no emitió el token de prueba"; exit 1; }
+# El token lo emite el servicio de identidad del Grupo 2: el secreto del cliente de prueba
+# tiene que estar exportado (ver `token_de` en comun.sh).
+: "${AUTH_SERVICE_URL:=$(grep -E '^AUTH_SERVICE_URL=' .env.example | cut -d= -f2-)}"
+export AUTH_SERVICE_URL
+token=$(token_de "$CLIENTE_PRUEBA")
+[ -n "$token" ] || { echo "FAIL: no hay token para $CLIENTE_PRUEBA (¿falta su CLIENT_SECRET_*?)"; exit 1; }
 
-CITYPASS_E2E_TOKEN="$token" python3 tests/integration/event_anomaly_analysis_e2e.py
+CITYPASS_E2E_TOKEN="$token" CITYPASS_E2E_CLIENT="$CLIENTE_PRUEBA" CITYPASS_E2E_NAMESPACE="$NS_PRUEBA" \
+  python3 tests/integration/event_anomaly_analysis_e2e.py

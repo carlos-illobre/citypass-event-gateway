@@ -21,10 +21,10 @@ COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 # debajo de 1024— y necesita permiso de escritura donde nginx escribe su pid y sus temporales.
 # La imagen oficial de nginx ya trae el mecanismo de plantillas (`envsubst` sobre
 # `/etc/nginx/templates/*.template` al arrancar, con `NGINX_ENVSUBST_TEMPLATE_SUFFIX`), así
-# que no hace falta un script de entrypoint propio como el de `event-gateway-ui`: acá lo
-# único que varía entre ambientes son los tres upstreams, no una configuración por servicio.
+# que no hace falta un script de entrypoint propio: acá lo único que varía entre ambientes
+# son los tres upstreams. El de identidad es una URL completa porque es externo y va por HTTPS.
 ENV GATEWAY_UPSTREAM=event-gateway:8080 \
-    AUTH_UPSTREAM=auth-simulator:8083 \
+    AUTH_UPSTREAM=https://api.citypass-login.pp.ua \
     ANOMALY_UPSTREAM=anomaly-detector:8084
 
 RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /etc/nginx/conf.d \
