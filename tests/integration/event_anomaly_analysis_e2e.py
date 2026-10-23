@@ -126,7 +126,7 @@ def validate_anomaly(message: dict, output_topic: str, input_topic: str, event_i
         raise RuntimeError("eventType no coincide con el topic E2E")
     if message["originalTopic"] != input_topic or message["originalEventId"] != event_id:
         raise RuntimeError("la anomalía no pertenece al evento controlado")
-    if message["originalSource"] != os.environ.get("CITYPASS_E2E_CLIENT", "group1"):
+    if message["originalSource"] != os.environ.get("CITYPASS_E2E_CLIENT", "grupo1"):
         raise RuntimeError("originalSource no conserva la identidad del productor")
     if not isinstance(message["anomalyScore"], (int, float)):
         raise RuntimeError("anomalyScore no es numérico")

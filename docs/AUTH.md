@@ -77,11 +77,10 @@ Errores con la forma del RFC (`{ "error", "error_description" }`): `400 unsuppor
 Público. Lo bajan el gateway, el dispatcher y el broker.
 
 ```json
-{ "keys": [ { "kty": "RSA", "e": "AQAB", "kid": "QIPyXFdRJYL87-BZCjUYwBPUuTHBtZFJeiD8cqcysto", "n": "…" } ] }
+{ "keys": [ { "kty": "RSA", "use": "sig", "alg": "RS256", "e": "AQAB", "kid": "QIPyXFdRJYL87-BZCjUYwBPUuTHBtZFJeiD8cqcysto", "n": "…" } ] }
 ```
 
-El `kid` es la huella RFC 7638 de la clave: si la clave no cambia, el `kid` tampoco. No trae
-`alg` ni `use`; ver §6.
+El `kid` es la huella RFC 7638 de la clave: si la clave no cambia, el `kid` tampoco.
 
 ### `GET /actuator/health`
 
@@ -110,7 +109,7 @@ Ejemplo de payload:
 ```json
 {
   "iss": "https://idp.citypass.local",
-  "sub": "group1",
+  "sub": "grupo1",
   "aud": ["citypass"],
   "namespace": "com.citypass.bus",
   "token_use": "service",
@@ -145,12 +144,20 @@ usa como principal: dos instancias del mismo grupo tienen que poder compartir el
 Los registra el Grupo 2 en su `application.yml` (`citypass.clients`, `type: service`). No son
 entradas de LDAP y no hay forma de crearlos desde nuestro lado.
 
-| Cliente | Namespace | Estado en login-federado |
-|---|---|---|
-| `group1` | `com.citypass.bus` | registrado — es el de este equipo |
-| `grupo2` | `com.citypass.auth` | registrado |
-| `group5` | `com.citypass.analitica` | registrado |
-| resto de los grupos | — | pendiente ([IDENTIDAD-CAMBIOS-REQUERIDOS.md](IDENTIDAD-CAMBIOS-REQUERIDOS.md)) |
+| Cliente | Namespace |
+|---|---|
+| `grupo1` | `com.citypass.bus` — el de este equipo |
+| `grupo2` | `com.citypass.auth` |
+| `grupo3` | `com.citypass.movilidad` |
+| `grupo4` | `com.citypass.reclamos` |
+| `grupo5` | `com.citypass.emergencias` |
+| `grupo6` | `com.citypass.turismo` |
+| `grupo7` | `com.citypass.transporte` |
+| `grupo8` | `com.citypass.analitica` |
+
+El Grupo 2 mantiene además `group1` (`com.citypass.bus`) y `group5`
+(`com.citypass.analitica`) como clientes heredados de compatibilidad temporal. No hay que
+usarlos: los van a retirar. El secreto de cada cliente lo entrega el Grupo 2 a su grupo.
 
 Nuestro código no tiene ninguna lista de namespaces ni de clientes: todo sale del token, así
 que sumar un cliente del lado del Grupo 2 alcanza para que ese grupo opere.
@@ -217,9 +224,6 @@ nuestro lado, se resuelve acá.
 |---|---|
 | `iss` es `https://idp.citypass.local`, un nombre que no resuelve | Da igual: sólo se compara como texto. `TOKEN_ISSUER` tiene ese valor |
 | `/health` pide token | Los proxies traducen `/auth/health` a `/actuator/health`, que es público |
-| El JWKS no trae `alg` ni `use` | Nimbus (gateway, dispatcher) y jose4j (broker) aceptan la clave igual; el algoritmo lo fija el header del token y el validador sólo admite RS256 |
-| Los clientes se llaman `group1`/`group5` y no `grupoN` | Nuestro código no depende del nombre: sale del token |
-| Sólo hay tres clientes de servicio | No se puede absorber: es el único pedido abierto |
 
 Si el Grupo 2 cambia el `iss`, todos los pedidos dan 401 hasta actualizar `TOKEN_ISSUER` en
 el `.env`. Si rota la clave, no hay que hacer nada: el `kid` nuevo dispara la relectura del
@@ -229,21 +233,21 @@ JWKS (en el broker, dentro de `KAFKA_JWKS_REFRESH_MS`).
 
 ## 7. Cómo verificar que cumple
 
-Contra producción del Grupo 2, con un secreto real (por ejemplo el de `group1`) exportado en
+Contra producción del Grupo 2, con un secreto real (por ejemplo el de `grupo1`) exportado en
 la sesión. **Nunca lo escribas en un archivo versionado.**
 
 ```bash
 AUTH=https://api.citypass-login.pp.ua
-# export CLIENT_SECRET_GROUP1=...   (te lo pasa el Grupo 2)
+# export CLIENT_SECRET_GRUPO1=...   (te lo pasa el Grupo 2)
 
 # 1. Emite un token con Basic — la forma que usa el cliente de Kafka
-curl -s -X POST $AUTH/oauth/token -u group1:$CLIENT_SECRET_GROUP1 \
+curl -s -X POST $AUTH/oauth/token -u grupo1:$CLIENT_SECRET_GRUPO1 \
   -d grant_type=client_credentials | jq
 # Esperado: access_token, token_type "Bearer", expires_in numérico
 
 # 2. Rechaza credenciales incorrectas con 401
 curl -s -o /dev/null -w '%{http_code}\n' -X POST $AUTH/oauth/token \
-  -u group1:incorrecta -d grant_type=client_credentials
+  -u grupo1:incorrecta -d grant_type=client_credentials
 # Esperado: 401
 
 # 3. El JWKS es público
@@ -252,7 +256,7 @@ curl -s $AUTH/.well-known/jwks.json | jq '.keys[] | {kty, kid}'
 
 ```bash
 # 4. Los claims del token, y que el kid del header esté en el JWKS
-TOKEN=$(curl -s -X POST $AUTH/oauth/token -u group1:$CLIENT_SECRET_GROUP1 \
+TOKEN=$(curl -s -X POST $AUTH/oauth/token -u grupo1:$CLIENT_SECRET_GRUPO1 \
   -d grant_type=client_credentials | jq -r .access_token)
 
 # Un JWT usa base64url, que no es el base64 estándar: `base64 -d` falla con `-`, `_` y el
@@ -277,7 +281,7 @@ Basic, `expires_in`, JWKS y `namespace` como principal de una sola vez. Hay ejem
 [README](../README.md#6-consumir-eventos-desde-kafka).
 
 Los tests de integración (`tests/integration/`) piden el token igual: exportá
-`CLIENT_SECRET_GROUP1` (o el del cliente que pongas en `CLIENTE_PRUEBA`, con su `NS_PRUEBA`).
+`CLIENT_SECRET_GRUPO1` (o el del cliente que pongas en `CLIENTE_PRUEBA`, con su `NS_PRUEBA`).
 
 ---
 

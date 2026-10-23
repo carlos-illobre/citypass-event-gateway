@@ -27,16 +27,20 @@ secreto que el Grupo 2 le entregó a cada equipo.
 
 Los registra el Grupo 2 en login-federado ([AUTH.md](AUTH.md#los-clientes-de-servicio)). El
 namespace es lo que viaja en el JWT y delimita qué puede publicar/editar cada grupo
-(`<namespace>.*`). Hoy hay tres:
+(`<namespace>.*`):
 
 | Cliente | Namespace | Dominio |
 |---|---|---|
-| `group1` | `com.citypass.bus` | Mantiene el bus (no recibe `com.citypass.gateway`, que es interno del gateway) |
+| `grupo1` | `com.citypass.bus` | Mantiene el bus (no recibe `com.citypass.gateway`, que es interno del gateway) |
 | `grupo2` | `com.citypass.auth` | Autenticación |
-| `group5` | `com.citypass.analitica` | Analítica |
+| `grupo3` | `com.citypass.movilidad` | Movilidad |
+| `grupo4` | `com.citypass.reclamos` | Reclamos |
+| `grupo5` | `com.citypass.emergencias` | Emergencias |
+| `grupo6` | `com.citypass.turismo` | Turismo |
+| `grupo7` | `com.citypass.transporte` | Transporte |
+| `grupo8` | `com.citypass.analitica` | Analítica |
 
-Los pasos de abajo que usan `grupo3`… requieren que su cliente exista; mientras tanto se
-pueden hacer con dos de los tres de la tabla.
+Para la demo hace falta el secreto de cada cliente que se use; los entrega el Grupo 2.
 
 No hay clientes privilegiados: todos los grupos tienen exactamente los mismos permisos sobre lo suyo.
 

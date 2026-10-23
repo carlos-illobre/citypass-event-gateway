@@ -61,11 +61,11 @@ contenedor_activo() {
 #
 # Los tokens los emite el login-federado del Grupo 2 (AUTH_SERVICE_URL), así que los
 # secretos son reales y no viven en el repositorio: se exportan antes de correr, uno por
-# cliente, como CLIENT_SECRET_<CLIENTE> en mayúsculas (CLIENT_SECRET_GROUP1).
+# cliente, como CLIENT_SECRET_<CLIENTE> en mayúsculas (CLIENT_SECRET_GRUPO1).
 #
 # CLIENTE_PRUEBA y NS_PRUEBA tienen que coincidir con lo que ese cliente tiene registrado
 # del lado del Grupo 2: el gateway sólo deja publicar dentro del namespace del token.
-CLIENTE_PRUEBA="${CLIENTE_PRUEBA:-group1}"
+CLIENTE_PRUEBA="${CLIENTE_PRUEBA:-grupo1}"
 NS_PRUEBA="${NS_PRUEBA:-com.citypass.bus}"
 
 _auth_url() {

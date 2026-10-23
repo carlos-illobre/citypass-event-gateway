@@ -121,17 +121,21 @@ puede emitir cada grupo.
 Los tokens los emite **login-federado**, el servicio de identidad del Grupo 2, en
 `https://api.citypass-login.pp.ua`. Cada grupo tiene un cliente de servicio (`client_id` +
 secreto) que **le entrega el Grupo 2**; el namespace va adentro del token y es el que
-registraron para ese cliente. Hoy están registrados:
+registraron para ese cliente:
 
 | Cliente | Namespace |
 |---|---|
-| `group1` | `com.citypass.bus` |
+| `grupo1` | `com.citypass.bus` |
 | `grupo2` | `com.citypass.auth` |
-| `group5` | `com.citypass.analitica` |
+| `grupo3` | `com.citypass.movilidad` |
+| `grupo4` | `com.citypass.reclamos` |
+| `grupo5` | `com.citypass.emergencias` |
+| `grupo6` | `com.citypass.turismo` |
+| `grupo7` | `com.citypass.transporte` |
+| `grupo8` | `com.citypass.analitica` |
 
-Si tu grupo no aparece, el cliente lo tiene que crear el Grupo 2
-([IDENTIDAD-CAMBIOS-REQUERIDOS.md](docs/IDENTIDAD-CAMBIOS-REQUERIDOS.md)). Qué exige el bus
-de cada token, y cómo está enchufado, está en [AUTH.md](docs/AUTH.md).
+El secreto de tu cliente te lo pasa el Grupo 2. Qué exige el bus de cada token, y cómo está
+enchufado, está en [AUTH.md](docs/AUTH.md).
 
 ### Pedir un JWT
 

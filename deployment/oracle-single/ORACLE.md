@@ -642,11 +642,11 @@ Tiene que decir `301 Moved Permanently`.
 ### 10.5 · El recorrido completo
 
 Prueba la cadena entera: nginx, TLS, el reenvío a login-federado (Grupo 2), el gateway, el
-Schema Registry y Kafka. Hace falta el secreto real de `group1`, que entrega el Grupo 2:
+Schema Registry y Kafka. Hace falta el secreto real de `grupo1`, que entrega el Grupo 2:
 exportalo en tu sesión, nunca lo escribas en un archivo.
 
 ```bash
-TOKEN=$(curl -s -X POST https://TU_DOMINIO/auth/oauth/token -u "group1:$CLIENT_SECRET_GROUP1" -d grant_type=client_credentials | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'); echo "${TOKEN:0:40}..."
+TOKEN=$(curl -s -X POST https://TU_DOMINIO/auth/oauth/token -u "grupo1:$CLIENT_SECRET_GRUPO1" -d grant_type=client_credentials | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'); echo "${TOKEN:0:40}..."
 ```
 
 ```bash
@@ -716,7 +716,7 @@ ssh citypass 'cd ~/citypass-event-gateway && docker compose stop reverse-proxy &
 ### En el navegador
 
 **`https://TU_DOMINIO`**, con el `client_id` y el secreto de tu equipo en login-federado
-(`group1`).
+(`grupo1`).
 
 **Ya está online.**
 

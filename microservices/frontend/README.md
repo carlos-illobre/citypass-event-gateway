@@ -19,7 +19,7 @@ npm install
 npm run dev                   # http://localhost:5175
 ```
 
-Credenciales: `group1` y su secreto — el cliente de este equipo en login-federado (Grupo 2),
+Credenciales: `grupo1` y su secreto — el cliente de este equipo en login-federado (Grupo 2),
 que entrega el Grupo 2. Sin conexión a `https://api.citypass-login.pp.ua` no se puede ingresar.
 
 Para que las pantallas no arranquen vacías:

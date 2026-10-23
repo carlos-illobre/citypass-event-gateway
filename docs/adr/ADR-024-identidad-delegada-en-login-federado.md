@@ -25,9 +25,9 @@ Lo que no coincide con lo que esperábamos:
 
 - `iss` es `https://idp.citypass.local`, un nombre que no resuelve.
 - `/health` pide token; el público es `/actuator/health`.
-- El JWKS no trae `alg` ni `use`.
-- Sólo hay tres clientes de servicio (`group1`, `grupo2`, `group5`), con nombres distintos
-  de los del simulador.
+- Al principio el JWKS no traía `alg` ni `use` y sólo había tres clientes de servicio. El
+  Grupo 2 lo corrigió en su `main` (PR #46): `alg`/`use` en el JWKS y los clientes
+  `grupo1` a `grupo8` con los namespaces del bus.
 
 ## Decisión
 
@@ -37,7 +37,7 @@ Lo que no coincide con lo que esperábamos:
 2. **Nos adaptamos a su configuración en vez de pedir cambios.** Las diferencias se absorben
    de nuestro lado (`TOKEN_ISSUER` literal, `/auth/health` traducido a `/actuator/health`,
    validadores que no necesitan `alg`/`use`). Al Grupo 2 sólo se le pide lo que no se puede
-   resolver acá: los secretos y los clientes que faltan
+   resolver acá: los secretos de cada cliente
    ([IDENTIDAD-CAMBIOS-REQUERIDOS.md](../IDENTIDAD-CAMBIOS-REQUERIDOS.md)).
 3. **Se mantiene `/auth/` en nuestros proxies**, ahora reenviando por HTTPS (con verificación
    de certificado) a login-federado. La consola y los grupos que ya usaban
