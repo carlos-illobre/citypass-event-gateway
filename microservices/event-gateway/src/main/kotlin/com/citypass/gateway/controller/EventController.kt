@@ -187,7 +187,14 @@ con lo que envió el productor. No hay forma de escribir metadata desde el reque
         )
 
             val bytes = avroService.jsonToAvroBytes(envelope, schema, schemaId)
-            val key = (data["userId"] ?: eventId).toString()
+            // Un productor puede declarar una correlación de negocio explícita. `userId`
+            // se mantiene como fallback para no alterar el particionado de los contratos
+            // existentes, y los eventos sin ninguno de los dos usan su identificador único.
+            val key = (
+                data["correlationId"]
+                    ?: data["userId"]
+                    ?: eventId
+                ).toString()
             // Con `get()` sin tope, un broker lento deja el hilo de request esperando
             // para siempre: se agota el pool y el gateway deja de responder también a lo
             // que no toca Kafka, health check incluido.
