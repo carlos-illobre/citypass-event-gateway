@@ -28,9 +28,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const user      = claims.sub ?? ''
   const namespace = claims.namespace ?? ''
 
-  // Cierre automático cuando el JWT vence. El simulador de identidad regenera su clave RSA en
-  // cada reinicio, así que un token puede quedar inválido antes de su propio `exp` — pero eso
-  // lo detecta el primer 401, no este temporizador; esto sólo cubre el caso normal.
+  // Cierre automático cuando el JWT vence. Si el servicio de identidad rotara su clave, un
+  // token podría quedar inválido antes de su propio `exp` — pero eso lo detecta el primer
+  // 401, no este temporizador; esto sólo cubre el caso normal.
   useEffect(() => {
     if (!token) return
     const exp = expiresAtMs(claims)

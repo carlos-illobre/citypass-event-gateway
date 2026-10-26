@@ -35,7 +35,7 @@ export function HealthView() {
       <Title order={2} size="h3">Salud del bus</Title>
       <SimpleGrid cols={{ base: 1, sm: 3 }}>
         <ServicePill label="Event Gateway" poll={gw} />
-        <ServicePill label="Simulador de identidad" poll={au} />
+        <ServicePill label="Identidad (Grupo 2)" poll={au} />
         <ServicePill label="Detector de anomalías" poll={an} />
       </SimpleGrid>
 

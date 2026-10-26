@@ -16,18 +16,20 @@ es *tus eventos* y *poder publicar en tipos ajenos*.
 ## Antes de arrancar
 
 ```bash
-docker compose ps        # los 11 servicios deben estar Up/healthy
+docker compose ps        # todos los servicios deben estar Up/healthy
 ```
 
 Frontend (consola Mantine): **http://localhost:5176**
-Usuario/contraseña son el mismo valor en los 8 grupos (`grupo2`/`grupo2`, `grupo3`/`grupo3`, etc.).
+Las credenciales son las de cada cliente en login-federado (Grupo 2): el `client_id` y el
+secreto que el Grupo 2 le entregó a cada equipo.
 
 ## Grupos y namespaces
 
-Definidos en `microservices/auth-simulator/src/index.js:80-87`. El namespace es lo que viaja
-en el JWT y delimita qué puede publicar/editar cada grupo (`<namespace>.*`):
+Los registra el Grupo 2 en login-federado ([AUTH.md](AUTH.md#los-clientes-de-servicio)). El
+namespace es lo que viaja en el JWT y delimita qué puede publicar/editar cada grupo
+(`<namespace>.*`):
 
-| Usuario / contraseña | Namespace | Dominio |
+| Cliente | Namespace | Dominio |
 |---|---|---|
 | `grupo1` | `com.citypass.bus` | Mantiene el bus (no recibe `com.citypass.gateway`, que es interno del gateway) |
 | `grupo2` | `com.citypass.auth` | Autenticación |
@@ -38,7 +40,9 @@ en el JWT y delimita qué puede publicar/editar cada grupo (`<namespace>.*`):
 | `grupo7` | `com.citypass.transporte` | Transporte |
 | `grupo8` | `com.citypass.analitica` | Analítica |
 
-No hay clientes privilegiados: los 8 grupos tienen exactamente los mismos permisos sobre lo suyo.
+Para la demo hace falta el secreto de cada cliente que se use; los entrega el Grupo 2.
+
+No hay clientes privilegiados: todos los grupos tienen exactamente los mismos permisos sobre lo suyo.
 
 ## Paso a paso
 

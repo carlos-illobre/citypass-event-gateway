@@ -130,7 +130,7 @@ e=$(systemctl is-enabled docker 2>/dev/null)
 echo "── red ──"
 
 ocupados=$(ss -tlnH 2>/dev/null | awk '{print $4}' | sed 's/.*://' | sort -u \
-    | grep -xE '80|443|3000|5173|8080|8083|8084|8090|9091|19092' | tr '\n' ' ')
+    | grep -xE '80|443|3000|5176|8080|8084|8090|9091|19092' | tr '\n' ' ')
 [ -z "$ocupados" ] && ok "puertos libres" "ninguno en uso" \
     || mal "puertos libres" "ocupados: $ocupados"
 

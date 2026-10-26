@@ -2,9 +2,10 @@ import { defineConfig, type ProxyOptions } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 
-// Los servicios, tal como los publica el compose en el host.
+// Los servicios, tal como los publica el compose en el host. La identidad no está en el
+// compose: es el login-federado del Grupo 2, por HTTPS.
 const GATEWAY = process.env.GATEWAY_ORIGIN ?? 'http://localhost:8080'
-const AUTH    = process.env.AUTH_ORIGIN    ?? 'http://localhost:8083'
+const AUTH    = process.env.AUTH_ORIGIN    ?? 'https://api.citypass-login.pp.ua'
 const ANOMALY = process.env.ANOMALY_ORIGIN ?? 'http://localhost:8084'
 
 /**
@@ -33,8 +34,7 @@ export default defineConfig({
   ],
   envDir: '../../',
   server: {
-    // 5175: el 5173 lo publica el contenedor de `event-gateway-ui` y el 5174 es su modo
-    // desarrollo. `strictPort` evita que Vite se corra solo a otro puerto — con el proxy no
+    // 5175, fijo: `strictPort` evita que Vite se corra solo a otro puerto — con el proxy no
     // rompería CORS, pero sí dejaría de coincidir con lo que dice el README.
     port: 5175,
     strictPort: true,
@@ -45,6 +45,9 @@ export default defineConfig({
     proxy: {
       '/api/v1':          via(GATEWAY),
       '/health':          via(GATEWAY),
+      // Su `/health` pide token; el público es el de actuator. Va antes que `/auth`
+      // porque Vite usa la primera clave que matchea.
+      '/auth/health':     via(AUTH,    () => '/actuator/health'),
       '/auth':            via(AUTH,    path => path.replace(/^\/auth/, '')),
       '/anomaly/api/v1':  via(ANOMALY, path => path.replace(/^\/anomaly/, '')),
     },

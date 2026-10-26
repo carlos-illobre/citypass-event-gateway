@@ -25,7 +25,7 @@ describe('auth.login', () => {
     expect(body.get('client_secret')).toBe('grupo1')
   })
 
-  it('credenciales inválidas rechazan con el mensaje del simulador', async () => {
+  it('credenciales inválidas rechazan con el error_description del servicio de identidad', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false, status: 401, statusText: 'Unauthorized', headers: new Headers(),
       text: () => Promise.resolve(JSON.stringify({ error: 'invalid_client', error_description: 'Credenciales inválidas' })),
@@ -38,8 +38,8 @@ describe('auth.health', () => {
   it('pide /auth/health', async () => {
     const fn = vi.fn().mockResolvedValue({
       ok: true, status: 200, headers: new Headers(),
-      text: () => Promise.resolve(JSON.stringify({ status: 'UP', service: 'auth-simulator' })),
-      json: () => Promise.resolve({ status: 'UP', service: 'auth-simulator' }),
+      text: () => Promise.resolve(JSON.stringify({ status: 'UP' })),
+      json: () => Promise.resolve({ status: 'UP' }),
     } as Response)
     vi.stubGlobal('fetch', fn)
     await auth.health()

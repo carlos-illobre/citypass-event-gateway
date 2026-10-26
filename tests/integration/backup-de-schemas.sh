@@ -14,12 +14,12 @@ source tests/integration/comun.sh
 echo "▶ backup y restauración de schemas"
 
 curl -sf http://localhost:8080/health >/dev/null 2>&1 || { omitir "el gateway no responde"; terminar; }
-TOKEN=$(token_de grupo3)
+TOKEN=$(token_de "$CLIENTE_PRUEBA")
 [ -z "$TOKEN" ] && { omitir "sin token"; terminar; }
 
 API=http://localhost:8080/api/v1/event-types
 AUTH="Authorization: Bearer $TOKEN"
-NS=com.citypass.movilidad
+NS="$NS_PRUEBA"
 NOMBRE=PruebaBackup
 FQN="$NS.$NOMBRE"
 
