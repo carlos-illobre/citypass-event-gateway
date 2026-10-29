@@ -264,6 +264,19 @@ class EventControllerTest {
     }
 
     @Test
+    fun `uses correlationId as the Kafka key when present`() {
+        val jwt = readyToPublish()
+
+        controller.publishEvent(
+            fqn,
+            mapOf("correlationId" to "corr-42", "userId" to "u123"),
+            jwt
+        )
+
+        verify(kafkaTemplate).send(eq(fqn), eq("corr-42"), any())
+    }
+
+    @Test
     fun `falls back to eventId as the Kafka key when data has no userId`() {
         val jwt = readyToPublish()
 
