@@ -131,12 +131,11 @@ class SecurityConfig(
      * - **`iss`** dice quién lo emitió, y se compara literalmente. Es lo que impide que un
      *   emisor distinto que llegue a estar en el JWKS —una rotación mal hecha, un segundo
      *   entorno— pase por el legítimo.
-     * - **`token_use`** separa las credenciales de personas de las de servicios. Publicar
-     *   en el bus es cosa de un backend: la persona se autentica contra la API de su
-     *   módulo, y su identidad viaja como dato del evento. Hoy un token humano ya fallaría
-     *   por no traer `namespace`, pero eso es un accidente, no un control: el día que el
-     *   emisor agregue ese claim a los tokens de personas, esto es lo único que evita que
-     *   alguien publique salteándose esa frontera.
+     * - **`token_use`** tiene que ser uno de los dos tipos que emite login-federado:
+     *   `service` (backends, `client_credentials`) o `human` (personas en la consola, login
+     *   contra LDAP por el cliente `citypass-bus-web`). Los dos traen `namespace` y los dos
+     *   quedan acotados a él; lo que se rechaza es cualquier otro valor o su ausencia
+     *   (ADR-025). Que un token humano sea para el bus lo dice `aud`, no este claim.
      * - **`ver`** es la versión del contrato de identidad. Rechazar lo que no se entiende
      *   es preferible a interpretarlo con reglas de otra versión.
      *
@@ -152,7 +151,7 @@ class SecurityConfig(
     internal fun validadores(): List<OAuth2TokenValidator<Jwt>> = buildList {
         add(JwtValidators.createDefault())
         add(JwtClaimValidator<List<String>>(JwtClaimNames.AUD) { it != null && audience in it })
-        add(JwtClaimValidator<String>(TOKEN_USE) { it == SERVICE })
+        add(JwtClaimValidator<String>(TOKEN_USE) { it in TIPOS_ACEPTADOS })
         add(validadorDeVersion())
         if (issuer.isNotBlank()) {
             add(JwtClaimValidator<String>(JwtClaimNames.ISS) { it == issuer })
@@ -198,5 +197,7 @@ class SecurityConfig(
         const val TOKEN_USE = "token_use"
         const val CONTRACT_VERSION = "ver"
         const val SERVICE = "service"
+        const val HUMAN = "human"
+        val TIPOS_ACEPTADOS = setOf(SERVICE, HUMAN)
     }
 }

@@ -101,13 +101,15 @@ class SecurityConfigTest {
 
     // ── tipo de token ─────────────────────────────────────────────────────────
 
-    /**
-     * La frontera del ADR-011: publicar es cosa de un backend. Hoy un token humano además
-     * fallaría por no traer `namespace`, pero eso es un accidente y esto es el control.
-     */
+    /** La consola entra con el token humano de login-federado (ADR-025). */
     @Test
-    fun `rechaza un token humano`() {
-        assertFalse(acepta(token(tokenUse = "human")))
+    fun `acepta un token humano`() {
+        assertTrue(acepta(token(tokenUse = "human")))
+    }
+
+    @Test
+    fun `rechaza un token_use desconocido`() {
+        assertFalse(acepta(token(tokenUse = "refresh")))
     }
 
     @Test

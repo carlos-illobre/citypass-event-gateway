@@ -30,3 +30,4 @@ lo supersede.
 | [022](ADR-022-webhooks-en-su-propio-servicio.md) | La entrega por webhook vive en su propio servicio | Dejarlo como estaba, eliminar los webhooks, extraer también publicación y tipos |
 | [023](ADR-023-terraform-iac-oracle-cloud.md) | Terraform declara la red, la security list y la VM de Oracle; el DNS sigue manual | Seguir todo manual, Terraform end-to-end, cloud-init, state remoto, DNS por Terraform |
 | [024](ADR-024-identidad-delegada-en-login-federado.md) | La identidad la emite login-federado (Grupo 2); se retira el auth-simulator | Simulador para desarrollo, login-federado local, pedirle cambios al Grupo 2, login humano en la consola |
+| [025](ADR-025-login-ldap-en-la-consola.md) | La consola entra con el login de personas (LDAP); el bus acepta tokens humanos para el bus | Cuenta compartida, BFF, apps de módulo con selector, restringir a `delegados`, validar `token_use` en Kafka |

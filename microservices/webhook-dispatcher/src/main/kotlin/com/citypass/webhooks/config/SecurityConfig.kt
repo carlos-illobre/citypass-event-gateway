@@ -111,7 +111,7 @@ class SecurityConfig(
     internal fun validadores(): List<OAuth2TokenValidator<Jwt>> = buildList {
         add(JwtValidators.createDefault())
         add(JwtClaimValidator<List<String>>(JwtClaimNames.AUD) { it != null && audience in it })
-        add(JwtClaimValidator<String>(TOKEN_USE) { it == SERVICE })
+        add(JwtClaimValidator<String>(TOKEN_USE) { it in TIPOS_ACEPTADOS })
         add(validadorDeVersion())
         if (issuer.isNotBlank()) {
             add(JwtClaimValidator<String>(JwtClaimNames.ISS) { it == issuer })
@@ -148,5 +148,7 @@ class SecurityConfig(
         const val TOKEN_USE = "token_use"
         const val CONTRACT_VERSION = "ver"
         const val SERVICE = "service"
+        const val HUMAN = "human"
+        val TIPOS_ACEPTADOS = setOf(SERVICE, HUMAN)
     }
 }

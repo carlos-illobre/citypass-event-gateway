@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decodeJwt, expiresAtMs, isExpired } from './jwt'
+import { decodeJwt, displayName, expiresAtMs, isExpired, refreshInMs } from './jwt'
 
 function tokenWith(claims: Record<string, unknown>): string {
   const b64url = (s: string) => btoa(s).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
@@ -46,5 +46,40 @@ describe('isExpired', () => {
 
   it('es false sin exp: no hay forma de saber que venció', () => {
     expect(isExpired({}, Date.now())).toBe(false)
+  })
+})
+
+describe('refreshInMs', () => {
+  const exp = 1_700_000_900
+
+  it('renueva un minuto antes del vencimiento', () => {
+    expect(refreshInMs({ exp }, 1_700_000_000_000)).toBe(840_000)
+  })
+
+  it('acepta otro margen', () => {
+    expect(refreshInMs({ exp }, 1_700_000_000_000, 0)).toBe(900_000)
+  })
+
+  it('es 0 dentro del margen o ya vencido: se renueva enseguida', () => {
+    expect(refreshInMs({ exp }, 1_700_000_870_000)).toBe(0)
+    expect(refreshInMs({ exp }, 1_700_001_000_000)).toBe(0)
+  })
+
+  it('es null sin exp', () => {
+    expect(refreshInMs({}, Date.now())).toBeNull()
+  })
+})
+
+describe('displayName', () => {
+  it('prefiere el uid de LDAP del token humano', () => {
+    expect(displayName({ sub: 'U000008', preferred_username: 'delegado-eda' })).toBe('delegado-eda')
+  })
+
+  it('cae al sub en un token de servicio', () => {
+    expect(displayName({ sub: 'grupo1' })).toBe('grupo1')
+  })
+
+  it('es vacío sin ninguno de los dos', () => {
+    expect(displayName({})).toBe('')
   })
 })

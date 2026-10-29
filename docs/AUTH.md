@@ -49,7 +49,8 @@ pública.
 ### `POST /oauth/token`
 
 Flujo `client_credentials` de OAuth 2.0 ([RFC 6749 §4.4](https://www.rfc-editor.org/rfc/rfc6749#section-4.4)).
-Lo usan los backends de cada grupo, los consumidores de Kafka y la consola (vía `/auth/`).
+Lo usan los backends de cada grupo, los consumidores de Kafka, los tests de integración y el
+seed. La consola no: entra con el login de personas (abajo).
 
 ```http
 POST /oauth/token
@@ -72,6 +73,29 @@ Respuesta `200`:
 Errores con la forma del RFC (`{ "error", "error_description" }`): `400 unsupported_grant_type`,
 `400 invalid_request`, `401 invalid_client`.
 
+### `POST /auth/login`, `/auth/refresh` y `/auth/logout`
+
+El login de personas contra LDAP. Lo usa **sólo la consola**, por `/auth/auth/…` (el primer
+`/auth/` es el prefijo que quitan nuestros proxies).
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{ "username": "delegado-eda", "password": "…", "clientId": "citypass-bus-web" }
+```
+
+Devuelve `{ access_token, refresh_token, token_type, expires_in }`: un JWT humano de 15 min y
+un refresh opaco de 8 h. `/auth/refresh` (`{ "refreshToken" }`) canjea el refresh por un par
+nuevo: **rota en cada canje**, y reusar uno ya canjeado revoca la sesión entera.
+`/auth/logout` lo revoca. Los errores de login son un 401 genérico, sin distinguir usuario
+inexistente de contraseña mala.
+
+`citypass-bus-web` es el cliente que el Grupo 2 registró para la consola: **transversal**
+(deja entrar personas de cualquier módulo) y con `audience: citypass`. Sin él sólo podría
+loguearse gente de la OU Eda, y el token saldría con la audiencia de otra API. No es un
+secreto: lo que autentica es la contraseña de la persona.
+
 ### `GET /.well-known/jwks.json`
 
 Público. Lo bajan el gateway, el dispatcher y el broker.
@@ -91,20 +115,29 @@ Público. Es el que consulta la consola (como `/auth/health`, que los proxies tr
 
 ## 3. El token
 
-Firmado con **RS256**; el header lleva el `kid`. Claims de un token de servicio:
+Firmado con **RS256**; el header lleva el `kid`. Hay dos tipos y el bus acepta los dos:
+
+- **de servicio** (`/oauth/token`): lo usa un backend, `sub` es el `client_id` (`grupo3`) y
+  el `namespace` es el registrado para ese cliente;
+- **humano** (`/auth/login`): lo usa una persona en la consola, `sub` es su employeeNumber
+  (`U000008`), y trae además `preferred_username` (su uid), `module` y `groups`. El
+  `namespace` sale del **módulo de la persona** (`eda` → `com.citypass.bus`, `reclamos` →
+  `com.citypass.reclamos`, …), no del cliente por el que entró.
+
+Claims que mira el bus, comunes a los dos:
 
 | Claim | Valor | Quién lo usa y para qué |
 |---|---|---|
-| `sub` | El `client_id` | El gateway lo estampa en `metadata.source` de cada evento. Es la traza de quién publicó |
+| `sub` | El `client_id`, o el employeeNumber de la persona | El gateway lo estampa en `metadata.source` de cada evento. Es la traza de quién publicó |
 | `namespace` | El identificador del grupo | **El más importante.** Delimita en qué tópicos puede publicar (`<namespace>.*`) y es la identidad con la que Kafka autoriza el consumo |
 | `aud` | **Lista** que contiene `citypass` | La verifican gateway, dispatcher y broker. Se comprueba que la nuestra esté **adentro**, no que sea igual |
 | `iss` | `https://idp.citypass.local` | Gateway y dispatcher la comparan **literalmente** contra `TOKEN_ISSUER`. No es una URL a la que alguien se conecte: sólo se compara como texto |
-| `token_use` | `service` | Gateway y dispatcher sólo aceptan credenciales de servicio. Ver abajo |
+| `token_use` | `service` o `human` | Gateway y dispatcher rechazan cualquier otro valor o su ausencia. Kafka no lo mira: ver [§4](#el-broker-de-kafka) |
 | `ver` | `1` | Versión del contrato. Se rechaza lo que no se entiende en vez de interpretarlo con reglas de otra versión |
 | `jti` | Único por emisión | El gateway lo estampa en `metadata.tokenId` |
 | `iat`, `exp` | Emisión y vencimiento (15 min) | `exp` lo verifican los tres validadores |
 
-Ejemplo de payload:
+Ejemplo de payload de servicio:
 
 ```json
 {
@@ -120,17 +153,18 @@ Ejemplo de payload:
 }
 ```
 
-### Por qué se exige `token_use: service`
+### Tokens humanos: sólo los emitidos para el bus
 
-Publicar en el bus es cosa de un **backend**, no de una persona. Cuando alguien hace algo
-que dispara un evento, el servicio de ese grupo autoriza a la persona con el token humano
-de su propia API, y publica el evento con **su propio token de servicio**. La identidad de
-la persona viaja como **dato del evento**, en un campo `actorSub` del record `data`
+Una persona en **nuestra consola** opera con su propio token humano: puede administrar
+event types, publicar, suscribirse y revisar la cola de fallidos, siempre dentro del
+`namespace` de su módulo, igual que un backend de su grupo ([ADR-025](adr/ADR-025-login-ldap-en-la-consola.md)).
+
+Lo que se sigue rechazando es el token humano emitido **para otra API**: el que alguien
+obtiene en la app de su módulo (`citypass-reclamos-web`) trae `aud: citypass-reclamos-api` y
+el bus lo responde con 401. Por eso un backend que dispara eventos por acciones de sus
+usuarios no les reenvía el token: publica con **su propio token de servicio** y lleva la
+identidad de la persona como **dato del evento**, en `actorSub`
 ([CONTRACTS.md](CONTRACTS.md#el-actor-humano-detrás-de-un-evento)).
-
-login-federado también emite tokens humanos (`/auth/login`, contra LDAP), con
-`token_use: human`, `groups` y `module` pero **sin `namespace`**. El bus los rechaza con 401
-a propósito: nunca hay que reenviarle el token de una persona.
 
 ### Sobre `sub` y `namespace`
 
@@ -151,8 +185,8 @@ entradas de LDAP y no hay forma de crearlos desde nuestro lado.
 | `grupo3` | `com.citypass.movilidad` |
 | `grupo4` | `com.citypass.reclamos` |
 | `grupo5` | `com.citypass.emergencias` |
-| `grupo6` | `com.citypass.turismo` |
-| `grupo7` | `com.citypass.transporte` |
+| `grupo6` | `com.citypass.residuos` |
+| `grupo7` | `com.citypass.espacios` |
 | `grupo8` | `com.citypass.analitica` |
 
 El Grupo 2 mantiene además `group1` (`com.citypass.bus`) y `group5`
@@ -179,7 +213,7 @@ Los dos construyen su validador contra `AUTH_SERVICE_URL/.well-known/jwks.json`
 1. **Firma RS256** con la clave del `kid`. Ante un `kid` desconocido vuelven a bajar el JWKS.
 2. **`exp`** — token vencido, rechazado.
 3. **`aud` contiene `TOKEN_AUDIENCE`** (`citypass`).
-4. **`token_use` es `service`.**
+4. **`token_use` es `service` o `human`.**
 5. **`ver` es `1`** (si viene).
 6. **`iss` es exactamente `TOKEN_ISSUER`.**
 
@@ -197,6 +231,14 @@ KAFKA_SASL_OAUTHBEARER_SUB_CLAIM_NAME: 'namespace'
 **El broker toma `namespace` como principal**, no `sub`. Un token sin `namespace` no puede
 ni conectarse. También verifica `aud` y `exp`. Relee el JWKS cada `KAFKA_JWKS_REFRESH_MS`
 (por intervalo, no ante un `kid` desconocido).
+
+**No mira `token_use`.** El token humano de `citypass-bus-web` trae `aud: citypass`, así que
+el broker también lo aceptaría. Como el autorizador deja leer cualquier tópico
+`com.citypass.*` a quien esté autenticado, una persona con un cliente Kafka propio —que haga
+el login LDAP por su cuenta, porque las librerías estándar sólo hacen `client_credentials`—
+podría consumir los eventos de todos los namespaces. No puede escribir ni usar el consumer
+group de otro. Es un **riesgo aceptado** a cambio de no agregar validación propia al broker
+([ADR-025](adr/ADR-025-login-ldap-en-la-consola.md)).
 
 ---
 
@@ -283,6 +325,20 @@ Basic, `expires_in`, JWKS y `namespace` como principal de una sola vez. Hay ejem
 Los tests de integración (`tests/integration/`) piden el token igual: exportá
 `CLIENT_SECRET_GRUPO1` (o el del cliente que pongas en `CLIENTE_PRUEBA`, con su `NS_PRUEBA`).
 
+**El login humano de la consola** se prueba con una persona dada de alta en LDAP. Las altas
+las hace el Grupo 2 o un `delegados` del módulo desde su panel; no hay autoregistro.
+
+```bash
+# 6. Login de una persona por el cliente de la consola (LDAP_USER / LDAP_PASS exportados)
+curl -s -X POST $AUTH/auth/login -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$LDAP_USER\",\"password\":\"$LDAP_PASS\",\"clientId\":\"citypass-bus-web\"}" \
+  | jq -r .access_token | cut -d. -f2 | jwt
+# Esperado: token_use "human", aud con "citypass", namespace del módulo de la persona
+```
+
+En el navegador: entrar a la consola, ver en «Mi cuenta» usuario, módulo y namespace, y
+dejarla abierta más de 15 minutos: tiene que seguir funcionando sin pedir login (renovó sola).
+
 ---
 
 ## 8. Cómo está enchufado
@@ -304,8 +360,9 @@ cambian nada.
 
 - Gateway, dispatcher, broker y los dos nginx bajan el JWKS o reenvían **desde adentro de
   Docker hacia internet**. La instancia necesita salida HTTPS a `api.citypass-login.pp.ua`.
-  Los nginx verifican el certificado contra las CA del sistema, porque por ahí viajan los
-  `client_secret`.
+  Los nginx verifican el certificado contra las CA del sistema, porque por ahí viajan las
+  contraseñas de las personas y los `client_secret`. También le pasan `X-Forwarded-For`:
+  login-federado lo usa para su detector de anomalías y su registro de intentos.
 - No hay `depends_on` posible: si login-federado está caído al arrancar, el bus levanta
   igual, pero nadie consigue tokens nuevos hasta que vuelva. Los tokens vigentes siguen
   valiendo hasta su `exp`.

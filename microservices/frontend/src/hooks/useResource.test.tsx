@@ -5,7 +5,7 @@ import { AuthContext } from '@/contexts/auth-context'
 import { useResource } from './useResource'
 
 const withToken = (token: string) => ({ children }: { children: ReactNode }) => (
-  <AuthContext value={{ token, user: '', namespace: '', setToken: () => {}, logout: () => {} }}>
+  <AuthContext value={{ token, user: '', namespace: '', setSession: () => {}, logout: () => {} }}>
     {children}
   </AuthContext>
 )

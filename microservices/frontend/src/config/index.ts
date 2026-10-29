@@ -20,9 +20,13 @@ export const api = {
     deadLetters:   '/api/v1/dead-letters',
     health:        '/health',
   },
+  // `/auth/` es el prefijo que los proxies le quitan antes de reenviar a login-federado; el
+  // segundo `auth/` es la ruta propia de su login de personas.
   auth: {
-    token:  '/auth/oauth/token',
-    health: '/auth/health',
+    login:   '/auth/auth/login',
+    refresh: '/auth/auth/refresh',
+    logout:  '/auth/auth/logout',
+    health:  '/auth/health',
   },
   anomaly: {
     anomalies: '/anomaly/api/v1/anomalies',
@@ -49,6 +53,13 @@ export const POLL_MS = {
   modelStatus:   30_000,
   health:        30_000,
 } as const
+
+/**
+ * La aplicación por la que la consola le pide tokens humanos a login-federado. Es
+ * transversal —entra gente de cualquier módulo— y emite `aud: citypass`, la audiencia del
+ * bus. No es un secreto: lo que autentica es la contraseña de LDAP de la persona.
+ */
+export const AUTH_CLIENT_ID = 'citypass-bus-web'
 
 /** Los dos endpoints con `limit` lo recortan a 200 en silencio; pedir más no trae más. */
 export const LIMITS = {

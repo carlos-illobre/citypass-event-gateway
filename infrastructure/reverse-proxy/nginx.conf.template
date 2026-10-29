@@ -200,14 +200,19 @@ http {
         #
         # `Host` es el del destino y no el nuestro: es un servidor ajeno detrás de su
         # propio proxy, que rutea por nombre.
+        #
+        # `X-Forwarded-For` lleva la IP real de quien se loguea: login-federado la lee de
+        # ahí para su detector de anomalías y su registro de intentos. Sin el header, todos
+        # los logins de la consola le llegarían desde la IP de esta instancia.
         location /auth/ {
             rewrite ^/auth/(.*)$ /$1 break;
             proxy_pass $identidad;
             proxy_set_header Host              $proxy_host;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             # Es un host público por HTTPS: SNI con su nombre (sin esto su TLS no sabe qué
             # certificado dar) y verificación del certificado contra las CA del sistema, porque
-            # por acá viajan los `client_secret` de cada grupo.
+            # por acá viajan las contraseñas de las personas y los `client_secret` de los grupos.
             proxy_ssl_server_name on;
             proxy_ssl_verify on;
             proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;

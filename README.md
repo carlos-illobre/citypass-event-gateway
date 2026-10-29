@@ -130,8 +130,8 @@ registraron para ese cliente:
 | `grupo3` | `com.citypass.movilidad` |
 | `grupo4` | `com.citypass.reclamos` |
 | `grupo5` | `com.citypass.emergencias` |
-| `grupo6` | `com.citypass.turismo` |
-| `grupo7` | `com.citypass.transporte` |
+| `grupo6` | `com.citypass.residuos` |
+| `grupo7` | `com.citypass.espacios` |
 | `grupo8` | `com.citypass.analitica` |
 
 El secreto de tu cliente te lo pasa el Grupo 2. Qué exige el bus de cada token, y cómo está
@@ -236,7 +236,7 @@ exactamente con qué contrato deserializarlo.
 Sólo mandás el nombre y los campos de negocio. El namespace sale de tu token, y la
 `metadata` la agrega el gateway.
 
-Se puede registrar el tipo de evento desde el navegador usando la **consola del bus** http://localhost:5176, o se puede ejecutar directamente el POST al endpoint:
+Se puede registrar el tipo de evento desde el navegador usando la **consola del bus** http://localhost:5176 (con tu usuario de LDAP), o se puede ejecutar directamente el POST al endpoint:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/event-types \

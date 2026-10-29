@@ -8,6 +8,10 @@ export type Claims = {
   jti?:       string
   iat?:       number
   exp?:       number
+  /** Sólo en el token humano: el uid de LDAP, legible (el `sub` es el employeeNumber). */
+  preferred_username?: string
+  /** Sólo en el token humano: la OU de la persona, de donde sale su `namespace`. */
+  module?:    string
 }
 
 /** Decodifica el payload de un JWT. Devuelve `{}` ante cualquier token malformado. */
@@ -33,3 +37,20 @@ export const isExpired = (claims: Claims, now: number): boolean => {
   const exp = expiresAtMs(claims)
   return exp !== null && exp <= now
 }
+
+/** Cuánto antes del vencimiento se renueva: deja margen para una pestaña en segundo plano. */
+export const REFRESH_MARGIN_MS = 60_000
+
+/**
+ * En cuántos milisegundos hay que renovar el access token. `0` si ya está dentro del
+ * margen (o vencido: el refresh token dura más, así que todavía se puede renovar); `null`
+ * sin `exp`, porque entonces no hay vencimiento que anticipar.
+ */
+export const refreshInMs = (claims: Claims, now: number, marginMs = REFRESH_MARGIN_MS): number | null => {
+  const exp = expiresAtMs(claims)
+  return exp === null ? null : Math.max(0, exp - marginMs - now)
+}
+
+/** El nombre a mostrar: el uid de LDAP si es un token humano, el `sub` si es de servicio. */
+export const displayName = (claims: Claims): string =>
+  claims.preferred_username ?? claims.sub ?? ''

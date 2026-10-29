@@ -1,28 +1,47 @@
-import { api } from '@/config'
+import { api, AUTH_CLIENT_ID } from '@/config'
 import { apiFetch } from './client'
 
 type Credentials = { username: string; password: string }
 
+/** Lo que devuelven login y refresh: un access token JWT de 15 min y un refresh opaco de 8 h. */
+export type Session = { accessToken: string; refreshToken: string }
+
+type TokenPair = { access_token: string; refresh_token: string; expires_in: number }
+
+const toSession = ({ access_token, refresh_token }: TokenPair): Session =>
+  ({ accessToken: access_token, refreshToken: refresh_token })
+
 /**
- * Pide un token con el flujo `client_credentials` de OAuth2.
+ * Login de personas contra login-federado (Grupo 2), con el usuario y la contraseña de LDAP.
  *
- * La identidad del sistema es el **grupo**, no una persona: lo que la pantalla de ingreso
- * llama usuario y contraseña viaja como `client_id` y `client_secret`. Todos los servicios
- * que consumen el bus usan este mismo endpoint — hay un único contrato de autenticación
- * para toda la plataforma, y `grupo1` (este equipo) es un cliente más.
+ * Entra siempre por el cliente `citypass-bus-web`: el token sale con `aud: citypass` y con el
+ * `namespace` del módulo de la persona, que es lo que el gateway usa para acotar qué puede
+ * tocar. Las cuentas de servicio (`grupoN` + secreto) quedan para los backends.
  */
 export const auth = {
   login: ({ username, password }: Credentials, signal?: AbortSignal) =>
-    apiFetch<{ access_token: string; expires_in: number }>(api.auth.token, {
+    apiFetch<TokenPair>(api.auth.login, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type:    'client_credentials',
-        client_id:     username,
-        client_secret: password,
-      }).toString(),
+      body: JSON.stringify({ username, password, clientId: AUTH_CLIENT_ID }),
       signal,
-    }).then(({ access_token }) => ({ token: access_token })),
+    }).then(toSession),
+
+  /**
+   * Canjea el refresh token por un par nuevo. El refresh **rota**: el anterior queda usado,
+   * y volver a usarlo revoca la sesión entera. Por eso nunca se canjea dos veces el mismo.
+   */
+  refresh: (refreshToken: string) =>
+    apiFetch<TokenPair>(api.auth.refresh, {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }).then(toSession),
+
+  /** Revoca el refresh token. El access token vigente sigue valiendo hasta su `exp`. */
+  logout: (refreshToken: string) =>
+    apiFetch<void>(api.auth.logout, {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }),
 
   health: (signal?: AbortSignal) =>
     apiFetch<{ status: string }>(api.auth.health, { signal }),

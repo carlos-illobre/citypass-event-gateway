@@ -8,14 +8,13 @@ import { auth } from '@/api/auth'
 import { ProblemAlert } from '@/components/ui/ProblemAlert'
 
 /**
- * Ingreso a la consola.
+ * Ingreso a la consola, con el usuario y la contraseña de LDAP de cada persona.
  *
- * Lo que este formulario llama usuario y contraseña viaja como `client_id`/`client_secret`
- * en un `client_credentials` de OAuth2: la identidad del sistema es el **grupo**, no una
- * persona. Es el mismo contrato que usa cualquier servicio que consume el bus.
+ * Qué puede tocar cada uno lo decide el `namespace` del token, que login-federado deriva del
+ * módulo de la persona: alguien de Reclamos sólo opera sobre `com.citypass.reclamos.*`.
  */
 export function LoginView() {
-  const { setToken } = useContext(AuthContext)
+  const { setSession } = useContext(AuthContext)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading]   = useState(false)
@@ -25,7 +24,7 @@ export function LoginView() {
     e.preventDefault()
     setLoading(true); setError(null)
     auth.login({ username, password })
-      .then(({ token }) => setToken(token))
+      .then(setSession)
       .catch(setError)
       .finally(() => setLoading(false))
   }
@@ -58,8 +57,8 @@ export function LoginView() {
           </form>
 
           <Text size="xs" c="dimmed" ta="center">
-            La identidad del sistema es el grupo, no una persona: el <code>client_id</code> y
-            el secreto que el Grupo 2 le asignó a tu equipo en el servicio de identidad.
+            Ingresá con tu usuario de CityPass (LDAP). Vas a operar sobre el namespace de tu
+            módulo.
           </Text>
         </Stack>
       </Paper>

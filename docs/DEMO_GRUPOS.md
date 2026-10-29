@@ -20,8 +20,9 @@ docker compose ps        # todos los servicios deben estar Up/healthy
 ```
 
 Frontend (consola Mantine): **http://localhost:5176**
-Las credenciales son las de cada cliente en login-federado (Grupo 2): el `client_id` y el
-secreto que el Grupo 2 le entregó a cada equipo.
+Se ingresa con un usuario de LDAP de login-federado (Grupo 2). Cada persona opera sobre el
+namespace de su módulo, así que para mostrar dos grupos hacen falta dos personas de módulos
+distintos.
 
 ## Grupos y namespaces
 
@@ -36,11 +37,12 @@ namespace es lo que viaja en el JWT y delimita qué puede publicar/editar cada g
 | `grupo3` | `com.citypass.movilidad` | Movilidad |
 | `grupo4` | `com.citypass.reclamos` | Reclamos |
 | `grupo5` | `com.citypass.emergencias` | Emergencias |
-| `grupo6` | `com.citypass.turismo` | Turismo |
-| `grupo7` | `com.citypass.transporte` | Transporte |
+| `grupo6` | `com.citypass.residuos` | Residuos |
+| `grupo7` | `com.citypass.espacios` | Espacios públicos |
 | `grupo8` | `com.citypass.analitica` | Analítica |
 
-Para la demo hace falta el secreto de cada cliente que se use; los entrega el Grupo 2.
+Los clientes `grupoN` y sus secretos son para los backends; la consola no los usa. Módulo LDAP
+y namespace se corresponden: `eda` → `com.citypass.bus`, `reclamos` → `com.citypass.reclamos`, etc.
 
 No hay clientes privilegiados: todos los grupos tienen exactamente los mismos permisos sobre lo suyo.
 

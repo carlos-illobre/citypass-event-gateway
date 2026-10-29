@@ -715,8 +715,7 @@ ssh citypass 'cd ~/citypass-event-gateway && docker compose stop reverse-proxy &
 
 ### En el navegador
 
-**`https://TU_DOMINIO`**, con el `client_id` y el secreto de tu equipo en login-federado
-(`grupo1`).
+**`https://TU_DOMINIO`**, con tu usuario y contraseña de LDAP en login-federado (Grupo 2).
 
 **Ya está online.**
 

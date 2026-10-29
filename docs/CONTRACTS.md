@@ -38,8 +38,8 @@ elegís vos, en `PascalCase`, y describe **un hecho que ya ocurrió**.
 | 3 | `com.citypass.movilidad` |
 | 4 | `com.citypass.reclamos` |
 | 5 | `com.citypass.emergencias` |
-| 6 | `com.citypass.turismo` |
-| 7 | `com.citypass.transporte` |
+| 6 | `com.citypass.residuos` |
+| 7 | `com.citypass.espacios` |
 | 8 | `com.citypass.analitica` |
 
 ### El fqn es también el nombre del tópico

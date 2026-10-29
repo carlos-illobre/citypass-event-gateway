@@ -17,13 +17,10 @@ probar contra producción.
 
 ---
 
-## Para más adelante (login personal en la consola)
+## Ya resuelto: login personal en la consola
 
-No hace falta para esta integración. Queda anotado para cuando la consola pase al login
-humano:
-
-- **`namespace` en el token humano:** está en su rama
-  `task-147-agregacion-del-campo-namespace-al-jwt-human`, sin mergear.
-- **Un cliente humano para la consola:** `citypass-bus-web`, transversal y con
-  `audience: citypass`, igual que su `citypass-admin-web`. Sin él sólo podrían loguearse
-  personas de la OU Eda.
+El Grupo 2 agregó `namespace` al token humano y registró el cliente `citypass-bus-web`
+(transversal, `audience: citypass`) en su `main` (PR #48 y #50). La consola entra con el
+usuario de LDAP de cada persona ([ADR-025](adr/ADR-025-login-ldap-en-la-consola.md)). Para
+probarla hace falta una persona dada de alta en LDAP: la crea el Grupo 2 o un `delegados`
+del módulo desde su panel.

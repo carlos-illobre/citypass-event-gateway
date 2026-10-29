@@ -19,8 +19,9 @@ npm install
 npm run dev                   # http://localhost:5175
 ```
 
-Credenciales: `grupo1` y su secreto — el cliente de este equipo en login-federado (Grupo 2),
-que entrega el Grupo 2. Sin conexión a `https://api.citypass-login.pp.ua` no se puede ingresar.
+Credenciales: tu usuario y contraseña de CityPass (LDAP), los de login-federado (Grupo 2). La
+consola entra por su cliente `citypass-bus-web` y operás sobre el namespace de tu módulo. Sin
+conexión a `https://api.citypass-login.pp.ua` no se puede ingresar.
 
 Para que las pantallas no arranquen vacías:
 

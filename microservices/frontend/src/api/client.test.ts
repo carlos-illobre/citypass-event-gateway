@@ -66,7 +66,7 @@ describe('apiFetch', () => {
   })
 
   it('401 SIN token es sólo "usuario o contraseña incorrectos": no cierra ninguna sesión', async () => {
-    // El login pega contra /oauth/token sin token todavía; tratarlo como sesión vencida
+    // El login pega contra /auth/login sin token todavía; tratarlo como sesión vencida
     // mostraría ese mensaje antes de que existiera ninguna sesión.
     const onUnauthorized = vi.fn()
     setUnauthorizedHandler(onUnauthorized)

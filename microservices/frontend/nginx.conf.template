@@ -45,15 +45,17 @@ server {
 
     # `Host` es el del destino y no el nuestro: es un servidor ajeno detrás de su propio
     # proxy, que rutea por nombre. Las directivas `proxy_ssl_*` no hacen nada si el destino
-    # es http (un login-federado local, por ejemplo).
+    # es http (un login-federado local, por ejemplo). `X-Forwarded-For` lleva la IP real de
+    # quien se loguea, que login-federado usa para su detector de anomalías.
     location /auth/ {
         rewrite ^/auth/(.*)$ /$1 break;
         proxy_pass $auth;
         proxy_set_header Host $proxy_host;
         proxy_set_header Origin "";
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         # Es un host público por HTTPS: SNI con su nombre (sin esto su TLS no sabe qué
         # certificado dar) y verificación del certificado contra las CA del sistema, porque
-        # por acá viajan los `client_secret` de cada grupo.
+        # por acá viajan las contraseñas de las personas.
         proxy_ssl_server_name on;
         proxy_ssl_verify on;
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;

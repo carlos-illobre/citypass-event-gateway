@@ -97,10 +97,10 @@ export async function apiFetch<T>(
 
   // Un 401 sólo significa «se venció la sesión» cuando la petición llevaba un token: ahí el
   // rechazo es del gateway hacia un cliente que ya estaba autenticado, y tiene sentido cerrar la
-  // sesión y cortar el ciclo de sondeo. El login pega contra `/oauth/token` sin token todavía
-  // —es lo que está pidiendo— y ahí un 401 es simplemente «usuario o contraseña incorrectos»
-  // (`invalid_client` de RFC 6749). Tratar los dos casos igual mostraría «la sesión venció» en
-  // la primera pantalla, antes de que existiera ninguna sesión.
+  // sesión y cortar el ciclo de sondeo. El login pega contra `/auth/login` sin token todavía
+  // —es lo que está pidiendo— y ahí un 401 es simplemente «usuario o contraseña incorrectos».
+  // Tratar los dos casos igual mostraría «la sesión venció» en la primera pantalla, antes de
+  // que existiera ninguna sesión. El refresh tampoco lleva token: su 401 lo maneja la sesión.
   if (response.status === 401 && token) {
     onUnauthorized?.()
     // Se lanza un `ApiError` y no un `Error` pelado para que el sondeo pueda reconocerlo y

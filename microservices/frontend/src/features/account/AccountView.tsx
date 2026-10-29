@@ -21,11 +21,13 @@ export function AccountView() {
 
       <Paper withBorder p="md">
         <Stack gap="xs">
-          <Group justify="space-between"><Text c="dimmed" size="sm">Grupo (sub)</Text><Code>{claims.sub}</Code></Group>
+          <Group justify="space-between"><Text c="dimmed" size="sm">Usuario</Text><Code>{claims.preferred_username ?? claims.sub}</Code></Group>
+          <Group justify="space-between"><Text c="dimmed" size="sm">Identificador (sub)</Text><Code>{claims.sub}</Code></Group>
+          <Group justify="space-between"><Text c="dimmed" size="sm">Módulo</Text><Code>{claims.module ?? '—'}</Code></Group>
           <Group justify="space-between"><Text c="dimmed" size="sm">Namespace</Text><Code>{claims.namespace}</Code></Group>
           <Group justify="space-between"><Text c="dimmed" size="sm">Token ID (jti)</Text><Code>{claims.jti}</Code></Group>
           <Group justify="space-between">
-            <Text c="dimmed" size="sm">Vence</Text>
+            <Text c="dimmed" size="sm">Token vence (se renueva solo)</Text>
             <Text size="sm">{exp ? relativeTo(exp, now) : '—'}</Text>
           </Group>
         </Stack>
