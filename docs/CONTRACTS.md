@@ -112,6 +112,21 @@ tu módulo. Y conviene que el nombre sea el mismo en todos lados —aunque `data
 nombres reservados y cada equipo pueda llamarlo como quiera— porque un consumidor que
 atraviesa varios dominios necesita poder leerlo sin aprenderse una convención por equipo.
 
+### El caso al que pertenece un evento
+
+Cuando un evento es un paso de un proceso que sigue en otros eventos —tuyos o de otro
+grupo—, la convención es un campo **`correlationId`** en `data`, que se genera una vez al
+inicio del caso y se copia sin cambios en cada evento siguiente:
+
+```json
+{ "name": "correlationId", "type": "string" }
+```
+
+Además de permitir seguir el caso, el gateway lo usa como clave de Kafka, así que los
+eventos de un mismo caso se leen en orden dentro de cada tópico.
+
+→ [CORRELATION-ID.md](CORRELATION-ID.md)
+
 ---
 
 ## 3. Tipos permitidos

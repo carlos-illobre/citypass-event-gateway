@@ -11,6 +11,7 @@
 | [INTEGRACION-IDENTIDAD.md](INTEGRACION-IDENTIDAD.md) | **Para el Grupo 2:** la justificación de cada pedido, y qué adaptamos nosotros |
 | [CONTRACTS.md](CONTRACTS.md) | Nombres, schemas, evolución y retención de los eventos |
 | [EVENT-TYPES.md](EVENT-TYPES.md) | Cómo cambiar el schema de un event type y cómo borrarlo |
+| [CORRELATION-ID.md](CORRELATION-ID.md) | Qué es el `correlationId`, para qué sirve y cómo agregarlo a tus eventos, con un caso práctico |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Despliegue en la nube: dominio, TLS, puertos |
 | [TESTING.md](TESTING.md) | Estrategia de pruebas, cobertura y qué **no** está cubierto |
 | [adr/](adr/) | Las 15 decisiones de arquitectura con sus alternativas |
@@ -24,6 +25,7 @@
 | Consumir eventos desde tu código | [README §6](../README.md#6-consumir-eventos-desde-kafka) |
 | Entender cómo definir un event type | [README §5](../README.md#5-definir-un-event-type) y [CONTRACTS.md](CONTRACTS.md) |
 | Corregir un schema que quedó mal, o borrar un event type | [EVENT-TYPES.md](EVENT-TYPES.md) |
+| Seguir un mismo caso a través de varios eventos o grupos | [CORRELATION-ID.md](CORRELATION-ID.md) |
 | Saber por qué se publica por HTTP y se consume por Kafka | [ARCHITECTURE.md](ARCHITECTURE.md#por-qué-publicar-por-http-y-consumir-por-kafka) |
 | Auditar la seguridad | [SECURITY.md](SECURITY.md) |
 | Implementar el servicio de identidad real | [AUTH.md](AUTH.md) |
