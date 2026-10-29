@@ -204,11 +204,18 @@ http {
         # `X-Forwarded-For` lleva la IP real de quien se loguea: login-federado la lee de
         # ahí para su detector de anomalías y su registro de intentos. Sin el header, todos
         # los logins de la consola le llegarían desde la IP de esta instancia.
+        #
+        # `Origin` se borra por lo mismo que en el nginx de la consola: el navegador lo manda
+        # en todo POST aunque sea del mismo origen, y login-federado lo compara contra SU
+        # lista de CORS, donde este dominio no está. Sin esto responde 403 «Invalid CORS
+        # request» y nadie puede ingresar a la consola. Para el navegador la petición es del
+        # mismo origen, así que no hay ningún control de CORS que se esté salteando.
         location /auth/ {
             rewrite ^/auth/(.*)$ /$1 break;
             proxy_pass $identidad;
             proxy_set_header Host              $proxy_host;
             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header Origin            "";
             proxy_set_header X-Forwarded-Proto $scheme;
             # Es un host público por HTTPS: SNI con su nombre (sin esto su TLS no sabe qué
             # certificado dar) y verificación del certificado contra las CA del sistema, porque
@@ -223,7 +230,8 @@ http {
         # `/auth/health` siga significando «la identidad está arriba».
         location = /auth/health {
             proxy_pass $identidad/actuator/health;
-            proxy_set_header Host $proxy_host;
+            proxy_set_header Host   $proxy_host;
+            proxy_set_header Origin "";
             # Mismo TLS que `/auth/`.
             proxy_ssl_server_name on;
             proxy_ssl_verify on;
