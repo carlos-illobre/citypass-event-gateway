@@ -4,6 +4,8 @@ import org.apache.avro.Conversions
 import org.apache.avro.Schema
 import org.apache.avro.generic.GenericData
 import org.apache.avro.generic.GenericDatumReader
+import org.apache.avro.generic.GenericEnumSymbol
+import org.apache.avro.generic.GenericFixed
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.io.DecoderFactory
 import org.apache.avro.util.Utf8
@@ -96,9 +98,16 @@ class AvroService(
      * `getSchema()`, así que termina escribiendo el esquema en vez del dato. Con el
      * envelope actual eso alcanza para romper todo, porque `data` y `metadata` son
      * justamente records anidados.
+     *
+     * Lo mismo pasa con los enum y los fixed: el reader los devuelve como
+     * [GenericEnumSymbol] y [GenericFixed], que también exponen `getSchema()`. Un enum
+     * sin convertir hacía fallar a Jackson con "Not an array" y mandaba el evento a la
+     * DLQ sin llegar a llamar al webhook. Un enum se entrega como el texto del símbolo.
      */
     private fun aPlano(valor: Any?): Any? = when (valor) {
         is GenericRecord -> valor.schema.fields.associate { it.name() to aPlano(valor.get(it.name())) }
+        is GenericEnumSymbol<*> -> valor.toString()
+        is GenericFixed -> valor.bytes()
         is Utf8 -> valor.toString()
         is ByteBuffer -> valor.array()
         is Map<*, *> -> valor.entries.associate { (k, v) -> k.toString() to aPlano(v) }

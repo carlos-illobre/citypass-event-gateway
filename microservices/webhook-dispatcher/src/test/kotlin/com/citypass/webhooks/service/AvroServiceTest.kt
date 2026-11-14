@@ -20,6 +20,7 @@ import org.springframework.test.web.client.match.MockRestRequestMatchers.request
 import org.springframework.test.web.client.response.MockRestResponseCreators.withServerError
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
 import org.springframework.web.client.RestClient
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.io.ByteArrayOutputStream
 import java.math.BigDecimal
 import java.nio.ByteBuffer
@@ -137,6 +138,51 @@ class AvroServiceTest {
         val data = service.deserialize(mensaje(7))["data"] as Map<String, Any?>
 
         assertTrue((data["crudo"] as ByteArray).contentEquals(byteArrayOf(1, 2, 3)))
+    }
+
+    /**
+     * Un enum Avro vuelve del reader como [GenericData.EnumSymbol]. Si llega así al body,
+     * Jackson lo serializa como bean, recorre `getSchema()` y falla con "Not an array"; el
+     * evento termina en la DLQ sin llamar nunca al webhook (CriticidadClimaticaConfirmada).
+     */
+    @Test
+    fun `un enum vuelve como el texto del simbolo y se puede serializar a JSON`() {
+        val nivel = Schema.Parser().parse(
+            """{"type":"enum","name":"NivelCriticidad","namespace":"com.citypass.espacios.data",
+               "symbols":["BAJA","MEDIA","ALTA","CRITICA"]}"""
+        )
+        val conEnum = Schema.createRecord("Evento", null, "com.citypass.espacios", false, listOf(
+            Schema.Field("data", Schema.createRecord("Datos", null, "com.citypass.espacios.data", false, listOf(
+                Schema.Field("nivelCriticidad", nivel),
+                Schema.Field("niveles", Schema.createArray(nivel))
+            )))
+        ))
+        val escapado = conEnum.toString().replace("\\", "\\\\").replace("\"", "\\\"")
+        server.expect(requestTo("$registryUrl/schemas/ids/28"))
+            .andRespond(withSuccess("""{"schema": "$escapado"}""", MediaType.APPLICATION_JSON))
+
+        val dataSchema = conEnum.getField("data").schema()
+        val record = GenericData.Record(conEnum).apply {
+            put("data", GenericData.Record(dataSchema).apply {
+                put("nivelCriticidad", GenericData.EnumSymbol(nivel, "ALTA"))
+                put("niveles", listOf(GenericData.EnumSymbol(nivel, "BAJA")))
+            })
+        }
+        val salida = ByteArrayOutputStream().apply { write(0x00); write(byteArrayOf(0, 0, 0, 28)) }
+        val encoder = EncoderFactory.get().binaryEncoder(salida, null)
+        GenericDatumWriter<GenericRecord>(conEnum).write(record, encoder)
+        encoder.flush()
+
+        val evento = service.deserialize(salida.toByteArray())
+
+        @Suppress("UNCHECKED_CAST")
+        val data = evento["data"] as Map<String, Any?>
+        assertEquals("ALTA", data["nivelCriticidad"])
+        assertEquals(listOf("BAJA"), data["niveles"])
+        assertEquals(
+            """{"data":{"nivelCriticidad":"ALTA","niveles":["BAJA"]}}""",
+            jacksonObjectMapper().writeValueAsString(evento)
+        )
     }
 
     @Test
