@@ -146,7 +146,7 @@ class AvroServiceTest {
      * evento termina en la DLQ sin llamar nunca al webhook (CriticidadClimaticaConfirmada).
      */
     @Test
-    fun `un enum vuelve como el texto del simbolo y se puede serializar a JSON`() {
+    fun `un enum vuelve como el texto del simbolo y un fixed como bytes`() {
         val nivel = Schema.Parser().parse(
             """{"type":"enum","name":"NivelCriticidad","namespace":"com.citypass.espacios.data",
                "symbols":["BAJA","MEDIA","ALTA","CRITICA"]}"""
@@ -154,7 +154,8 @@ class AvroServiceTest {
         val conEnum = Schema.createRecord("Evento", null, "com.citypass.espacios", false, listOf(
             Schema.Field("data", Schema.createRecord("Datos", null, "com.citypass.espacios.data", false, listOf(
                 Schema.Field("nivelCriticidad", nivel),
-                Schema.Field("niveles", Schema.createArray(nivel))
+                Schema.Field("niveles", Schema.createArray(nivel)),
+                Schema.Field("hash", Schema.createFixed("Hash", null, "com.citypass.espacios.data", 2))
             )))
         ))
         val escapado = conEnum.toString().replace("\\", "\\\\").replace("\"", "\\\"")
@@ -166,6 +167,7 @@ class AvroServiceTest {
             put("data", GenericData.Record(dataSchema).apply {
                 put("nivelCriticidad", GenericData.EnumSymbol(nivel, "ALTA"))
                 put("niveles", listOf(GenericData.EnumSymbol(nivel, "BAJA")))
+                put("hash", GenericData.Fixed(dataSchema.getField("hash").schema(), byteArrayOf(1, 2)))
             })
         }
         val salida = ByteArrayOutputStream().apply { write(0x00); write(byteArrayOf(0, 0, 0, 28)) }
@@ -179,8 +181,9 @@ class AvroServiceTest {
         val data = evento["data"] as Map<String, Any?>
         assertEquals("ALTA", data["nivelCriticidad"])
         assertEquals(listOf("BAJA"), data["niveles"])
+        assertTrue((data["hash"] as ByteArray).contentEquals(byteArrayOf(1, 2)))
         assertEquals(
-            """{"data":{"nivelCriticidad":"ALTA","niveles":["BAJA"]}}""",
+            """{"data":{"nivelCriticidad":"ALTA","niveles":["BAJA"],"hash":"AQI="}}""",
             jacksonObjectMapper().writeValueAsString(evento)
         )
     }
