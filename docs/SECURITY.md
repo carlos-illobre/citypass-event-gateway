@@ -310,7 +310,9 @@ Dos consecuencias prácticas:
 - **Instalar `ufw` no cerraría los contenedores.** También trabaja sobre `INPUT`, así que
   daría una sensación de protección sin darla. El punto de filtrado a nivel host para Docker
   es la cadena `DOCKER-USER`, la única que Docker recorre antes de sus propias reglas y la
-  única que sobrevive a un `docker compose up`.
+  única que sobrevive a un `docker compose up`. Hoy se usa para una sola cosa: limitar la
+  frecuencia de conexiones nuevas al 9092 ([ADR-025](adr/ADR-025-limites-del-9092-por-frecuencia-e-identidad.md)).
+  No decide qué está abierto; eso sigue siendo la Security List.
 - **Leer la cadena `DOCKER` asusta y no debería.** Lista reglas `ACCEPT` desde `0.0.0.0/0`
   hacia todos los contenedores, incluidos los internos. La restricción de esos no vive ahí
   sino en el DNAT de la tabla `nat`: `sudo iptables -t nat -L DOCKER -n` muestra `127.0.0.1`
@@ -370,15 +372,31 @@ de cualquier grupo autenticado.
 |---|---|---|
 | Tamaño del body | 256 KB (1 MB en nginx) | Un evento de cientos de megas se guarda, se replica y se entrega a cada suscriptor |
 | Peticiones por minuto | 600 por namespace | Que el loop de un grupo deje sin servicio a los otros siete |
-| Conexiones por IP al 9092 | `NGINX_KAFKA_CONN_LIMIT` | Agotar `worker_connections` de nginx y con eso tumbar también la API y la UI |
+| Conexiones **nuevas** por IP al 9092 | Ráfaga de 120, después 2 por segundo (firewall del host) | Que alguien sin credenciales sature el puerto abriendo conexiones |
+| Conexiones abiertas por IP al 9092 | 256 (respaldo en nginx, derivado de su capacidad) | Que una sola IP acumule conexiones hasta agotar nginx y tumbe también la API y la UI |
+| Lectura por equipo en Kafka | 5 MiB/s y el 100 % de un hilo del broker | Que un consumidor con un bug degrade el broker para los otros siete |
 
-El último es el único que actúa **sin credenciales de por medio**: la conexión TLS al 9092 se
-acepta antes de negociar SASL, así que hasta ese punto el atacante no se identificó con nada.
-Vive en el bloque `stream` de nginx y no en el `http`, porque son dos contextos distintos y
-`limit_conn` de uno no alcanza al otro — el límite de peticiones y el de conexiones de la
-tabla de arriba sólo cubren el 443. Junto al techo van `proxy_connect_timeout` y
-`proxy_timeout`: sin ellos una conexión que abre y no habla ocupa un lugar para siempre, que
-es la misma denegación de servicio por otro camino.
+Los dos límites del 9092 son los únicos que actúan **sin credenciales de por medio**: la
+conexión TLS se acepta antes de negociar SASL, así que hasta ese punto lo único que se sabe
+del cliente es su IP. Y una IP no es un cliente —detrás de la salida de Render o de una
+facultad hay muchos equipos—, por eso el control principal limita la **frecuencia** con que
+una IP abre conexiones y no cuántas tiene abiertas: un consumidor legítimo abre dos o tres y
+las mantiene horas, un flood abre muchas por segundo. Antes era un techo de 10 conexiones
+abiertas por IP y cortaba a los equipos alojados en Render. El razonamiento completo, y las
+opciones descartadas, están en el [ADR-025](adr/ADR-025-limites-del-9092-por-frecuencia-e-identidad.md).
+
+El tope de nginx vive en el bloque `stream` y no en el `http`, porque son dos contextos
+distintos y `limit_conn` de uno no alcanza al otro — el límite de peticiones y el de
+conexiones de la tabla de arriba sólo cubren el 443. Junto al tope van
+`ssl_handshake_timeout`, `proxy_connect_timeout`, `proxy_timeout` y el keepalive del
+listener: sin ellos una conexión que abre y no habla, o la de un cliente que desapareció,
+ocupa un lugar mucho más de lo que debería, que es la misma denegación de servicio por otro
+camino.
+
+La cuota de Kafka es **por equipo** —el principal es el namespace del token— y se define como
+valor por defecto, así que un equipo nuevo la recibe solo. El tráfico interno de la
+plataforma (principal `ANONYMOUS`) queda exceptuado explícitamente: si no, el gateway y el
+dispatcher quedarían limitados como un equipo más.
 
 La cuota es **por namespace y no global**: si fuera global, el error de un grupo afectaría a
 todos, que es exactamente lo que se busca evitar. Devuelve `429` con `Retry-After`, porque

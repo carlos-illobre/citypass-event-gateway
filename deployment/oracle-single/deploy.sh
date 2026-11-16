@@ -169,6 +169,28 @@ for i in $(seq 1 30); do
     sleep 4
 done
 
+# ── La protección del 9092 (ADR-025) ─────────────────────────────────────────
+#
+# Las dos piezas viven fuera de los contenedores —una en el firewall del host, la otra en
+# los metadatos del broker—, así que `docker compose up` no las aplica. Van en cada
+# despliegue y no sólo en el primero por la misma razón que se recrean los servicios de
+# configuración: un cambio en los valores se mergea y, sin este paso, no llega nunca.
+#
+# Los dos son idempotentes. Si fallan, la aplicación ya quedó desplegada y funcionando:
+# lo que falta es la protección, y se dice así para que nadie vuelva atrás una versión sana.
+
+paso "Protección del puerto de Kafka"
+
+ssh "$SSH" "cd $CITYPASS_DIR && sudo -n bash deployment/oracle-single/firewall-kafka.sh instalar" \
+    || morir "la aplicación quedó desplegada, pero no se pudo instalar el límite de conexiones nuevas al 9092.
+       Revisá 'ssh $SSH \"sudo systemctl status citypass-firewall-kafka\"' y volvé a desplegar."
+ok "límite de conexiones nuevas por IP al 9092 aplicado"
+
+ssh "$SSH" "cd $CITYPASS_DIR && bash infrastructure/kafka/cuotas.sh" \
+    || morir "la aplicación quedó desplegada, pero no se pudieron aplicar las cuotas por equipo en Kafka.
+       Revisá 'ssh $SSH \"cd $CITYPASS_DIR && bash infrastructure/kafka/cuotas.sh\"' y volvé a desplegar."
+ok "cuotas por equipo aplicadas en el broker"
+
 # ── La comprobación que importa ──────────────────────────────────────────────
 #
 # Todo lo anterior mira contenedores, y un contenedor sano no significa un servicio que

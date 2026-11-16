@@ -18,8 +18,23 @@
 # certificado se emite con un nombre fijo (certbot --cert-name citypass), así que la
 # ruta no depende del dominio y el archivo se monta tal cual.
 
+# ── Capacidad ────────────────────────────────────────────────────────────────
+#
+# Un worker por núcleo y 4096 conexiones cada uno. Antes era un solo worker con 1024, y
+# como ese techo lo comparten el 443 y el 9092 —y cada conexión al 9092 cuenta doble: la
+# del cliente y la que se abre hacia el broker— quinientos sockets al 9092 alcanzaban para
+# dejar sin servicio a la API y a la consola. Ese techo tan bajo era lo que obligaba a
+# limitar el 9092 a 10 conexiones por IP, y eso cortaba a los equipos que comparten IP de
+# salida (Render, ver ADR-025).
+#
+# El techo de descriptores tiene que cubrir las conexiones de un worker más los archivos
+# que abre. El contenedor declara el mismo valor en `ulimits` del compose: nginx sólo puede
+# subir su límite hasta el que le da el contenedor.
+worker_processes     auto;
+worker_rlimit_nofile 16384;
+
 events {
-    worker_connections 1024;
+    worker_connections 4096;
 }
 
 # ── Kafka: TLS por delante del listener SASL del broker ──────────────────────
@@ -33,14 +48,37 @@ events {
 #
 # El authorizer no se ve afectado: autoriza por principal SASL, no por IP de origen.
 stream {
-    # El techo de conexiones por IP vive acá y no en `http`: son dos bloques distintos y
-    # `limit_conn` del uno no alcanza al otro. Sin esto, este puerto era el único camino
-    # sin ningún límite hacia la VM.
+    # ── Cómo se protege este puerto (ADR-025) ──
     #
-    # Importa que la conexión se acepta ANTES de SASL, así que este techo es lo único que
-    # actúa contra alguien sin credenciales. Y como `worker_connections` se comparte con
-    # el bloque `http`, agotarlo desde acá se llevaba puestos también la API y la UI.
+    # La conexión se acepta ANTES de SASL, así que hasta ahí nadie se identificó: lo único
+    # que se sabe del cliente es su IP. Y una IP no es un cliente: detrás de la salida de
+    # Render, de una facultad o de cualquier NAT hay muchos equipos. Contar conexiones
+    # ABIERTAS por IP con un techo bajo los castiga a todos juntos, y obliga a reajustar el
+    # número cada vez que se suma uno.
+    #
+    # Por eso el control principal no vive acá sino en el firewall del host (cadena
+    # DOCKER-USER, deployment/oracle-single/firewall-kafka.sh): limita cuántas conexiones
+    # NUEVAS por segundo abre cada IP. Un consumidor legítimo abre dos o tres y las mantiene
+    # horas, así que cien equipos detrás de una IP no lo notan; un flood sí.
+    #
+    # Lo que queda acá es un tope de respaldo, derivado de la capacidad y no de la cantidad
+    # de clientes: una sola IP no puede ocupar más de 256 conexiones —512 lugares contando
+    # el salto al broker—, que es un octavo de lo que tiene UN worker. Sólo cambia si cambia
+    # `worker_connections`. Un equipo normal usa entre 2 y 5; para llegar a 256 desde una
+    # IP hacen falta decenas de equipos detrás de ella, o alguien que las acumula a
+    # propósito.
+    #
+    # El límite vive en `stream` y no en `http`: son dos bloques distintos y `limit_conn`
+    # del uno no alcanza al otro.
     limit_conn_zone $binary_remote_addr zone=kafka_conexiones:10m;
+
+    # Una línea por conexión al cerrarse. Sin esto el 9092 no dejaba ningún rastro: ante un
+    # problema como el de Render no había forma de saber qué IPs estaban conectadas ni
+    # cuánto duraban. `$status` es 200 si la sesión terminó normal y 503 si la cortó el
+    # tope de arriba.
+    log_format kafka '$remote_addr [$time_local] status=$status '
+                     'duracion=${session_time}s recibidos=$bytes_received enviados=$bytes_sent';
+    access_log /dev/stdout kafka;
 
     # DNS interno de Docker. Sin esto, nginx resuelve `kafka-authorizer` UNA VEZ al
     # arrancar y se queda con esa IP: cuando el contenedor se recrea —un despliegue, un
@@ -51,13 +89,21 @@ stream {
     resolver 127.0.0.11 valid=10s ipv6=off;
 
     server {
-        listen 9092 ssl;
+        # `so_keepalive`: si el cliente desaparece sin cerrar —un contenedor que se mata, una
+        # red que se cae—, el kernel lo detecta en un minuto y medio (60 s sin tráfico, tres
+        # sondas cada 10 s) en vez de dejar la conexión ocupando un lugar hasta que venza
+        # `proxy_timeout`, diez minutos más tarde.
+        listen 9092 ssl so_keepalive=60s:10s:3;
 
         ssl_certificate     /etc/letsencrypt/live/citypass/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/citypass/privkey.pem;
         ssl_protocols       TLSv1.2 TLSv1.3;
 
-        limit_conn kafka_conexiones ${NGINX_KAFKA_CONN_LIMIT};
+        # Quien abre la conexión y no completa el handshake TLS ocupa un lugar sin haber
+        # mostrado nada. El default es 60 s; un cliente real lo completa en milisegundos.
+        ssl_handshake_timeout 10s;
+
+        limit_conn kafka_conexiones 256;
 
         # Un cliente de Kafka abre una conexión por broker y la mantiene abierta esperando
         # mensajes, así que el timeout de inactividad tiene que ser largo o se cortarían

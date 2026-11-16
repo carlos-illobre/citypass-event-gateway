@@ -401,6 +401,13 @@ regla que se lista, se ve bien y no hace nada. Hay que **insertar antes** del `R
 > contenedores: también trabajan sobre `INPUT`. El punto de filtrado a nivel host para
 > Docker es la cadena `DOCKER-USER`. El razonamiento completo está en
 > [ADR-019](../../docs/adr/ADR-019-firewall-en-la-vcn.md).
+>
+> `DOCKER-USER` se usa para una sola cosa: limitar cuántas conexiones **nuevas** por
+> segundo abre cada IP hacia el 9092. No hay que configurarlo a mano: `deploy.sh` instala
+> [firewall-kafka.sh](firewall-kafka.sh) como servicio de systemd en cada despliegue, y
+> `preflight.sh` comprueba que esté activo. Para ver sus contadores:
+> `bash deployment/oracle-single/firewall-kafka.sh estado`. Ver
+> [ADR-025](../../docs/adr/ADR-025-limites-del-9092-por-frecuencia-e-identidad.md).
 
 Primero, ver en qué línea está:
 

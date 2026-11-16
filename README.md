@@ -971,9 +971,23 @@ que tu consumidor commitee al menos una vez por día.
 ### Los que no te van a tocar
 
 No los vas a ver desde la API, pero están y son los que sostienen todo lo anterior:
-`NGINX_KAFKA_CONN_LIMIT` (conexiones simultáneas por IP al puerto 9092),
 `KAFKA_OFFSETS_SEGMENT_BYTES`, `KAFKA_SEGMENT_BYTES`, `MEM_LIMIT_*`, `LOG_MAX_SIZE` y
 `LOG_MAX_FILES`. Están comentados uno por uno en `.env.example`.
+
+### Si consumís desde Kafka
+
+Tres límites protegen el puerto 9092. Un consumidor normal no toca ninguno, y está bien que
+varios equipos salgan por la misma IP (por ejemplo, si alojan su servicio en Render):
+
+| Límite | Valor | Qué ves si te pasás |
+|---|---|---|
+| Conexiones **nuevas** por IP | Ráfaga de 120, después 2 por segundo | La conexión se corta con un reset. Tu cliente reintenta con backoff y entra a los pocos segundos |
+| Conexiones abiertas por IP | 256 | Lo mismo: un corte durante el handshake TLS |
+| Lectura por equipo | 5 MiB/s | Nada se corta: los mensajes te llegan más lento |
+
+Si ves cortes seguidos, casi siempre es un cliente que crea un consumidor nuevo en cada
+reintento sin cerrar el anterior. Reusá el mismo consumidor. El detalle está en
+[ADR-025](docs/adr/ADR-025-limites-del-9092-por-frecuencia-e-identidad.md).
 
 ---
 

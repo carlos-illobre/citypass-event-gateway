@@ -491,7 +491,6 @@ services:
       NGINX_RATE_LIMIT: ${NGINX_RATE_LIMIT:?falta NGINX_RATE_LIMIT en el .env}
       NGINX_RATE_BURST: ${NGINX_RATE_BURST:?falta NGINX_RATE_BURST en el .env}
       NGINX_CONN_LIMIT: ${NGINX_CONN_LIMIT:?falta NGINX_CONN_LIMIT en el .env}
-      NGINX_KAFKA_CONN_LIMIT: ${NGINX_KAFKA_CONN_LIMIT:?falta NGINX_KAFKA_CONN_LIMIT en el .env}
       AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?falta AUTH_SERVICE_URL en el .env}
     volumes:
       - ./infrastructure/reverse-proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
@@ -499,6 +498,15 @@ services:
       - certbot-conf:/etc/letsencrypt:ro
       - certbot-www:/var/www/certbot:ro
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    # Descriptores de archivo: nginx sube su propio límite con `worker_rlimit_nofile`, pero
+    # sólo hasta el que le da el contenedor, y ese límite depende de la versión de Docker y de
+    # cómo está configurado el host: puede ser apenas 1024, menos que las conexiones de un solo
+    # worker. Declararlo acá hace que el techo real sea el de nginx.conf.template en cualquier
+    # máquina.
+    ulimits:
+      nofile:
+        soft: 16384
+        hard: 16384
     restart: unless-stopped
 
   # Emite y renueva el certificado. Un solo certificado con nombre fijo `citypass`
