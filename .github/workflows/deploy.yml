@@ -329,8 +329,11 @@ jobs:
       # regla no se puede usar contra un tercero se omite.
       - name: Herramientas
         run: sudo apt-get update -q && sudo apt-get install -y -q hping3
-      # `-E` para que el script vea CI=true.
+      # `-E` para que el script vea CI=true y E2E_SIN_OMISIONES: acá todo tiene que correr,
+      # y una prueba omitida hace fallar el job en vez de dejarlo en verde.
       - name: Firewall, nginx y cuotas con Docker real
+        env:
+          E2E_SIN_OMISIONES: '1'
         run: sudo -E bash tests/e2e/proteccion-9092.sh
 
   construir:

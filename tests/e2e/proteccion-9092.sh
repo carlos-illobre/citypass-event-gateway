@@ -64,13 +64,14 @@ FIREWALL=deployment/oracle-single/firewall-kafka.sh
 TMP=$(mktemp -d)
 COMPOSE=(docker compose -p "$PROYECTO" --env-file .env.example --profile prod)
 
-# systemd no está en todos lados (un contenedor de CI, algunos sandboxes). Sin él se aplica
-# la regla directamente y se omite lo que depende de la unidad: la persistencia.
-if [ "$(systemctl is-system-running 2>/dev/null)" = "running" ] || [ "$(systemctl is-system-running 2>/dev/null)" = "degraded" ]; then
-    CON_SYSTEMD=1
-else
-    CON_SYSTEMD=0
-fi
+# systemd no está en todos lados (un contenedor, algunos sandboxes). Sin él se aplica la
+# regla directamente y se omite lo que depende de la unidad: la persistencia.
+#
+# Se detecta por /run/systemd/system, que es lo que usa el propio systemd (sd_booted). Una
+# versión anterior miraba `systemctl is-system-running` y en los runners de GitHub, que sí
+# tienen systemd, devolvía otro estado: la prueba de persistencia se omitía y el job daba
+# verde igual.
+if [ -d /run/systemd/system ]; then CON_SYSTEMD=1; else CON_SYSTEMD=0; fi
 
 limpiar() {
     if [ "$CON_SYSTEMD" = 1 ]; then
@@ -284,6 +285,13 @@ else
     bash infrastructure/kafka/cuotas.sh --quitar >/dev/null 2>&1
     afirmar_que "--quitar deja el broker sin cuotas" \
         "! bash infrastructure/kafka/cuotas.sh --ver 2>/dev/null | grep -q consumer_byte_rate"
+fi
+
+# En la CI nada se puede omitir: una prueba omitida no es una falla, así que el job daría
+# verde sin haber probado lo que dice. Pasó con la persistencia. Fuera de la CI se permite,
+# porque una VM de laboratorio puede no tener systemd o hping3.
+if [ "${E2E_SIN_OMISIONES:-}" = 1 ]; then
+    afirmar "en la CI no se omite ninguna prueba" "0" "$_TEST_OMITIDOS"
 fi
 
 terminar
