@@ -172,6 +172,16 @@ else
     fi
 fi
 
+# El límite de conexiones nuevas al 9092 (ADR-025) lo instala deploy.sh, así que antes del
+# primer despliegue es normal que no esté: se informa sin marcarlo como error. Después, si
+# falta, el 9092 queda protegido sólo por el tope de respaldo de nginx.
+if systemctl is-active --quiet citypass-firewall-kafka 2>/dev/null \
+        && sudo -n iptables -C DOCKER-USER -j CITYPASS-KAFKA 2>/dev/null; then
+    ok "límite del 9092" "activo en DOCKER-USER"
+else
+    info "límite del 9092" "no instalado todavía: lo instala deploy.sh en el primer despliegue"
+fi
+
 echo
 if [ "$FALTA" -eq 0 ]; then
     echo "  Todo listo."

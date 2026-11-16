@@ -36,6 +36,8 @@ declare -A esperados=(
     [anomaly-detector]=MEM_LIMIT_ANOMALY_DETECTOR
     [event-anomaly-analysis]=MEM_LIMIT_EVENT_ANOMALY_ANALYSIS
     [frontend]=MEM_LIMIT_FRONTEND
+    # Sólo existe con COMPOSE_PROFILES=prod; en local se omite por no estar activo.
+    [reverse-proxy]=MEM_LIMIT_PROXY
 )
 for contenedor in "${!esperados[@]}"; do
     contenedor_activo "$contenedor" || { omitir "$contenedor no está activo"; continue; }
