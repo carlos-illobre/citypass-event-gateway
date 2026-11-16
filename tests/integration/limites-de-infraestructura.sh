@@ -104,37 +104,38 @@ else
             sed -n "/^stream {/,/^}/p" /etc/nginx/nginx.conf
         ' 2>&1)
 
-    afirmar_que "la configuración de producción es válida" \
-        "echo '$salida' | grep -q 'test is successful'"
+    # A archivos y no a variables: la configuración trae comillas simples (el `log_format`)
+    # que romperían la expresión que evalúa afirmar_que.
+    echo "$salida" > "$TMP/salida.txt"
+    sed -n '/--- stream ---/,$p' "$TMP/salida.txt" > "$TMP/stream.txt"
 
-    stream=$(echo "$salida" | sed -n '/--- stream ---/,$p')
-
-    afirmar_que "no queda ninguna variable sin sustituir" "! echo '$stream' | grep -qE '\\\$\{[A-Z_]+\}'"
+    afirmar_que "la configuración de producción es válida" "grep -q 'test is successful' '$TMP/salida.txt'"
+    afirmar_que "no queda ninguna variable sin sustituir" "! grep -qE '[$][{][A-Z_]+[}]' '$TMP/stream.txt'"
     afirmar_que "el tope de respaldo es por IP de origen" \
-        "echo '$stream' | grep -q 'limit_conn_zone .binary_remote_addr'"
+        "grep -q 'limit_conn_zone .binary_remote_addr' '$TMP/stream.txt'"
     afirmar_que "el 9092 aplica el tope de $tope_ip conexiones por IP" \
-        "echo '$stream' | grep -qE 'limit_conn +kafka_conexiones +$tope_ip;'"
+        "grep -qE 'limit_conn +kafka_conexiones +$tope_ip;' '$TMP/stream.txt'"
 
     # Sin timeouts, una conexión que abre y no habla ocupa un lugar mucho más de lo que
     # debería, que es la misma denegación de servicio por otro camino.
     afirmar_que "quien no completa el handshake TLS se corta a los 10 s" \
-        "echo '$stream' | grep -qE 'ssl_handshake_timeout +10s;'"
+        "grep -qE 'ssl_handshake_timeout +10s;' '$TMP/stream.txt'"
     afirmar_que "los clientes que desaparecen se detectan por keepalive" \
-        "echo '$stream' | grep -qE 'listen +9092 +ssl +so_keepalive='"
-    afirmar_que "una conexión que no avanza se corta" \
-        "echo '$stream' | grep -q 'proxy_connect_timeout'"
-    afirmar_que "hay timeout de inactividad" \
-        "echo '$stream' | grep -q 'proxy_timeout'"
+        "grep -qE 'listen +9092 +ssl +so_keepalive=' '$TMP/stream.txt'"
+    afirmar_que "una conexión que no avanza se corta" "grep -q 'proxy_connect_timeout' '$TMP/stream.txt'"
+    afirmar_que "hay timeout de inactividad" "grep -q 'proxy_timeout' '$TMP/stream.txt'"
     afirmar_que "cada conexión al 9092 deja una línea de log" \
-        "echo '$stream' | grep -qE 'access_log +/dev/stdout +kafka;'"
+        "grep -qE 'access_log +/dev/stdout +kafka;' '$TMP/stream.txt'"
 fi
 
 # ── el límite de conexiones nuevas por IP ──
 #
 # Se prueba el script real dentro de un namespace de red propio, así no toca el firewall de
-# la máquina y no hace falta root. Ahí no hay Docker ni DNAT, de modo que DOCKER-USER se
-# engancha a INPUT sólo para la prueba. Que el tráfico real pase por DOCKER-USER lo dice el
-# ADR-019, medido en la instancia; lo confirma preflight.sh allá.
+# la máquina y no hace falta root. Ahí no hay Docker, así que se imita lo que importa de él:
+# un DNAT del 9092 hacia el puerto donde escucha el servidor —la regla sólo cuenta
+# conexiones que pasaron por un DNAT, como las que entran por un puerto publicado— y
+# DOCKER-USER enganchado a INPUT. El camino real, con Docker, lo prueba
+# tests/e2e/proteccion-9092.sh.
 #
 # Una conexión cuenta como aceptada si LLEGA A LA APLICACIÓN —el servidor le contesta "ok"—
 # y no si `connect()` vuelve bien: la regla corta el ACK que completa el handshake, y para
@@ -154,10 +155,11 @@ else
         bash '"$FIREWALL"' aplicar && bash '"$FIREWALL"' aplicar
         echo "saltos=$(iptables -S DOCKER-USER | grep -c CITYPASS-KAFKA)"
         iptables -I INPUT -j DOCKER-USER
+        iptables -t nat -A OUTPUT -p tcp --dport 9092 -j DNAT --to-destination 127.0.0.1:19092
         python3 -I -c "
 import socket, threading, time
 srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-srv.bind((\"0.0.0.0\", 9092)); srv.listen(500)
+srv.bind((\"0.0.0.0\", 19092)); srv.listen(500)
 def atender():
     while True:
         c, _ = srv.accept(); c.sendall(b\"ok\")

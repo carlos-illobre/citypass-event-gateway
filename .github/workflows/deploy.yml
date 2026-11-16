@@ -312,6 +312,27 @@ jobs:
           fi
           echo "OK"
 
+  # La protección del puerto de Kafka (ADR-025) con el tráfico pasando por Docker de verdad:
+  # el reverse-proxy del compose, el DNAT del puerto publicado, DOCKER-USER y la regla
+  # instalada como en el despliegue, con su unidad de systemd. Es lo que las pruebas
+  # aisladas no pueden ver, y ya encontró un error que en producción habría cortado a todos
+  # los equipos: la regla contaba también el salto interno de nginx al broker.
+  #
+  # Corre en un runner de GitHub porque modifica el firewall de la máquina: ahí es
+  # descartable. El script se niega a correr fuera de la CI salvo que se lo pidan.
+  proteccion-9092:
+    name: E2E · protección del 9092
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # hping3 fabrica los SYN con IP de origen falsificada: sin él, la prueba de que la
+      # regla no se puede usar contra un tercero se omite.
+      - name: Herramientas
+        run: sudo apt-get update -q && sudo apt-get install -y -q hping3
+      # `-E` para que el script vea CI=true.
+      - name: Firewall, nginx y cuotas con Docker real
+        run: sudo -E bash tests/e2e/proteccion-9092.sh
+
   construir:
     name: Imagen · ${{ matrix.servicio }}
     # Sin `needs`: arranca al mismo tiempo que la verificación.
@@ -516,7 +537,7 @@ jobs:
 
   etiquetar:
     name: Mover latest
-    needs: [gateway, authorizer, dispatcher, frontend, configuracion, construir]
+    needs: [gateway, authorizer, dispatcher, frontend, configuracion, proteccion-9092, construir]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:

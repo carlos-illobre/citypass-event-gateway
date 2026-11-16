@@ -42,6 +42,15 @@
 # `--ctdir ORIGINAL` no es opcional: por DOCKER-USER pasan los dos sentidos, y sin él las
 # respuestas del servidor también consumirían el margen del cliente.
 #
+# `--ctstate DNAT` tampoco: limita la regla a las conexiones que entraron desde afuera por
+# el puerto publicado. El salto de nginx al broker también va a un 9092 y también pasa por
+# DOCKER-USER —Docker hace que el tráfico entre contenedores de una misma red recorra
+# FORWARD—, pero no pasa por el DNAT. Sin esta condición, ese salto se contaba como un
+# cliente más, con la IP de nginx: todos los equipos compartían un único margen, y pasadas
+# 120 conexiones nuevas en total nginx ya no podía abrir ninguna hacia el broker y se
+# cortaba a todos. Lo encontró la prueba de punta a punta (tests/e2e/proteccion-9092.sh);
+# las pruebas aisladas, sin Docker, no podían verlo.
+#
 # ── Por qué en DOCKER-USER ──
 #
 # El tráfico hacia un puerto publicado por Docker se enruta (FORWARD) y nunca pasa por
@@ -110,6 +119,7 @@ aplicar() {
 
     iptables -F "$CADENA"
     iptables -A "$CADENA" -p tcp --tcp-flags SYN,ACK,FIN,RST ACK \
+        -m conntrack --ctstate DNAT \
         -m conntrack --ctstate ESTABLISHED --ctdir ORIGINAL --ctorigdstport "$PUERTO" \
         -m connbytes --connbytes 2:2 --connbytes-dir original --connbytes-mode packets \
         -m hashlimit --hashlimit-name citypass-kafka --hashlimit-mode srcip \

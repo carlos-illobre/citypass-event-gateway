@@ -120,6 +120,13 @@ conexiones y 2 por segundo sostenidas por IP. Rechaza con reset y deja un log li
   una IP falsificada. Probado: 60 SYN falsificados no le quitan nada a la víctima. Como la
   tabla de `hashlimit` sólo registra IPs que completaron un handshake, tampoco se la puede
   llenar con orígenes inventados.
+- **Sólo cuenta conexiones que entraron por el puerto publicado** (`--ctstate DNAT`). El
+  salto de nginx al broker también va a un 9092 y también pasa por `DOCKER-USER`, porque
+  Docker hace que el tráfico entre contenedores recorra `FORWARD`. Sin esta condición se
+  contaba como un cliente más con la IP de nginx: todos los equipos compartían un único
+  margen y, pasadas 120 conexiones nuevas en total, se cortaba a todos. Las pruebas aisladas
+  no podían verlo; lo encontró la prueba de punta a punta con Docker real
+  ([proteccion-9092.sh](../../tests/e2e/proteccion-9092.sh)), que corre en la CI.
 
 - Un consumidor legítimo abre dos o tres conexiones y las mantiene durante horas. Cien equipos
   detrás de la misma IP casi no abren conexiones nuevas: este límite no depende de cuántos

@@ -161,6 +161,29 @@ el stack no reporte fallas inexistentes. Con `--rapido` se saltean las pruebas l
 bash tests/retencion-kafka.sh    # una sola
 ```
 
+### De punta a punta: la protección del 9092
+
+`tests/e2e/proteccion-9092.sh` prueba la protección del puerto de Kafka
+([ADR-025](adr/ADR-025-limites-del-9092-por-frecuencia-e-identidad.md)) con el tráfico
+pasando por Docker de verdad: levanta el reverse-proxy del compose, instala la regla del
+firewall como en el despliegue y conecta desde un namespace de red propio, para que el
+tráfico recorra el DNAT y `DOCKER-USER` igual que el de un equipo. Comprueba la ráfaga por
+IP, que una IP no afecte a otra, que SYN falsificados no consuman el margen de un tercero,
+el tope de nginx, los techos del contenedor, la persistencia ante un reinicio de Docker y
+las cuotas contra la imagen real del broker.
+
+No está en `itest.sh` porque **modifica el firewall de la máquina**: corre en la CI (job
+*E2E · protección del 9092*), en un runner descartable, y se niega a correr en otro lado
+salvo con `E2E_PROTECCION_9092=1`. Para una VM de laboratorio:
+
+```bash
+sudo E2E_PROTECCION_9092=1 bash tests/e2e/proteccion-9092.sh
+```
+
+Existe porque las pruebas aisladas no alcanzaron: la primera versión de la regla pasaba
+todas, y con Docker real contaba también el salto interno de nginx al broker, con lo que
+todos los equipos compartían un único margen.
+
 ### Verificación de configuración
 
 `tests/itest.sh` comprueba que todos los `.env.*` declaren exactamente las mismas
@@ -347,7 +370,7 @@ Con la misma honestidad:
 | El frontend | Sin tests automatizados. Sólo `tsc` y ESLint |
 | `anomaly-detector` | Sin tests automatizados |
 | Prometheus y Grafana | Verificado a mano: el scrape, el datasource y las consultas del dashboard |
-| Carga y concurrencia | No se probó |
+| Carga y concurrencia | No se probó, salvo las conexiones al 9092 (`tests/e2e/proteccion-9092.sh`) |
 
 El hueco más relevante es el frontend: compila y pasa el lint, pero nada verifica su
 comportamiento.
