@@ -4,6 +4,7 @@
 #
 #   bash infrastructure/kafka/cuotas.sh            # aplica (idempotente; lo corre deploy.sh)
 #   bash infrastructure/kafka/cuotas.sh --ver      # muestra las cuotas vigentes
+#   bash infrastructure/kafka/cuotas.sh --quitar   # las borra (para volver atrás)
 #
 # Se corre en la máquina donde está el compose, con el sistema levantado. Las cuotas quedan
 # guardadas en los metadatos del cluster (KRaft), así que sobreviven a reinicios del broker;
@@ -72,6 +73,17 @@ if [ "${1:-}" = "--ver" ]; then
     kc --describe --entity-type users --entity-name ANONYMOUS
     echo "── todas, incluidas las excepciones por equipo ──"
     kc --describe --entity-type users
+    exit 0
+fi
+
+if [ "${1:-}" = "--quitar" ]; then
+    # En el orden inverso al de aplicar: primero el default, después la excepción. Al revés
+    # habría un instante en que los servicios internos quedan limitados.
+    kc --alter --entity-type users --entity-default \
+        --delete-config consumer_byte_rate,request_percentage >/dev/null
+    kc --alter --entity-type users --entity-name ANONYMOUS \
+        --delete-config consumer_byte_rate,request_percentage >/dev/null
+    echo "cuotas por equipo borradas"
     exit 0
 fi
 

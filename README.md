@@ -982,7 +982,7 @@ varios equipos salgan por la misma IP (por ejemplo, si alojan su servicio en Ren
 | Límite | Valor | Qué ves si te pasás |
 |---|---|---|
 | Conexiones **nuevas** por IP | Ráfaga de 120, después 2 por segundo | La conexión se corta con un reset. Tu cliente reintenta con backoff y entra a los pocos segundos |
-| Conexiones abiertas por IP | 256 | Lo mismo: un corte durante el handshake TLS |
+| Conexiones abiertas por IP | 64 | Lo mismo: un corte durante el handshake TLS |
 | Lectura por equipo | 5 MiB/s | Nada se corta: los mensajes te llegan más lento |
 
 Si ves cortes seguidos, casi siempre es un cliente que crea un consumidor nuevo en cada

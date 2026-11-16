@@ -110,6 +110,17 @@ Cada problema con su dato:
 ([firewall-kafka.sh](../../deployment/oracle-single/firewall-kafka.sh)). Una ráfaga de 120
 conexiones y 2 por segundo sostenidas por IP. Rechaza con reset y deja un log limitado.
 
+- **Cuenta handshakes TCP completos, no SYN.** La primera versión contaba SYN, y una revisión
+  de seguridad mostró que así la regla se podía usar contra un tercero: un SYN se manda con
+  la IP de origen falsificada sin necesidad de recibir respuesta, y 40 SYN con la IP de otro
+  le vaciaban el margen, sin que el atacante abriera una sola conexión. La víctima natural
+  era la IP compartida de Render, el caso que motivó todo esto. Contando el ACK que completa
+  el handshake (segundo paquete del cliente, en su dirección, con la conexión ya
+  establecida), hace falta haber recibido el SYN-ACK del servidor, y eso no se puede desde
+  una IP falsificada. Probado: 60 SYN falsificados no le quitan nada a la víctima. Como la
+  tabla de `hashlimit` sólo registra IPs que completaron un handshake, tampoco se la puede
+  llenar con orígenes inventados.
+
 - Un consumidor legítimo abre dos o tres conexiones y las mantiene durante horas. Cien equipos
   detrás de la misma IP casi no abren conexiones nuevas: este límite no depende de cuántos
   compartan la salida.
@@ -118,9 +129,9 @@ conexiones y 2 por segundo sostenidas por IP. Rechaza con reset y deja un log li
   conexiones × ~5 intentos ≈ 120). Si alguna vez se supera, las rechazadas reintentan con
   backoff y entran en segundos, cuando el margen se repone. Es una demora durante una
   reconexión masiva, no el corte permanente que había antes.
-- Lo que deja pasar a alguien sin credenciales es acotado por construcción: ráfaga más
-  frecuencia por el tiempo que nginx espera el handshake (10 s), unas 140 conexiones a medio
-  abrir por IP.
+- Frena la **velocidad** con que una IP acumula conexiones, no cuántas termina teniendo:
+  alguien sin credenciales puede completar el TLS y quedarse callado hasta que el broker lo
+  corta, a los 10 minutos. Lo que acota cuántas acumula es el tope de respaldo de nginx.
 - Va en `DOCKER-USER` y no en `INPUT` porque el tráfico hacia un puerto de Docker nunca pasa
   por `INPUT`, y es el lugar que el [ADR-019](ADR-019-firewall-en-la-vcn.md) ya reservaba
   para "filtrado a nivel host para los contenedores". La Security List sigue siendo la que
@@ -135,11 +146,19 @@ conexiones y 2 por segundo sostenidas por IP. Rechaza con reset y deja un log li
   declarados también en el compose (nginx no puede pasar el límite que le da el contenedor).
 - `ssl_handshake_timeout 10s` (antes 60 s) y `so_keepalive` en el 9092, para que una conexión
   a medio abrir o de un cliente muerto no retenga un lugar.
-- El tope por IP queda en **256, fijo en la plantilla y no en el `.env`**: es un respaldo
-  derivado de la capacidad (un octavo de un worker, contando el doble lugar de cada conexión
-  al 9092), y sólo cambia si cambia `worker_connections`. Para llegar a él desde una IP hacen
-  falta decenas de equipos detrás de ella o alguien que acumule conexiones a propósito. Se
-  elimina `NGINX_KAFKA_CONN_LIMIT`.
+- El tope por IP queda en **64, fijo en la plantilla y no en el `.env`**, como respaldo.
+  Ningún tope de conexiones abiertas por IP es bueno en las dos direcciones: alto, alcanza con
+  pocas IPs para llenar nginx; bajo, castiga a los que comparten salida. 64 se eligió mirando
+  las dos: son 128 lugares contando el salto al broker, 1/32 de un worker, así que para
+  llenar nginx hacen falta unas 64 IPs acumulando conexiones a la vez (con el tope viejo de
+  10 sobre un worker de 1024 bastaban unas 51); y entran unos 20 equipos detrás de una misma
+  IP, el doble de los que tiene el curso. Una primera versión usaba 256, que con la capacidad
+  nueva bajaba a 16 las IPs necesarias para llenar nginx: era peor que el límite viejo frente
+  a un atacante con varias IPs. Se elimina `NGINX_KAFKA_CONN_LIMIT`.
+- `mem_limit` para el reverse-proxy (`MEM_LIMIT_PROXY`, 512 MB). Era el único servicio sin
+  techo de memoria, y la capacidad nueva lo multiplica por ocho: a unos 80 KB por conexión
+  TLS al 9092, el peor caso ronda los 300 MB. Con techo, un pico reinicia el proxy en vez de
+  presionar la memoria de toda la máquina.
 - Un log de acceso del 9092, que antes no dejaba ningún rastro.
 
 **Identidad en el broker** ([cuotas.sh](../../infrastructure/kafka/cuotas.sh)).
@@ -165,8 +184,9 @@ conexiones y 2 por segundo sostenidas por IP. Rechaza con reset y deja un log li
 - **Ningún valor depende de cuántos clientes haya.** La frecuencia no crece con los equipos
   en régimen, el respaldo de nginx sale de su capacidad, y las cuotas por defecto se aplican
   solas a cada equipo nuevo.
-- **Kafka deja de poder tumbar a la API.** El 9092 sigue compartiendo nginx con el 443, pero
-  una IP ya no puede acercarse a agotarlo.
+- **Tumbar la API desde el 9092 se vuelve mucho más difícil, pero no imposible.** Los dos
+  siguen compartiendo nginx: hacen falta unas 64 IPs acumulando conexiones a la vez. El
+  aislamiento completo sería un nginx aparte para Kafka.
 - **Aislamiento entre equipos, que antes no había.** Un consumidor con un bug degrada a su
   propio equipo y no a los otros siete.
 - **Trazabilidad.** El log del 9092 y el de rechazos del firewall dicen qué IPs se conectan,
@@ -183,8 +203,20 @@ conexiones y 2 por segundo sostenidas por IP. Rechaza con reset y deja un log li
   (`tests/integration/limites-de-infraestructura.sh`).
 - **La ráfaga sigue siendo un número relacionado con los equipos que comparten IP**, aunque
   sólo durante reconexiones simultáneas y con consecuencias acotadas: demora, no corte.
-- **Las cuotas hay que observarlas.** Si el valor por defecto queda bajo para algún equipo
-  legítimo, el síntoma es lentitud. Se ve en las métricas de throttling del broker.
+- **Las cuotas hay que observarlas, y hoy no se ven.** Si el valor por defecto queda bajo para
+  algún equipo legítimo, el síntoma es lentitud. El broker expone el throttling por JMX, pero
+  Prometheus no recoge métricas del broker: hasta que lo haga, sólo se ve consultando JMX a
+  mano o porque un equipo avisa.
+- **La excepción de cuotas se apoya en el nombre `ANONYMOUS`**, igual que el autorizador del
+  [ADR-011](ADR-011-autorizacion-derivada-del-token.md), que le da acceso total a ese
+  principal sin mirar por qué listener entró. Como el principal externo sale del claim
+  `namespace`, un token con `namespace: ANONYMOUS` tendría control total del bus y además
+  quedaría sin cuotas. Hace falta que el servicio de identidad emita ese token, pero la
+  defensa correcta es decidir por el listener interno y no por el nombre. Queda pendiente.
+- **El ataque desde varias IPs sigue siendo posible.** Un atacante sin credenciales puede
+  completar el TLS y quedarse callado hasta que el broker lo corta, a los 10 minutos; con unas
+  64 IPs llena nginx. Acortar ese tiempo para las conexiones que no se autentican es la
+  mejora siguiente; no se verificó todavía qué permite Kafka para eso.
 - **El TLS sigue terminando en el proxy.** La opción 3 queda disponible si en algún momento el
   broker necesita ver la IP real.
 
@@ -204,6 +236,23 @@ Los contadores de la cadena `CITYPASS-KAFKA` tienen que crecer con el tráfico r
 Si quedan en cero mientras hay consumidores conectados, el tráfico no está pasando por
 `DOCKER-USER` y la regla no protege nada: es la misma comprobación de contadores que propone
 el [ADR-019](ADR-019-firewall-en-la-vcn.md#cómo-verificarlo).
+
+## Cómo volver atrás
+
+Desplegar un commit anterior **no** deshace estas piezas: la regla del firewall, su unidad de
+systemd y las cuotas viven fuera de los contenedores y sobreviven al despliegue. No molestan
+—una versión anterior con ellas activas funciona igual—, pero para quitarlas:
+
+```bash
+sudo systemctl disable --now citypass-firewall-kafka      # ExecStop saca las reglas
+sudo rm /etc/systemd/system/citypass-firewall-kafka.service /usr/local/sbin/citypass-firewall-kafka
+sudo systemctl daemon-reload
+bash infrastructure/kafka/cuotas.sh --quitar
+```
+
+**No borres `NGINX_KAFKA_CONN_LIMIT` del `.env` de la instancia** mientras puedas necesitar
+volver a una versión anterior a esta: nada la lee desde acá en adelante, pero el compose
+viejo la exige y sin ella no arranca.
 
 ## Referencias
 

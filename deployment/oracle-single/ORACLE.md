@@ -408,6 +408,11 @@ regla que se lista, se ve bien y no hace nada. Hay que **insertar antes** del `R
 > `preflight.sh` comprueba que esté activo. Para ver sus contadores:
 > `bash deployment/oracle-single/firewall-kafka.sh estado`. Ver
 > [ADR-025](../../docs/adr/ADR-025-limites-del-9092-por-frecuencia-e-identidad.md).
+>
+> Desplegar un commit anterior **no** lo quita, ni a las cuotas de Kafka: viven fuera de
+> los contenedores. Los pasos para sacarlos están en el ADR-025, sección *Cómo volver
+> atrás*. Y no borres `NGINX_KAFKA_CONN_LIMIT` del `.env` de la instancia mientras puedas
+> necesitar volver a una versión anterior: el compose viejo la exige.
 
 Primero, ver en qué línea está:
 

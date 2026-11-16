@@ -460,6 +460,10 @@ services:
   # Estos dos servicios existen únicamente cuando COMPOSE_PROFILES=prod en el
   # .env. En desarrollo no se levantan y cada servicio se habla directo por su puerto.
   reverse-proxy:
+    # Con default y no con `:?` como los demás techos, a propósito: deploy.sh no sincroniza el
+    # .env de la instancia, así que una variable obligatoria nueva haría fallar el próximo
+    # despliegue hasta que alguien la agregue a mano allá.
+    mem_limit: ${MEM_LIMIT_PROXY:-512m}
     logging: *logging
     # 1.30 y no 1.27: la rama 1.27 está fuera de soporte, y todas sus versiones están
     # dentro del rango afectado por CVE-2026-42533 —desbordamiento de heap en el manejo de

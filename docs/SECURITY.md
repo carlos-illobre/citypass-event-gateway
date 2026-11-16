@@ -373,7 +373,7 @@ de cualquier grupo autenticado.
 | Tamaño del body | 256 KB (1 MB en nginx) | Un evento de cientos de megas se guarda, se replica y se entrega a cada suscriptor |
 | Peticiones por minuto | 600 por namespace | Que el loop de un grupo deje sin servicio a los otros siete |
 | Conexiones **nuevas** por IP al 9092 | Ráfaga de 120, después 2 por segundo (firewall del host) | Que alguien sin credenciales sature el puerto abriendo conexiones |
-| Conexiones abiertas por IP al 9092 | 256 (respaldo en nginx, derivado de su capacidad) | Que una sola IP acumule conexiones hasta agotar nginx y tumbe también la API y la UI |
+| Conexiones abiertas por IP al 9092 | 64 (respaldo en nginx) | Que una sola IP acumule conexiones hasta agotar nginx y tumbe también la API y la UI |
 | Lectura por equipo en Kafka | 5 MiB/s y el 100 % de un hilo del broker | Que un consumidor con un bug degrade el broker para los otros siete |
 
 Los dos límites del 9092 son los únicos que actúan **sin credenciales de por medio**: la
@@ -381,7 +381,9 @@ conexión TLS se acepta antes de negociar SASL, así que hasta ese punto lo úni
 del cliente es su IP. Y una IP no es un cliente —detrás de la salida de Render o de una
 facultad hay muchos equipos—, por eso el control principal limita la **frecuencia** con que
 una IP abre conexiones y no cuántas tiene abiertas: un consumidor legítimo abre dos o tres y
-las mantiene horas, un flood abre muchas por segundo. Antes era un techo de 10 conexiones
+las mantiene horas, un flood abre muchas por segundo. Se cuentan handshakes TCP
+completos y no SYN: un SYN se puede mandar con la IP de otro, y contarlos permitía vaciarle el
+margen a un tercero sin abrir una sola conexión. Antes era un techo de 10 conexiones
 abiertas por IP y cortaba a los equipos alojados en Render. El razonamiento completo, y las
 opciones descartadas, están en el [ADR-025](adr/ADR-025-limites-del-9092-por-frecuencia-e-identidad.md).
 

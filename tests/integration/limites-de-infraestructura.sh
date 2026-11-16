@@ -133,43 +133,67 @@ fi
 #
 # Se prueba el script real dentro de un namespace de red propio, así no toca el firewall de
 # la máquina y no hace falta root. Ahí no hay Docker ni DNAT, de modo que DOCKER-USER se
-# engancha a INPUT sólo para la prueba: lo que se comprueba es que las reglas que deja el
-# script cortan a una IP al pasar su ráfaga, sin afectar a otra, y que aplicarlo dos veces
-# no duplica nada. Que el tráfico real pase por DOCKER-USER lo dice el ADR-019, medido en
-# la instancia; lo confirma preflight.sh allá.
+# engancha a INPUT sólo para la prueba. Que el tráfico real pase por DOCKER-USER lo dice el
+# ADR-019, medido en la instancia; lo confirma preflight.sh allá.
+#
+# Una conexión cuenta como aceptada si LLEGA A LA APLICACIÓN —el servidor le contesta "ok"—
+# y no si `connect()` vuelve bien: la regla corta el ACK que completa el handshake, y para
+# ese momento el cliente ya cree que está conectado. Es el mismo criterio que importa en
+# producción: que nginx reciba la conexión.
+#
+# La prueba que más importa es la de los SYN falsificados. La primera versión de la regla
+# contaba SYN, y con 40 SYN con la IP de otro se lo dejaba sin poder conectarse sin abrir
+# una sola conexión (ADR-025). Necesita hping3 para fabricarlos; sin él, se omite.
 FIREWALL=deployment/oracle-single/firewall-kafka.sh
 if ! command -v unshare >/dev/null 2>&1 || ! unshare -Urn true 2>/dev/null || ! command -v iptables >/dev/null 2>&1; then
     omitir "hacen falta unshare e iptables para probar el límite de conexiones nuevas"
 else
-    resultado=$(CITYPASS_KAFKA_RAFAGA=20 CITYPASS_KAFKA_POR_MINUTO=60 unshare -Urn bash -c '
+    HPING=$(command -v hping3 || true)
+    resultado=$(CITYPASS_KAFKA_RAFAGA=20 CITYPASS_KAFKA_POR_MINUTO=60 HPING="$HPING" unshare -Urn bash -c '
         ip link set lo up
         bash '"$FIREWALL"' aplicar && bash '"$FIREWALL"' aplicar
         echo "saltos=$(iptables -S DOCKER-USER | grep -c CITYPASS-KAFKA)"
         iptables -I INPUT -j DOCKER-USER
         python3 -I -c "
-import socket, threading
+import socket, threading, time
 srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 srv.bind((\"0.0.0.0\", 9092)); srv.listen(500)
-threading.Thread(target=lambda: [srv.accept() for _ in iter(int, 1)], daemon=True).start()
-def probar(origen, n):
-    ok = 0; abiertas = []
-    for _ in range(n):
-        s = socket.socket(); s.bind((origen, 0)); s.settimeout(3)
-        try: s.connect((\"127.0.0.1\", 9092)); ok += 1; abiertas.append(s)
-        except OSError: pass
-    for s in abiertas: s.close()
-    return ok
-print(\"primera=%d\" % probar(\"127.0.0.1\", 40))
-print(\"otra=%d\" % probar(\"127.0.0.2\", 10))
-"
+def atender():
+    while True:
+        c, _ = srv.accept(); c.sendall(b\"ok\")
+threading.Thread(target=atender, daemon=True).start()
+time.sleep(60)" &
+        sleep 1
+        probar() { python3 -I -c "
+import socket
+ok = 0; abiertas = []
+for _ in range($2):
+    s = socket.socket(); s.bind((\"$1\", 0)); s.settimeout(2)
+    try:
+        s.connect((\"127.0.0.1\", 9092))
+        if s.recv(2) == b\"ok\": ok += 1; abiertas.append(s)
+    except OSError: pass
+print(\"$3=%d\" % ok)"; }
+        probar 127.0.0.1 40 primera
+        probar 127.0.0.2 10 otra
+        if [ -n "$HPING" ]; then
+            # El atacante NO es 127.0.0.5: sólo pone esa IP como origen de SYN sueltos.
+            $HPING -q -S -a 127.0.0.5 -p 9092 -c 60 -i u2000 127.0.0.1 >/dev/null 2>&1
+            probar 127.0.0.5 5 victima
+        fi
         bash '"$FIREWALL"' quitar
         echo "restos=$(iptables -S | grep -c CITYPASS)"
     ' 2>&1)
 
     valor() { echo "$resultado" | grep -oE "^$1=[0-9]+" | cut -d= -f2; }
     afirmar "aplicarlo dos veces deja un solo salto en DOCKER-USER" "1" "$(valor saltos)"
-    afirmar "una IP entra hasta su ráfaga (20) y el resto se rechaza" "20" "$(valor primera)"
+    afirmar "una IP llega a la aplicación hasta su ráfaga (20) y el resto se corta" "20" "$(valor primera)"
     afirmar "otra IP no se ve afectada" "10" "$(valor otra)"
+    if [ -n "$HPING" ]; then
+        afirmar "60 SYN falsificados con la IP de otro no le quitan el acceso" "5" "$(valor victima)"
+    else
+        omitir "hace falta hping3 para probar que SYN falsificados no consumen el margen de otra IP"
+    fi
     afirmar "quitar no deja reglas ni cadenas" "0" "$(valor restos)"
 fi
 

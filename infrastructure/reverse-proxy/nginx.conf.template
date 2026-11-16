@@ -61,12 +61,19 @@ stream {
     # NUEVAS por segundo abre cada IP. Un consumidor legítimo abre dos o tres y las mantiene
     # horas, así que cien equipos detrás de una IP no lo notan; un flood sí.
     #
-    # Lo que queda acá es un tope de respaldo, derivado de la capacidad y no de la cantidad
-    # de clientes: una sola IP no puede ocupar más de 256 conexiones —512 lugares contando
-    # el salto al broker—, que es un octavo de lo que tiene UN worker. Sólo cambia si cambia
-    # `worker_connections`. Un equipo normal usa entre 2 y 5; para llegar a 256 desde una
-    # IP hacen falta decenas de equipos detrás de ella, o alguien que las acumula a
-    # propósito.
+    # Lo que queda acá es un tope de respaldo. Ningún tope de conexiones abiertas por IP es
+    # bueno en las dos direcciones —alto, alcanza con pocas IPs para llenar nginx; bajo,
+    # castiga a los que comparten salida—, así que el valor se elige mirando las dos:
+    #
+    #   - 64 conexiones son 128 lugares contando el salto al broker, 1/32 de UN worker. Para
+    #     llenar nginx hacen falta unas 64 IPs distintas acumulando conexiones a la vez (con
+    #     el tope viejo de 10 sobre un solo worker de 1024 bastaban unas 51).
+    #   - Un equipo usa entre 2 y 5. Entran unos 20 equipos detrás de una misma IP, el
+    #     doble de los que hay hoy en todo el curso.
+    #
+    # Hace falta porque el firewall frena la velocidad con que una IP abre conexiones, no
+    # cuántas acumula: alguien sin credenciales puede completar el TLS y quedarse callado
+    # hasta que el broker lo corta, a los 10 minutos.
     #
     # El límite vive en `stream` y no en `http`: son dos bloques distintos y `limit_conn`
     # del uno no alcanza al otro.
@@ -103,7 +110,7 @@ stream {
         # mostrado nada. El default es 60 s; un cliente real lo completa en milisegundos.
         ssl_handshake_timeout 10s;
 
-        limit_conn kafka_conexiones 256;
+        limit_conn kafka_conexiones 64;
 
         # Un cliente de Kafka abre una conexión por broker y la mantiene abierta esperando
         # mensajes, así que el timeout de inactividad tiene que ser largo o se cortarían

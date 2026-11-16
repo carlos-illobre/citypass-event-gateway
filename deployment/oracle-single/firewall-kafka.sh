@@ -20,6 +20,28 @@
 # nuevas. Quien intenta saturar el puerto, en cambio, tiene que abrir muchas por segundo, y
 # eso es lo que se frena.
 #
+# ── Por qué se cuentan handshakes completos y no SYN ──
+#
+# Lo natural sería contar los SYN (`--ctstate NEW`), y fue la primera versión. Pero un SYN
+# se puede mandar con la IP de origen falsificada, sin recibir nunca la respuesta: con 40
+# SYN con la IP de otro se le vaciaba su margen, y esa IP quedaba sin poder conectarse sin
+# que el atacante abriera una sola conexión. La víctima más obvia era justamente la IP
+# compartida de Render, el caso que esto vino a resolver.
+#
+# Por eso se cuenta el ACK que COMPLETA el handshake: el segundo paquete del cliente, en su
+# dirección, con la conexión ya establecida. Para mandarlo hay que haber recibido el SYN-ACK
+# del servidor, y eso no se puede hacer desde una IP falsificada. De paso, la tabla de
+# `hashlimit` sólo registra IPs que completaron un handshake, así que tampoco se la puede
+# llenar con orígenes inventados.
+#
+# Rechazar ese ACK con un reset tiene el mismo efecto para el cliente: la conexión se corta
+# antes del TLS, y nginx nunca la acepta, porque el handshake no llegó a completarse de su
+# lado. `connbytes` necesita la contabilidad de conntrack; el kernel la activa sola cuando
+# se carga la regla.
+#
+# `--ctdir ORIGINAL` no es opcional: por DOCKER-USER pasan los dos sentidos, y sin él las
+# respuestas del servidor también consumirían el margen del cliente.
+#
 # ── Por qué en DOCKER-USER ──
 #
 # El tráfico hacia un puerto publicado por Docker se enruta (FORWARD) y nunca pasa por
@@ -54,10 +76,10 @@ PUERTO=9092
 # por segundo). Es una demora de segundos durante una reconexión masiva, no un corte
 # permanente que depende de cuántos otros están conectados.
 #
-# Lo que esto deja pasar a alguien SIN credenciales es acotado: como mucho RAFAGA más
-# POR_MINUTO durante el tiempo que nginx espera el handshake TLS (10 s), unas 140
-# conexiones por IP a medio abrir. Por encima de eso está el tope de respaldo de nginx
-# (256 por IP, nginx.conf.template).
+# Esto frena la VELOCIDAD con que una IP acumula conexiones, no cuántas termina teniendo:
+# alguien sin credenciales puede completar el TLS y quedarse callado hasta que el broker lo
+# corta, a los 10 minutos. Lo que acota cuántas acumula es el tope de respaldo de nginx
+# (64 por IP, nginx.conf.template), al que con este ritmo tarda medio minuto en llegar.
 #
 # Se pueden cambiar por variable de entorno para probarlo; en producción van los defaults.
 POR_MINUTO=${CITYPASS_KAFKA_POR_MINUTO:-120}
@@ -87,7 +109,9 @@ aplicar() {
     iptables -A "$RECHAZO" -p tcp -j REJECT --reject-with tcp-reset
 
     iptables -F "$CADENA"
-    iptables -A "$CADENA" -p tcp -m conntrack --ctstate NEW --ctorigdstport "$PUERTO" \
+    iptables -A "$CADENA" -p tcp --tcp-flags SYN,ACK,FIN,RST ACK \
+        -m conntrack --ctstate ESTABLISHED --ctdir ORIGINAL --ctorigdstport "$PUERTO" \
+        -m connbytes --connbytes 2:2 --connbytes-dir original --connbytes-mode packets \
         -m hashlimit --hashlimit-name citypass-kafka --hashlimit-mode srcip \
         --hashlimit-above "${POR_MINUTO}/minute" --hashlimit-burst "$RAFAGA" \
         -j "$RECHAZO"
