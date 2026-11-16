@@ -29,8 +29,9 @@ def _consume_loop():
         # No puede pedirle al broker que cree el tópico al que se suscribe.
         "allow.auto.create.topics": False,
     })
-    # Suscripción con regex: todos los tópicos excepto el de anomalías (evita loop)
-    consumer.subscribe([f"^(?!{ANOMALIES_TOPIC.replace('.', '\\.')}).*$"])
+    # El filtro del tópico propio se aplica al recibirlo: librdkafka no admite
+    # negative lookahead en el patrón de suscripción.
+    consumer.subscribe(["^.*$"])
 
     try:
         while _running:
@@ -42,6 +43,10 @@ def _consume_loop():
                     print(f"[consumer] error: {msg.error()}")
                 continue
 
+            topic = msg.topic()
+            if topic == ANOMALIES_TOPIC:
+                continue
+
             raw = msg.value()
             if not raw:
                 continue
@@ -50,7 +55,6 @@ def _consume_loop():
             if event is None:
                 continue
 
-            topic = msg.topic()
             ts = datetime.now(timezone.utc)
 
             features = feature_extractor.extract(topic, event, ts)
